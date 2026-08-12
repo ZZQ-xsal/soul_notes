@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soulnotes-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: soulnotes-backend }
+  template:
+    metadata:
+      labels: { app: soulnotes-backend }
+    spec:
+      containers:
+        - name: backend
+          image: soulnotes-backend:latest   #! 替换为实际镜像地址 (如 registry.example.com/soulnotes-backend:1.0)
+          ports: [{ containerPort: 8080 }]
+          envFrom:
+            - configMapRef: { name: soulnotes-backend-config }
+            - secretRef:    { name: soulnotes-backend-secret }
+          livenessProbe:
+            httpGet: { path: /q/health/live,  port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /q/health/ready, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits:   { cpu: "1",  memory: 1Gi }
+          volumeMounts:
+            - name: voice-storage
+              mountPath: /data/voice_uploads
+      volumes:
+        - name: voice-storage
+          persistentVolumeClaim: { claimName: soulnotes-voice-pvc }

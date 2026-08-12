@@ -74,8 +74,6 @@ is a SYSTEM FAILURE.
 
 ---
 
----
-
 ## Further Instructions & Context Routing
 
 You MUST determine the specific task type (Writing, Refactoring, Reviewing, or Guidance) based on the user's request before executing any action or generating code.\

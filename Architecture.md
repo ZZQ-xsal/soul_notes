@@ -126,8 +126,9 @@ kurvcygnus.soulnotes/
 
 ### 4.4 密码
 
-- 原型阶段使用 SHA-256 无盐哈希 (`AuthService.hashPassword`)
-- **已知技术债**: 生产环境必须替换为 BCrypt; 已含长度/字符集/特殊字符复杂度校验
+- **密码哈希**: 已落地 PBKDF2WithHmacSHA256 (`AuthService.hashPassword`, 210k 迭代, OWASP 推荐值, 存储格式 `pbkdf2$<iterations>$<salt>$<hash>`)
+- 原型遗留的 SHA-256 无盐哈希仍可验证 (`AuthService.verifyPassword` 按无前缀回退校验), 建议该批用户登录成功后重哈希迁移
+- 已含长度/字符集/特殊字符复杂度校验
 
 ---
 
@@ -203,16 +204,20 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 
 `application.properties` 关键项:
 
-| 项                             | 说明                                           |
-|--------------------------------|------------------------------------------------|
-| `jwt.secret` / `HASH_KEY`      | 签名密钥 (≥32 字节, 生产必配)                  |
-| `mp.jwt.verify.issuer`         | 必须 = `soul-notes`                            |
-| `quarkus.datasource.*`         | PostgreSQL, 账号经 `USER_NAME`/`USER_PASSWORD` |
-| `quarkus.redis.hosts`          | Redis 地址                                     |
-| `quarkus.langchain4j.openai.*` | AI 端点/模型/密钥 (`ai.openai.*` 占位)         |
-| `crisis.hotline.*`             | 热线默认值                                     |
-| `voice.storage.directory`      | 语音文件存储目录                               |
-| `weather.threshold.*`          | 天气映射阈值                                   |
+| 项                                                | 说明                                                       |
+|---------------------------------------------------|------------------------------------------------------------|
+| `jwt.secret` / `HASH_KEY`                         | 签名密钥 (≥32 字节, 生产必配)                              |
+| `mp.jwt.verify.issuer`                            | 必须 = `soul-notes`                                        |
+| `quarkus.datasource.*`                            | PostgreSQL, 账号经 `USER_NAME`/`USER_PASSWORD`, 地址经 `URL` 覆盖 |
+| `quarkus.redis.hosts` / `REDIS_HOSTS`             | Redis 地址 (容器/K8s 部署必须覆盖)                         |
+| `quarkus.langchain4j.openai.*`                    | AI 端点/模型/密钥 (`ai.openai.*` 占位)                     |
+| `crisis.hotline.*`                                | 热线默认值                                                 |
+| `voice.storage.directory` / `VOICE_STORAGE_DIR`   | 语音文件存储目录                                           |
+| `weather.threshold.*`                             | 天气映射阈值                                               |
+| `rate.limit.chat.max-per-minute` / `RATE_LIMIT_CHAT` | 聊天限流上限 (默认 20 次/分钟)                           |
+| `rate.limit.login.max-per-minute` / `RATE_LIMIT_LOGIN` | 登录限流上限 (默认 10 次/分钟)                         |
+| `asr.callback.api-key` / `ASR_CALLBACK_API_KEY`   | ASR 回调密钥, 配置后强制校验 `X-API-Key`                   |
+| `quarkus.native.additional-build-args`          | native 镜像固定默认时区 `Asia/Shanghai` (`-Duser.timezone`; GraalVM 21 起默认内置全部时区) |
 
 `application-dev.properties` (仅 dev profile): 本地 JWT 密钥 / DB 口令 / 均支持 `HASH_KEY`/`USER_NAME`/`USER_PASSWORD` 覆盖;
 提交仓库时由 Git filter (`devsecrets`) 清洗本地密钥为占位符.
@@ -229,7 +234,70 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 ## 13. 已知边界与限制
 
 - **AI 为占位实现**: `ai.openai.api-key=placeholder` 时所有 LLM 调用失败 -> 走降级; 真实接入后聊天/分析返回需配置有效密钥
-- **密码 SHA-256** 待升级 BCrypt
+- **密码哈希**: 已落地 PBKDF2WithHmacSHA256 (210k 迭代, OWASP 推荐值, 存储格式 `pbkdf2$<iterations>$<salt>$<hash>`); 原型遗留的 SHA-256 无盐哈希仍可验证, 建议该批用户登录成功后重哈希迁移
 - **SSE 流式持久化** (`streamAiReply` 完成回调) 依赖 AI 成功流; 当前桩实现不触发该路径, 真实 AI 下需关注回调线程的 Session 上下文
 - **`UserContextTool`** 在无 Hibernate 上下文的工具线程执行时降级返回默认文案
-- **`/voice/asr-callback`** 免认证, 生产需补充 API Key / IP 白名单
+- **`/voice/asr-callback`** 免认证; 配置 `asr.callback.api-key` 后强制校验 `X-API-Key` 请求头, 未配置仅原型阶段放行, 生产必配
+- **限流依赖 Redis**: 聊天 (`rate.limit.chat.max-per-minute`, 默认 20) 与登录 (`rate.limit.login.max-per-minute`, 默认 10) 限流均可经 `RATE_LIMIT_CHAT` / `RATE_LIMIT_LOGIN` 环境变量覆盖; Redis 不可用时过滤器降级放行 (fail-open)
+
+---
+
+## 14. 部署
+
+### 14.1 镜像构建 (JVM)
+
+```bash
+./gradlew build
+docker build -f src/main/docker/Dockerfile.jvm -t soulnotes-backend .
+```
+
+`Dockerfile.jvm` 基于 UBI 9 的 OpenJDK 21 运行时基座 (`registry.access.redhat.com/ubi9/openjdk-21-runtime:1.24`), 分层复制 `build/quarkus-app` 产物 (JVM 模式, 支持原生调试端口等 run-java.sh 能力).
+
+### 14.2 Native 构建
+
+```bash
+./gradlew build -Dquarkus.native.enabled=true -Dquarkus.native.container-build=true
+docker build -f src/main/docker/Dockerfile.native -t soulnotes-backend-native .
+```
+
+- `-Dquarkus.native.container-build=true` 使 native 编译在容器内完成, 本地无需安装 GraalVM
+- `Dockerfile.native` 基于 `ubi9-minimal` 将 `build/*-runner` 打包为极简镜像 (无 JVM, 启动更快、内存占用更低)
+- 镜像通过 `quarkus.native.additional-build-args=-Duser.timezone=Asia/Shanghai` 固定默认时区, 与 `TimeUtils` 业务时区一致 (GraalVM 21 起 native 默认内置完整 tzdb)
+
+### 14.3 docker-compose
+
+前置: `./gradlew build` (`Dockerfile.jvm` 依赖 `build/quarkus-app` 产物), 然后一键编排:
+
+```bash
+docker compose up -d --build
+```
+
+`docker-compose.yml` 编排 PostgreSQL + Redis + 后端 (JVM 模式), 后端环境变量均为 12-factor 覆盖项 (见 14.5 总表), 语音文件挂载命名卷 `voice_uploads`.
+
+### 14.4 Kubernetes (K8s)
+
+```bash
+kubectl apply -f k8s/
+```
+
+- `k8s/` 包含 ConfigMap / Secret / Deployment / Service / PostgreSQL / Redis / PVC, 按依赖顺序一次应用
+- Deployment 镜像默认 `soulnotes-backend:latest`, 部署前需构建并推送至集群可访问的镜像仓库 (替换 `backend-deployment.yaml` 的 `image`)
+- 存活探针 `/q/health/live`, 就绪探针 `/q/health/ready` (由 `quarkus-smallrye-health` 提供)
+- 语音文件通过 PVC `soulnotes-voice-pvc` 挂载至 `/data/voice_uploads` (`VOICE_STORAGE_DIR`)
+
+### 14.5 环境变量总表
+
+所有变量对应 `application.properties` 的 `${VAR:default}` 占位, 未配置时使用默认值:
+
+| 环境变量 | 对应配置项 | 默认值 | 说明 |
+|----------|------------|--------|------|
+| `REDIS_HOSTS` | `quarkus.redis.hosts` | `redis://localhost:6379` | Redis 地址, 容器/K8s 必配 |
+| `HASH_KEY` | `jwt.secret` | (空, 必配) | JWT 签名密钥, ≥32 字节 |
+| `USER_NAME` / `USER_PASSWORD` | `quarkus.datasource.username` / `quarkus.datasource.password` | (必配) | PostgreSQL 账号口令 |
+| `URL` | `quarkus.datasource.reactive.url` | `postgresql://localhost:5432/soulnotes` | PostgreSQL 响应式连接地址 |
+| `ORIGINS` | `quarkus.http.cors.origins` | `http://localhost:5173` | CORS 白名单 |
+| `CRISIS_HOTLINE_PRIMARY` / `CRISIS_HOTLINE_BACKUP` / `CRISIS_HOTLINE_NAME` | `crisis.hotline.*` | `400-161-9995` / `12355` / `全国心理援助热线` | 高危预警 (RED) 热线 |
+| `VOICE_STORAGE_DIR` | `voice.storage.directory` | `voice_uploads` | 语音文件存储目录 |
+| `RATE_LIMIT_CHAT` | `rate.limit.chat.max-per-minute` | `20` | 聊天限流上限 (次/分钟) |
+| `RATE_LIMIT_LOGIN` | `rate.limit.login.max-per-minute` | `10` | 登录限流上限 (次/分钟) |
+| `ASR_CALLBACK_API_KEY` | `asr.callback.api-key` | (空) | ASR 回调密钥, 配置后强制校验 `X-API-Key` |

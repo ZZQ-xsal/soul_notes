@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: soulnotes-voice-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  #* 若需多副本 (replicas > 1) 共享同一语音目录, 需改用支持 ReadWriteMany 的存储或对象存储 (如 S3).
