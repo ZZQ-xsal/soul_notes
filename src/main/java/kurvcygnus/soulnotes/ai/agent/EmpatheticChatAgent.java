@@ -1,6 +1,7 @@
 package kurvcygnus.soulnotes.ai.agent;
 
 import dev.langchain4j.service.SystemMessage;
+import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 import io.quarkiverse.langchain4j.RegisterAiService;
@@ -60,5 +61,5 @@ public interface EmpatheticChatAgent
         用户最新消息:
         {{content}}
         """)
-    dev.langchain4j.service.TokenStream chat(@V("history") String history, @V("content") String content);
+    TokenStream chat(@V("history") String history, @V("content") String content);
 }

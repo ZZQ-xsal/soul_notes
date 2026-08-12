@@ -74,9 +74,9 @@ public final class UserContextTool
     //region 摘要构建
     private static @NotNull String buildSummary(@NotNull List<MoodDiary> diaries)
     {
-        var totalPositive = 0.0;
-        var totalNegative = 0.0;
-        var totalAnxiety  = 0.0;
+        var totalPositive = .0;
+        var totalNegative = .0;
+        var totalAnxiety  = .0;
         var parsedCount   = 0;
 
         for(final var diary : diaries)
@@ -116,12 +116,12 @@ public final class UserContextTool
 
         if(avgPositive > avgNegative)
             sb.append("整体情绪偏向积极。");
-        else if(avgNegative > 0.6)
+        else if(avgNegative > .6)
             sb.append("近期负向情绪较为明显，需要更多关注和支持。");
         else
             sb.append("情绪状态整体平稳，有一定程度的波动。");
 
-        if(avgAnxiety > 0.6)
+        if(avgAnxiety > .6)
             sb.append("焦虑水平偏高，值得关注。");
 
         return sb.toString();
