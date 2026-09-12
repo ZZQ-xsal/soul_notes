@@ -9,8 +9,6 @@ import jakarta.ws.rs.QueryParam;
  *     <li>用于 REST 查询方法中接收分页与排序参数</li>
  *     <li>默认第 1 页, 每页 20 条</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 public final class PageRequest

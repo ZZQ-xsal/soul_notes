@@ -1,0 +1,92 @@
+name: K8s Deploy
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'k8s/**'
+      - '.github/workflows/k8s-deploy.yml'
+  pull_request:
+    paths:
+      - 'k8s/**'
+      - '.github/workflows/k8s-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      #? 选用 kubeconform 做无集群 schema 校验: kubectl --dry-run=client 的 --validate=strict
+      #? 在新版本 kubectl 下仍需连接 API Server 下载 OpenAPI, runner 上没有集群会直接失败.
+      - name: Install kubeconform
+        run: |
+          curl -sSLo /tmp/kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar -xf /tmp/kubeconform.tar.gz -C /tmp kubeconform
+          sudo install /tmp/kubeconform /usr/local/bin/kubeconform
+
+      #? -strict 拒绝 schema 之外的字段; 仓库清单全部为内置资源类型, 无需 -ignore-missing-schemas.
+      - name: Validate manifests
+        run: kubeconform -strict -summary k8s/
+
+  deploy:
+    needs: validate
+    #? deploy 仅在 push main / 手动触发时执行, PR 只做 validate.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      #* job 级 if 无法读取 secrets 上下文, 因此用 step 级判断 KUBE_CONFIG 是否已配置.
+      - name: Check KUBE_CONFIG secret
+        id: kubecheck
+        env:
+          HAS_KUBE_CONFIG: ${{ secrets.KUBE_CONFIG != '' }}
+        run: echo "has_kube_config=$HAS_KUBE_CONFIG" >> "$GITHUB_OUTPUT"
+
+      - name: Set up kubectl
+        if: steps.kubecheck.outputs.has_kube_config == 'true'
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'stable'
+
+      - name: Configure kubeconfig
+        if: steps.kubecheck.outputs.has_kube_config == 'true'
+        env:
+          #* KUBE_CONFIG 必须是 base64 编码后的 kubeconfig, 见 docs/CI.md.
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          mkdir -p ~/.kube
+          if ! echo "$KUBE_CONFIG_B64" | base64 -d > ~/.kube/config; then
+            echo "::error::Secret KUBE_CONFIG is not valid base64, see docs/CI.md"
+            exit 1
+          fi
+          if ! head -n1 ~/.kube/config | grep -q '^apiVersion'; then
+            echo "::error::Secret KUBE_CONFIG does not decode to a kubeconfig file, see docs/CI.md"
+            exit 1
+          fi
+          chmod 600 ~/.kube/config
+          kubectl config current-context
+
+      - name: Apply manifests
+        if: steps.kubecheck.outputs.has_kube_config == 'true'
+        run: kubectl apply -f k8s/
+
+      #* backend-deployment.yaml 中镜像为占位值, 部署时统一指向 GHCR 的最新镜像.
+      #? ${GITHUB_REPOSITORY,,} 为 bash 小写展开, 保证镜像名符合 GHCR 小写规范.
+      - name: Point backend image at GHCR and wait for rollout
+        if: steps.kubecheck.outputs.has_kube_config == 'true'
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:latest"
+          kubectl set image deployment/soulnotes-backend "backend=${IMAGE}"
+          kubectl rollout status deployment/soulnotes-backend --timeout=180s
+
+      - name: Skipped (KUBE_CONFIG not configured)
+        if: steps.kubecheck.outputs.has_kube_config != 'true'
+        run: echo "::notice::Secret KUBE_CONFIG is not configured, deploy skipped. See docs/CI.md."

@@ -12,8 +12,6 @@ package kurvcygnus.soulnotes.ai.dto;
  *
  * <span style="color: 95cc6d">由 {@code MoodAnalysisAgent} 以声明式方式返回, 自动反序列化.</span>
  * <span style="color: f84b4b">字段命名与 LLM 输出的 JSON key 严格对应.</span>
- *
- * @author Claude Code
  * @since 2.0
  */
 public record MoodAnalysisResult(

@@ -22,8 +22,6 @@ import org.jetbrains.annotations.NotNull;
  *     <li>通过 {@link JWTParser#verify(String, String)} 校验签名 (HS256 对称密钥), 使用荷载中的角色声明构建 {@link SecurityIdentity}</li>
  *     <li>校验失败时返回 {@code null} 以继续调用链中的下一个认证机制</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @ApplicationScoped

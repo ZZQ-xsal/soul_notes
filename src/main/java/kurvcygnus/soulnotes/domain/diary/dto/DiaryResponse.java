@@ -22,7 +22,6 @@ import java.util.UUID;
  * @param audioUrl      语音文件 URL
  * @param analysisResult 解析后的分析结果 (包含情感评分、天气类型、预警等级等)
  * @param createdAt      创建时间
- * @author Claude Code
  * @since 1.0
  */
 public record DiaryResponse(

@@ -3,8 +3,6 @@ package kurvcygnus.soulnotes.utils.constants;
 /**
  * <b>AI 提示词常量</b>
  * <p>占位文件，为 Phase 2/3 的 AI Agent System Prompt 预留。</p>
- *
- * @author Claude Code
  * @since 1.0
  */
 public final class AiPromptConstants

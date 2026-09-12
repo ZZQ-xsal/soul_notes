@@ -13,7 +13,6 @@ import java.util.UUID;
  * @param messageCount  消息总数
  * @param lastUpdateTime 最后更新时间
  * @param preview       最近一条消息的预览
- * @author Claude Code
  * @since 1.0
  */
 public record ChatSessionVo(

@@ -12,8 +12,6 @@ import kurvcygnus.soulnotes.utils.constants.AiPromptConstants;
  * <p>声明式 {@code @RegisterAiService} 接口, 分析文本中是否存在自我伤害、自杀倾向等高风险信号.</p>
  *
  * <span style="color: f84b4b">当结果为 {@code RED} 时, 系统必须触发危机干预流程.</span>
- *
- * @author Claude Code
  * @since 2.0
  */
 @RegisterAiService

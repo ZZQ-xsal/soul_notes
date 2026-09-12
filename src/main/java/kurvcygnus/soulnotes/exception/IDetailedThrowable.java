@@ -16,7 +16,6 @@ import org.jetbrains.annotations.NotNull;
  *
  * @param <E> 实现此接口的具体 {@link StructuredException} 子类型（CRTP 自类型）
  * @param <T> 详细原因数据的类型
- * @author Kurv Cygnus
  * @see StructuredException
  * @see ITransactionalThrowable
  * @since 1.0

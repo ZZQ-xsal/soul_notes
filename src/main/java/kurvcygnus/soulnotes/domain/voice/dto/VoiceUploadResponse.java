@@ -9,7 +9,6 @@ import org.jetbrains.annotations.NotNull;
  * @param audioUrl 语音文件访问 URL
  * @param fileId   文件唯一标识
  * @param status   处理状态 (初始为 PENDING)
- * @author Claude Code
  * @since 1.0
  */
 public record VoiceUploadResponse(

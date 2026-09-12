@@ -10,7 +10,6 @@ import java.util.Objects;
 
 /**
  * 收纳打印日志相关的方法的静态集合工具类.
- * @author Kurv Cygnus
  */
 public final class PrintUtils
 {

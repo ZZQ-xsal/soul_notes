@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+#* 创建 Release / 上传附件需要 contents: write, 由内置 GITHUB_TOKEN 授权.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build (skip tests, ci.yml already verified)
+        run: ./gradlew build -x test --console=plain
+
+      - name: Package quarkus-app
+        run: |
+          zip -qr "soulnotes-backend-${GITHUB_REF_NAME}.zip" build/quarkus-app
+          echo "ARTIFACT=soulnotes-backend-${GITHUB_REF_NAME}.zip" >> "$GITHUB_ENV"
+
+      - name: Upload JVM artifact to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$ARTIFACT" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$ARTIFACT" --generate-notes --title "$GITHUB_REF_NAME"
+          fi

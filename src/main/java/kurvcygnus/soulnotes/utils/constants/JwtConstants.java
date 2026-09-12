@@ -11,8 +11,6 @@ import org.jetbrains.annotations.NotNull;
  *     <li>{@link #AUTH_HEADER} — 请求头名称</li>
  *     <li>{@link #CHALLENGE_REALM} — 认证质询 Realm</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 public final class JwtConstants

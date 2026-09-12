@@ -13,15 +13,14 @@ import kurvcygnus.soulnotes.utils.PrintUtils;
 import kurvcygnus.soulnotes.utils.enums.UserRole;
 import org.jetbrains.annotations.NotNull;
 
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.util.HexFormat;
 import java.util.NoSuchElementException;
-
-import javax.crypto.SecretKeyFactory;
-import javax.crypto.spec.PBEKeySpec;
 
 /**
  * <b>认证服务</b>
@@ -30,8 +29,6 @@ import javax.crypto.spec.PBEKeySpec;
  *     <li>登录: 查找用户 → 密码校验 → 签发 Token</li>
  *     <li>登出: 将 Token 加入 Redis 黑名单</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @ApplicationScoped

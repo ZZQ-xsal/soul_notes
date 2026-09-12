@@ -13,13 +13,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-//? 数据库表初始化脚本见 [[sql_scripts/ai_chat_sessions_init.sql]].
-
 /**
  * <b>AI 对话 Session 实体</b>
  * <p>对应 {@code ai_chat_sessions} 表, {@code messages} 字段以 JSONB 存储对话历史.</p>
- *
- * @author Claude Code
  * @since 1.0
  */
 @Entity

@@ -12,7 +12,6 @@ import java.util.UUID;
  * @param userId   用户 ID
  * @param username 用户名
  * @param role     用户角色
- * @author Claude Code
  * @since 1.0
  */
 public record AuthResponse(

@@ -6,8 +6,6 @@ import org.jetbrains.annotations.NotNull;
  * <b>统一错误码枚举</b>
  * <p>所有业务异常使用此枚举传递一致的前后端错误信息.</p>
  * <p>格式: {@code HTTP状态码(3位) + 业务域编号(3位) + 具体错误编号(3位)}</p>
- *
- * @author Claude Code
  * @since 1.0
  */
 public enum ErrorCode

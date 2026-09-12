@@ -10,7 +10,6 @@ import org.jetbrains.annotations.Nullable;
  * @param content    文字内容 (可选, 与 audioData 至少提供一个)
  * @param audioData  语音数据 Base64 (可选, 与 content 至少提供一个)
  * @param sourceType 来源类型: VOICE / TEXT
- * @author Claude Code
  * @since 1.0
  */
 public record DiaryCreateRequest(

@@ -5,8 +5,6 @@ import org.jetbrains.annotations.NotNull;
 /**
  * <b>REST API 端点路径常量</b>
  * <p>所有基础路径均声明为编译期常量，可在 <u>{@link jakarta.ws.rs.Path}</u> 注解中使用。</p>
- *
- * @author Claude Code
  * @since 1.0
  */
 public final class ApiEndpointConstants

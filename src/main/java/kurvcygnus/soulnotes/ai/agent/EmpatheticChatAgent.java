@@ -20,8 +20,6 @@ import kurvcygnus.soulnotes.utils.constants.AiPromptConstants;
  *
  * <span style="color: 95cc6d">所有配置 (model, temperature 等) 由 {@code application.properties} 中的
  * {@code quarkus.langchain4j.openai.*} 统一管理.</span>
- *
- * @author Claude Code
  * @since 2.0
  */
 @RegisterAiService(tools = {UserContextTool.class, CrisisInterventionTool.class})

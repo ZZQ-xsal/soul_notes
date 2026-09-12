@@ -12,8 +12,6 @@ import java.util.UUID;
 /**
  * <b>用户实体</b>
  * <p>对应 {@code users} 表, 使用 Panache 响应式模式, 手动管理 ID.</p>
- *
- * @author Claude Code
  * @since 1.0
  */
 @Entity @Table(name = "users")

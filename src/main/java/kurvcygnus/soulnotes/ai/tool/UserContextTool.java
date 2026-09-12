@@ -21,8 +21,6 @@ import java.util.Map;
  * <b>用户上下文工具</b>
  * <p>AI Agent 可调用此工具获取用户近期的情绪状态摘要,
  * 以便在对话中提供更有针对性的共情回应.</p>
- *
- * @author Claude Code
  * @since 2.0
  */
 @ApplicationScoped

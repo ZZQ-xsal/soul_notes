@@ -42,8 +42,6 @@ import java.util.UUID;
  *     <li>{@code GET  /api/v1/voice/files/{fileId}} — 获取已存储的语音文件</li>
  *     <li>{@code POST /api/v1/voice/asr-callback} — 接收 ASR 转录回调 (外部服务, 免认证)</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @Path(ApiEndpointConstants.VOICE_BASE)

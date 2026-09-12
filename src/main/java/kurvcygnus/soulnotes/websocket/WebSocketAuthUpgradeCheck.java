@@ -21,8 +21,6 @@ import org.slf4j.LoggerFactory;
  *     <li>通过 {@link JWTParser#verify(String, String)} 校验签名 (HS256 对称密钥), 提取 userId 存入 {@link UserData}</li>
  *     <li>校验 Redis 黑名单, 防止已注销的 Token 被重用</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @Singleton

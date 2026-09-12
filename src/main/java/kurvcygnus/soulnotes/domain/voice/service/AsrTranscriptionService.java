@@ -14,8 +14,6 @@ import org.slf4j.LoggerFactory;
  *     <li>将语音文件发送至外部 ASR 服务 (桩实现, 目前仅记录日志)</li>
  *     <li>处理 ASR 回调结果</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @ApplicationScoped

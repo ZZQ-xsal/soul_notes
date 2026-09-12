@@ -8,14 +8,10 @@ import org.jetbrains.annotations.NotNull;
 import java.time.Instant;
 import java.util.UUID;
 
-//? 数据库表初始化脚本见 [[sql_scripts/mood_diaries_init.sql]].
-
 /**
  * <b>情绪日记实体</b>
  * <p>对应 {@code mood_diaries} 表, 使用自增 BigInt 作为主键.</p>
  * <p>{@code analysisResult} 字段存储 JSONB, 包含情感分析和预警检测结果.</p>
- *
- * @author Claude Code
  * @since 1.0
  */
 @Entity

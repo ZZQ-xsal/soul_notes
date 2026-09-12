@@ -15,8 +15,6 @@ import org.jetbrains.annotations.NotNull;
  *     <li>匹配 {@link StructuredException} 而非 {@link HolderException}，因为 {@link DataHolderException}
  *         是 {@link HolderException} 的兄弟类（均继承 {@link StructuredException}），后者无法被 {@code ExceptionMapper<HolderException>} 捕获。</li>
  * </ul>
- *
- * @author Kurv Cygnus
  * @since 1.1
  */
 @Provider

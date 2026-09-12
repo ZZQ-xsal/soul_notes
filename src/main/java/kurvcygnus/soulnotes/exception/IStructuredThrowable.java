@@ -13,8 +13,6 @@ import org.jetbrains.annotations.NotNull;
  *         用于分类异常，避免 {@code instanceof} 链。</li>
  *     <li>{@link #cause()} — 解包原始 {@link Throwable}，保留完整因果链。</li>
  * </ul>
- *
- * @author Kurv Cygnus
  * @see StructuredException
  * @see IDetailedThrowable
  */

@@ -24,8 +24,6 @@ import org.jetbrains.annotations.NotNull;
  *     <li>{@code POST /api/v1/auth/login} — 登录</li>
  *     <li>{@code POST /api/v1/auth/logout} — 登出 (需 Bearer Token)</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @Path(ApiEndpointConstants.AUTH_BASE)

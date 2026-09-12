@@ -30,8 +30,6 @@ import java.time.Duration;
  *
  * <span style="color: 95cc6d">采用 {@code @ServerRequestFilter} + {@code Uni<Response>} 响应式实现,
  * 全程无阻塞, 不会占用事件循环.</span>
- *
- * @author Claude Code
  * @since 2.0
  */
 @ApplicationScoped

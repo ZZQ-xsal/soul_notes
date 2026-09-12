@@ -13,8 +13,6 @@ import org.jetbrains.annotations.Nullable;
  * <p>基于 Jackson {@link ObjectMapper} 的单例封装, 统一项目中 JSON 序列化/反序列化入口.</p>
  * <p>实体类等非 CDI 组件无法实例注入, 故由 {@code @Startup} 强制启动期创建本 Bean,
  * 将 Quarkus 托管 ObjectMapper 写入静态桥接字段, 供静态方法读取.</p>
- *
- * @author Claude Code
  * @since 1.0
  */
 @Startup

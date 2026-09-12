@@ -7,8 +7,6 @@ import org.jetbrains.annotations.Nullable;
 /**
  * <b>日记列表查询参数</b>
  * <p>支持分页和时间范围过滤.</p>
- *
- * @author Claude Code
  * @since 1.0
  */
 public final class DiaryListQuery

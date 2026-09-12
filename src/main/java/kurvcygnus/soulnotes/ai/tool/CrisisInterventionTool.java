@@ -12,8 +12,6 @@ import org.jetbrains.annotations.NotNull;
  * AI Agent 可调用此工具获取心理援助热线信息.</p>
  *
  * <span style="color: 95cc6d">热线信息优先从 Redis 加载, 不可用时使用配置默认值.</span>
- *
- * @author Claude Code
  * @since 2.0
  */
 @ApplicationScoped

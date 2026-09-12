@@ -11,8 +11,6 @@ import org.jetbrains.annotations.Nullable;
  *     <li>成功: {@code {code: 0, message: "success", data: ...}}</li>
  *     <li>失败: {@code {code: xxx, message: "错误描述", data: null}}</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)

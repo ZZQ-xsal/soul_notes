@@ -20,8 +20,6 @@ import java.util.Map;
  *     <li>即使 AI 服务或 Redis 不可用, 此端点也能返回热线信息 (使用静态默认值)</li>
  *     <li>无认证要求, 前端可缓存结果用于离线展示</li>
  * </ul>
- *
- * @author Claude Code
  * @since 2.0
  */
 @Path(ApiEndpointConstants.CRISIS_BASE)

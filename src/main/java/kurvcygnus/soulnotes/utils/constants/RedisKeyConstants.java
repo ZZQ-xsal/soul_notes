@@ -8,8 +8,6 @@ import org.jetbrains.annotations.NotNull;
  *     <li>{@link #TOKEN_BLACKLIST} — JWT 黑名单 Key，使用 {@link String#formatted(Object...)} 传入 jti</li>
  *     <li>{@link #RATE_LIMIT} — 限流 Key，预留未来使用</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 public final class RedisKeyConstants

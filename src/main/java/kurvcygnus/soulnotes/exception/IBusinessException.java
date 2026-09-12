@@ -18,7 +18,6 @@ import java.util.function.Function;
  * </ul>
  *
  * @param <T> 实现此接口的具体异常类型(CRTP 约束：{@code T extends StructuredException & IBusinessException<T>>})
- * @author Kurv Cygnus
  * @see StructuredException
  * @see ErrorCode
  * @see HolderException

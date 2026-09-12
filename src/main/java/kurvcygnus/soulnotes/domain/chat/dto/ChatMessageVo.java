@@ -10,7 +10,6 @@ import java.time.Instant;
  * @param role      角色: "user" / "assistant"
  * @param content   消息内容
  * @param timestamp 消息时间戳
- * @author Claude Code
  * @since 1.0
  */
 public record ChatMessageVo(

@@ -7,8 +7,6 @@ package kurvcygnus.soulnotes.utils.enums;
  *     <li>{@link #PROCESSED} — 已完成, ASR 转录成功</li>
  *     <li>{@link #FAILED} — 失败, 转录出错或文件无效</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 public enum VoiceStatus

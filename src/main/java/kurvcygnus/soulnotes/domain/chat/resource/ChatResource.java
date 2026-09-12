@@ -29,8 +29,6 @@ import java.util.UUID;
  *     <li>{@code POST /api/v1/chat/stream} — SSE 流式回复 (JSON Body)</li>
  *     <li>{@code GET  /api/v1/chat/sessions} — 历史会话列表</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @Path(ApiEndpointConstants.CHAT_BASE)

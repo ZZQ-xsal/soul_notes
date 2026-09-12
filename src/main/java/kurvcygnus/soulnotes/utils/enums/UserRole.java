@@ -7,8 +7,6 @@ package kurvcygnus.soulnotes.utils.enums;
  *     <li>{@link #COUNSELOR} — 心理咨询师</li>
  *     <li>{@link #ADMIN} — 管理员</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 public enum UserRole

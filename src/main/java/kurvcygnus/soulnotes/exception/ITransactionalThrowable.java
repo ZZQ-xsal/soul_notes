@@ -14,7 +14,6 @@ package kurvcygnus.soulnotes.exception;
  * @param <E> 实现此接口的具体 {@link StructuredException} 子类型（CRTP 自类型）
  * @param <T> 详细原因数据类型（从 {@link IDetailedThrowable} 传递）
  * @param <R> 回滚返回值的类型 —— 补偿后产生的降级结果
- * @author Kurv Cygnus
  * @see StructuredException
  */
 public interface ITransactionalThrowable<E extends StructuredException & ITransactionalThrowable<E, T, R>, T, R>

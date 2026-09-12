@@ -10,7 +10,6 @@ import java.util.UUID;
  *
  * @param sessionId 会话 ID (可选, 新会话则不传)
  * @param content   消息内容
- * @author Claude Code
  * @since 1.0
  */
 public record ChatSendRequest(

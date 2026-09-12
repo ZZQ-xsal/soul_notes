@@ -18,8 +18,6 @@ import org.slf4j.LoggerFactory;
  * <ul>
  *     <li>{@code crisis:hotline} — 心理危机热线信息, 供离线兜底使用</li>
  * </ul>
- *
- * @author Claude Code
  * @since 2.0
  */
 @ApplicationScoped

@@ -5,8 +5,6 @@ import org.jetbrains.annotations.NotNull;
 /**
  * <b>情绪天气预报类型</b>
  * <p>每个枚举携带中文标签和图标标识, 用于前端"情绪天气预报"可视化渲染.</p>
- *
- * @author Claude Code
  * @since 1.0
  */
 public enum EmotionWeatherType

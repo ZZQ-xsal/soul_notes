@@ -25,8 +25,6 @@ import java.util.UUID;
  *     <li>生成可访问的 URL 和文件唯一标识</li>
  *     <li>读取/删除已存储文件</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @ApplicationScoped

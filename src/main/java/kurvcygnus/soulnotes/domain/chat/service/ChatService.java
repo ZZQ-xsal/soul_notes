@@ -36,8 +36,6 @@ import java.util.UUID;
  *     <li>会话历史管理</li>
  *     <li>预警检测与推送</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @ApplicationScoped

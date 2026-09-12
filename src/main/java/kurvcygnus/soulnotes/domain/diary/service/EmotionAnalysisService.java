@@ -22,8 +22,6 @@ import java.util.LinkedHashMap;
  *     <li>封装 AI {@code MoodAnalysisAgent} 与 {@code WarningDetectionAgent} 的调用编排</li>
  *     <li>分析结果回写 {@link MoodDiary#analysisResult} JSONB 字段</li>
  * </ul>
- *
- * @author Claude Code
  * @since 2.0
  */
 @ApplicationScoped

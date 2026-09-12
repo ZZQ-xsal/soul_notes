@@ -12,8 +12,6 @@ import java.util.stream.Stream;
  * <b>心理小知识检索器</b>
  * <p>内置常见心理话题的知识库, 支持关键词匹配检索.</p>
  * <p>后续可扩展为基于向量数据库的 RAG 检索.</p>
- *
- * @author Claude Code
  * @since 2.0
  */
 @ApplicationScoped

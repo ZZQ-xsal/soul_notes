@@ -10,7 +10,6 @@ import org.jetbrains.annotations.Nullable;
  * @param fileId          文件唯一标识
  * @param transcribedText 转录文本 (失败时为 null)
  * @param status          处理状态 (PROCESSED / FAILED)
- * @author Claude Code
  * @since 1.0
  */
 public record AsrCallbackRequest(

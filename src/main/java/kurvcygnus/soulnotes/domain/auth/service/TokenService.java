@@ -31,8 +31,6 @@ import java.util.UUID;
  * <ul>
  *     <li>签发 JWT、校验 JWT、将 Token 加入 Redis 黑名单以实现登出</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @ApplicationScoped

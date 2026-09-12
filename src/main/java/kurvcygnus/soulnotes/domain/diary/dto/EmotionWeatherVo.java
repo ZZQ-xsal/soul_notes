@@ -15,7 +15,6 @@ import java.time.LocalDate;
  * @param negativeAvg  负向情感均值 (0.0 ~ 1.0)
  * @param anxietyAvg   焦虑程度均值 (0.0 ~ 1.0)
  * @param entryCount   该日日记条数
- * @author Claude Code
  * @since 1.0
  */
 public record EmotionWeatherVo(

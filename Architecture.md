@@ -204,20 +204,20 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 
 `application.properties` 关键项:
 
-| 项                                                | 说明                                                       |
-|---------------------------------------------------|------------------------------------------------------------|
-| `jwt.secret` / `HASH_KEY`                         | 签名密钥 (≥32 字节, 生产必配)                              |
-| `mp.jwt.verify.issuer`                            | 必须 = `soul-notes`                                        |
-| `quarkus.datasource.*`                            | PostgreSQL, 账号经 `USER_NAME`/`USER_PASSWORD`, 地址经 `URL` 覆盖 |
-| `quarkus.redis.hosts` / `REDIS_HOSTS`             | Redis 地址 (容器/K8s 部署必须覆盖)                         |
-| `quarkus.langchain4j.openai.*`                    | AI 端点/模型/密钥 (`ai.openai.*` 占位)                     |
-| `crisis.hotline.*`                                | 热线默认值                                                 |
-| `voice.storage.directory` / `VOICE_STORAGE_DIR`   | 语音文件存储目录                                           |
-| `weather.threshold.*`                             | 天气映射阈值                                               |
-| `rate.limit.chat.max-per-minute` / `RATE_LIMIT_CHAT` | 聊天限流上限 (默认 20 次/分钟)                           |
-| `rate.limit.login.max-per-minute` / `RATE_LIMIT_LOGIN` | 登录限流上限 (默认 10 次/分钟)                         |
-| `asr.callback.api-key` / `ASR_CALLBACK_API_KEY`   | ASR 回调密钥, 配置后强制校验 `X-API-Key`                   |
-| `quarkus.native.additional-build-args`          | native 镜像固定默认时区 `Asia/Shanghai` (`-Duser.timezone`; GraalVM 21 起默认内置全部时区) |
+| 项                                                     | 说明                                                                                       |
+|--------------------------------------------------------|--------------------------------------------------------------------------------------------|
+| `jwt.secret` / `HASH_KEY`                              | 签名密钥 (≥32 字节, 生产必配)                                                              |
+| `mp.jwt.verify.issuer`                                 | 必须 = `soul-notes`                                                                        |
+| `quarkus.datasource.*`                                 | PostgreSQL, 账号经 `USER_NAME`/`USER_PASSWORD`, 地址经 `URL` 覆盖                          |
+| `quarkus.redis.hosts` / `REDIS_HOSTS`                  | Redis 地址 (容器/K8s 部署必须覆盖)                                                         |
+| `quarkus.langchain4j.openai.*`                         | AI 端点/模型/密钥 (`ai.openai.*` 占位)                                                     |
+| `crisis.hotline.*`                                     | 热线默认值                                                                                 |
+| `voice.storage.directory` / `VOICE_STORAGE_DIR`        | 语音文件存储目录                                                                           |
+| `weather.threshold.*`                                  | 天气映射阈值                                                                               |
+| `rate.limit.chat.max-per-minute` / `RATE_LIMIT_CHAT`   | 聊天限流上限 (默认 20 次/分钟)                                                             |
+| `rate.limit.login.max-per-minute` / `RATE_LIMIT_LOGIN` | 登录限流上限 (默认 10 次/分钟)                                                             |
+| `asr.callback.api-key` / `ASR_CALLBACK_API_KEY`        | ASR 回调密钥, 配置后强制校验 `X-API-Key`                                                   |
+| `quarkus.native.additional-build-args`                 | native 镜像固定默认时区 `Asia/Shanghai` (`-Duser.timezone`; GraalVM 21 起默认内置全部时区) |
 
 `application-dev.properties` (仅 dev profile): 本地 JWT 密钥 / DB 口令 / 均支持 `HASH_KEY`/`USER_NAME`/`USER_PASSWORD` 覆盖;
 提交仓库时由 Git filter (`devsecrets`) 清洗本地密钥为占位符.
@@ -289,15 +289,15 @@ kubectl apply -f k8s/
 
 所有变量对应 `application.properties` 的 `${VAR:default}` 占位, 未配置时使用默认值:
 
-| 环境变量 | 对应配置项 | 默认值 | 说明 |
-|----------|------------|--------|------|
-| `REDIS_HOSTS` | `quarkus.redis.hosts` | `redis://localhost:6379` | Redis 地址, 容器/K8s 必配 |
-| `HASH_KEY` | `jwt.secret` | (空, 必配) | JWT 签名密钥, ≥32 字节 |
-| `USER_NAME` / `USER_PASSWORD` | `quarkus.datasource.username` / `quarkus.datasource.password` | (必配) | PostgreSQL 账号口令 |
-| `URL` | `quarkus.datasource.reactive.url` | `postgresql://localhost:5432/soulnotes` | PostgreSQL 响应式连接地址 |
-| `ORIGINS` | `quarkus.http.cors.origins` | `http://localhost:5173` | CORS 白名单 |
-| `CRISIS_HOTLINE_PRIMARY` / `CRISIS_HOTLINE_BACKUP` / `CRISIS_HOTLINE_NAME` | `crisis.hotline.*` | `400-161-9995` / `12355` / `全国心理援助热线` | 高危预警 (RED) 热线 |
-| `VOICE_STORAGE_DIR` | `voice.storage.directory` | `voice_uploads` | 语音文件存储目录 |
-| `RATE_LIMIT_CHAT` | `rate.limit.chat.max-per-minute` | `20` | 聊天限流上限 (次/分钟) |
-| `RATE_LIMIT_LOGIN` | `rate.limit.login.max-per-minute` | `10` | 登录限流上限 (次/分钟) |
-| `ASR_CALLBACK_API_KEY` | `asr.callback.api-key` | (空) | ASR 回调密钥, 配置后强制校验 `X-API-Key` |
+| 环境变量                                                                   | 对应配置项                                                    | 默认值                                        | 说明                                     |
+|----------------------------------------------------------------------------|---------------------------------------------------------------|-----------------------------------------------|------------------------------------------|
+| `REDIS_HOSTS`                                                              | `quarkus.redis.hosts`                                         | `redis://localhost:6379`                      | Redis 地址, 容器/K8s 必配                |
+| `HASH_KEY`                                                                 | `jwt.secret`                                                  | (空, 必配)                                    | JWT 签名密钥, ≥32 字节                   |
+| `USER_NAME` / `USER_PASSWORD`                                              | `quarkus.datasource.username` / `quarkus.datasource.password` | (必配)                                        | PostgreSQL 账号口令                      |
+| `URL`                                                                      | `quarkus.datasource.reactive.url`                             | `postgresql://localhost:5432/soulnotes`       | PostgreSQL 响应式连接地址                |
+| `ORIGINS`                                                                  | `quarkus.http.cors.origins`                                   | `http://localhost:5173`                       | CORS 白名单                              |
+| `CRISIS_HOTLINE_PRIMARY` / `CRISIS_HOTLINE_BACKUP` / `CRISIS_HOTLINE_NAME` | `crisis.hotline.*`                                            | `400-161-9995` / `12355` / `全国心理援助热线` | 高危预警 (RED) 热线                      |
+| `VOICE_STORAGE_DIR`                                                        | `voice.storage.directory`                                     | `voice_uploads`                               | 语音文件存储目录                         |
+| `RATE_LIMIT_CHAT`                                                          | `rate.limit.chat.max-per-minute`                              | `20`                                          | 聊天限流上限 (次/分钟)                   |
+| `RATE_LIMIT_LOGIN`                                                         | `rate.limit.login.max-per-minute`                             | `10`                                          | 登录限流上限 (次/分钟)                   |
+| `ASR_CALLBACK_API_KEY`                                                     | `asr.callback.api-key`                                        | (空)                                          | ASR 回调密钥, 配置后强制校验 `X-API-Key` |

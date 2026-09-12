@@ -23,8 +23,6 @@ import java.util.UUID;
 /**
  * <b>情绪天气预报服务</b>
  * <p>按时间维度聚合情感分析数据, 生成前端"情绪天气预报"可视化所需的数据.</p>
- *
- * @author Claude Code
  * @since 1.0
  */
 @ApplicationScoped

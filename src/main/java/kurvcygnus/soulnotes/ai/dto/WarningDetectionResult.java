@@ -9,8 +9,6 @@ package kurvcygnus.soulnotes.ai.dto;
  * </ul>
  *
  * <span style="color: f84b4b">当 {@code warningLevel} 为 {@code RED} 时, 系统必须立即触发弹窗并推送热线.</span>
- *
- * @author Claude Code
  * @since 2.0
  */
 public record WarningDetectionResult(

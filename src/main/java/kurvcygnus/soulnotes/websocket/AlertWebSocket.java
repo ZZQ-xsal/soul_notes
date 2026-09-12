@@ -23,8 +23,6 @@ import java.util.concurrent.ConcurrentHashMap;
  *     <li>用户连接时注册到 {@link ConcurrentHashMap}, 断开时移除</li>
  *     <li>提供 {@link #pushAlert(UUID, String)} 方法供业务方触发预警推送</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @WebSocket(path = "/ws/alert")

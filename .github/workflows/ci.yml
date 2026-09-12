@@ -19,7 +19,6 @@ jobs:
           java-version: '21'
           cache: gradle
 
-      #! Windows 提交的 wrapper 可能丢失执行位, 必须先 chmod 才能直接调用 gradlew.
       - name: Make gradlew executable
         run: chmod +x gradlew
 

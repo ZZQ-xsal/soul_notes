@@ -15,8 +15,6 @@ import java.util.Objects;
  *     <li><b>校验守卫</b> — 禁止包装另一个 {@link IStructuredThrowable} 实例，禁止空白标签。</li>
  *     <li><b>非空消息保证</b> — 重写 {@link #getMessage()} 确保返回值永不为 null。</li>
  * </ul>
- *
- * @author Kurv Cygnus
  * @see IStructuredThrowable
  */
 public class StructuredException extends RuntimeException implements IStructuredThrowable

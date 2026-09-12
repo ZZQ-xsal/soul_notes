@@ -27,8 +27,6 @@ import java.util.UUID;
  *     <li>分页查询、单条查询、删除 (校验归属)</li>
  *     <li>语音来源: audioData(Base64) 解码落盘并生成 audioUrl</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @ApplicationScoped

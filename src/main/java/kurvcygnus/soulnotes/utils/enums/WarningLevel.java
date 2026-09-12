@@ -7,8 +7,6 @@ package kurvcygnus.soulnotes.utils.enums;
  *     <li>{@link #YELLOW} — 需关注, 持续低落或消极言语</li>
  *     <li>{@link #RED} — 立即干预, 检测到自残/自杀意念等高危信号</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 public enum WarningLevel

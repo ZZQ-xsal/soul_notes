@@ -29,8 +29,6 @@ import java.util.UUID;
  *     <li>{@code DELETE /api/v1/diaries/{id}} — 删除</li>
  *     <li>{@code GET    /api/v1/diaries/weather} — 情绪天气预报数据</li>
  * </ul>
- *
- * @author Claude Code
  * @since 1.0
  */
 @Path(ApiEndpointConstants.DIARY_BASE)

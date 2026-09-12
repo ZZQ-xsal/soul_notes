@@ -1,7 +1,14 @@
 name: Native Build
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
+
+#* tag 触发时需要把 native 二进制上传到 GitHub Release, 由内置 GITHUB_TOKEN 授权.
+permissions:
+  contents: write
 
 jobs:
   native-test:
@@ -23,3 +30,28 @@ jobs:
 
       - name: Build native image
         run: ./gradlew build -Dquarkus.native.enabled=true --console=plain
+
+      - name: Collect native binary
+        run: |
+          ls build/*-runner
+
+      - name: Upload native binary (Actions artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-runner
+          path: build/*-runner
+
+      #* 手动触发 (非 tag) 时仅保留 Actions artifact; tag 触发则归档到对应 Release.
+      - name: Upload native binary to Release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NATIVE_SRC="$(ls build/*-runner | head -n1)"
+          NATIVE_BIN="soulnotes-backend-${GITHUB_REF_NAME}-linux-x86_64"
+          cp "$NATIVE_SRC" "$NATIVE_BIN"
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$NATIVE_BIN" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$NATIVE_BIN" --generate-notes --title "$GITHUB_REF_NAME"
+          fi
