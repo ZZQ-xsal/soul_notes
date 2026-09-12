@@ -29,7 +29,9 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build native image
-        run: ./gradlew build -Dquarkus.native.enabled=true --console=plain
+        #? Quarkus 禁止同时输出 native 与 JAR 包, 必须显式关闭 jar 打包, 否则任务图配置阶段直接报错:
+        #? "Outputting both native and JAR packages is not currently supported".
+        run: ./gradlew build -Dquarkus.native.enabled=true -Dquarkus.package.jar.enabled=false --console=plain
 
       - name: Collect native binary
         run: |
