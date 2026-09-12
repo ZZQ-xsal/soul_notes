@@ -19,23 +19,24 @@ class AuthServiceTest
     private static final String TEST_PASSWORD = "SecurePass123!";
 
     /**
-     * 通过反射调用 AuthService.hashPassword 来验证 PBKDF2 哈希行为.
+     * 通过反射调用 AuthService#hashPassword 来验证 PBKDF2 哈希行为.
      */
     private static String invokeHashPassword(String password) throws Exception
     {
         final var method = AuthService.class.getDeclaredMethod("hashPassword", String.class);
         method.setAccessible(true);
-        return (String) method.invoke(null, password);
+        //* hashPassword 为实例方法 (GraalVM native-image 禁止 static 字段持有 SecureRandom), tokenService 在该算法路径上不可达, 传 null 安全.
+        return (String) method.invoke(new AuthService(null), password);
     }
 
     /**
-     * 通过反射调用 AuthService.verifyPassword 来验证密码校验逻辑.
+     * 通过反射调用 AuthService#verifyPassword 来验证密码校验逻辑.
      */
     private static boolean invokeVerifyPassword(String rawPassword, String storedHash) throws Exception
     {
         final var method = AuthService.class.getDeclaredMethod("verifyPassword", String.class, String.class);
         method.setAccessible(true);
-        return (boolean) method.invoke(null, rawPassword, storedHash);
+        return (boolean) method.invoke(new AuthService(null), rawPassword, storedHash);
     }
 
     //region 哈希格式

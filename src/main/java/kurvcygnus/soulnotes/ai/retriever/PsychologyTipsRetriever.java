@@ -85,7 +85,8 @@ public final class PsychologyTipsRetriever
         )
     );
 
-    private static final @NotNull Random RANDOM = new Random();
+    //* 实例字段: GraalVM native-image 禁止 static final 字段持有 Random 实例 (构建期种子会被固化进镜像堆), 单例 bean 下实例字段语义等价.
+    private final @NotNull Random random = new Random();
 
     /**
      * <span style="color: 95cc6d">按关键词检索相关心理小知识.</span>
@@ -110,7 +111,7 @@ public final class PsychologyTipsRetriever
      *
      * @return 随机 Tip
      */
-    public @NotNull Tip getRandomTip() { return TIPS.get(RANDOM.nextInt(TIPS.size())); }
+    public @NotNull Tip getRandomTip() { return TIPS.get(random.nextInt(TIPS.size())); }
 
     /**
      * <b>心理知识条目</b>

@@ -133,12 +133,13 @@ public final class AuthService
     private static final int PBKDF2_SALT_BYTES = 16;
     private static final int PBKDF2_KEY_BITS = 256;
     private static final @NotNull String PBKDF2_PREFIX = "pbkdf2$";
-    private static final @NotNull SecureRandom PBKDF2_RANDOM = new SecureRandom();
+    //* 实例字段: GraalVM native-image 禁止 static final 字段持有 Random 实例 (构建期种子会被固化进镜像堆, 编译直接报错), 单例 bean 下实例字段语义等价.
+    private final @NotNull SecureRandom pbkdf2Random = new SecureRandom();
 
-    private static @NotNull String hashPassword(@NotNull String password)
+    private @NotNull String hashPassword(@NotNull String password)
     {
         final var salt = new byte[PBKDF2_SALT_BYTES];
-        PBKDF2_RANDOM.nextBytes(salt);
+        pbkdf2Random.nextBytes(salt);
         final var spec = new PBEKeySpec(password.toCharArray(), salt, PBKDF2_ITERATIONS, PBKDF2_KEY_BITS);
         try
         {
@@ -155,7 +156,7 @@ public final class AuthService
         finally { spec.clearPassword(); }//! 及时清除密钥材料, 减少内存残留风险.
     }
 
-    private static boolean verifyPassword(@NotNull String rawPassword, @NotNull String storedHash)
+    private boolean verifyPassword(@NotNull String rawPassword, @NotNull String storedHash)
     {
         //! 兼容原型阶段遗留的 SHA-256 无盐哈希 (无前缀), 该批用户建议后续登录时重哈希迁移.
         if(!storedHash.startsWith(PBKDF2_PREFIX))
@@ -184,7 +185,7 @@ public final class AuthService
         }
     }
 
-    private static @NotNull String sha256Hex(@NotNull String input)
+    private @NotNull String sha256Hex(@NotNull String input)
     {
         try
         {
@@ -195,7 +196,7 @@ public final class AuthService
     }
     
     //* 校验密码强度: 至少 8 位, 包含字母和数字.
-    private static @NotNull Uni<User> createUser(@NotNull RegisterRequest req)
+    private @NotNull Uni<User> createUser(@NotNull RegisterRequest req)
     {
         final var password = req.password();
         
