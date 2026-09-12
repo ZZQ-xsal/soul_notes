@@ -1,5 +1,6 @@
 package kurvcygnus.soulnotes.ai.agent;
 
+import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.TokenStream;
 import dev.langchain4j.service.UserMessage;
@@ -14,8 +15,8 @@ import kurvcygnus.soulnotes.utils.constants.AiPromptConstants;
  * <p>声明式 {@code @RegisterAiService} 接口, 实现「心声树洞」共情对话.</p>
  *
  * <ul>
- *     <li>{@link #chatSync(String, String)} — 非流式回复</li>
- *     <li>{@link #chat(String, String)} — 流式回复 ({@code TokenStream})</li>
+ *     <li>{@link #chatSync(String, String, String)} — 非流式回复</li>
+ *     <li>{@link #chat(String, String, String)} — 流式回复 ({@code TokenStream})</li>
  * </ul>
  *
  * <span style="color: 95cc6d">所有配置 (model, temperature 等) 由 {@code application.properties} 中的
@@ -28,10 +29,13 @@ public interface EmpatheticChatAgent
     /**
      * <span style="color: 95cc6d">非流式共情回复.</span>
      *
+     * @param userId  用户 ID ({@code @MemoryId}, 供 {@code UserContextTool} 等 {@code @ToolMemoryId} 工具定位用户)
      * @param history 对话历史 (JSON 格式的消息列表)
      * @param content 用户最新消息
      * @return AI 回复文本
      */
+    //* {@code @MemoryId} 仅作为工具身份透传: 本项目未注册 ChatMemoryProvider, langchain4j 不会启用记忆累积,
+    //* 但会将其传入工具执行上下文 — 缺失时工具收到非 UUID 的默认值, UserContextTool 解析用户 ID 必然失败.
     @SystemMessage(AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT)
     @UserMessage(
         """
@@ -42,11 +46,12 @@ public interface EmpatheticChatAgent
         {{content}}
         """
     )
-    String chatSync(@V("history") String history, @V("content") String content);
+    String chatSync(@MemoryId String userId, @V("history") String history, @V("content") String content);
 
     /**
      * <span style="color: 95cc6d">流式共情回复.</span>
      *
+     * @param userId  用户 ID ({@code @MemoryId}, 用途同 {@link #chatSync})
      * @param history 对话历史 (JSON 格式的消息列表)
      * @param content 用户最新消息
      * @return 流式 {@code TokenStream}
@@ -59,5 +64,5 @@ public interface EmpatheticChatAgent
         用户最新消息:
         {{content}}
         """)
-    TokenStream chat(@V("history") String history, @V("content") String content);
+    TokenStream chat(@MemoryId String userId, @V("history") String history, @V("content") String content);
 }

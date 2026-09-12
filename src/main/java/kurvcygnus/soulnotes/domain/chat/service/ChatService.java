@@ -10,6 +10,7 @@ import io.vertx.mutiny.core.Vertx;
 import jakarta.enterprise.context.ApplicationScoped;
 import kurvcygnus.soulnotes.ai.agent.EmpatheticChatAgent;
 import kurvcygnus.soulnotes.ai.agent.WarningDetectionAgent;
+import kurvcygnus.soulnotes.ai.dto.WarningDetectionResult;
 import kurvcygnus.soulnotes.domain.chat.dto.ChatMessageVo;
 import kurvcygnus.soulnotes.domain.chat.dto.ChatSendRequest;
 import kurvcygnus.soulnotes.domain.chat.dto.ChatSessionVo;
@@ -23,6 +24,7 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -101,7 +103,7 @@ public final class ChatService
      * <p>返回 {@link Multi<String>} 以支持前端的逐字渲染.</p>
      * <ul>
      *     <li>加载/创建 Session, 先持久化用户消息</li>
-     *     <li>调用 {@link EmpatheticChatAgent#chat(String, String)} 获取 {@link dev.langchain4j.service.TokenStream}</li>
+     *     <li>调用 {@link EmpatheticChatAgent#chat(String, String, String)} 获取 {@link dev.langchain4j.service.TokenStream}</li>
      *     <li>在 worker 线程池启动流式调用, 逐块推送至 {@link Multi}</li>
      *     <li>流式完成后以独立事务持久化 AI 回复</li>
      * </ul>
@@ -205,31 +207,36 @@ public final class ChatService
     }
 
     //* 在独立事务中追加并持久化 AI 回复, 同时执行预警检测与推送.
-    //! 非 static: 内部调用实例方法 warningPush (依赖 alertWebSocket 注入).
-    private @NotNull Uni<Void> appendAssistantReply(@NotNull UUID sessionId, @NotNull String reply)
+    //! 预警检测 (外部 AI 调用, 秒级耗时) 在事务外先行完成, 结果传入事务内落库,
+    //! 避免长时间占用 Hibernate reactive Session (与 streamMessage 不使用 @WithTransaction 的理由一致).
+    //! 非 static: 内部调用实例方法 applyWarning (依赖 alertWebSocket 注入).
+    private @NotNull Uni<Void> appendAssistantReply(@NotNull UUID sessionId, @NotNull String userContent, @NotNull String reply)
     {
-        return Panache.withTransaction(() ->
-            AiChatSession.
-                <AiChatSession>findById(sessionId).
-                onItem().
-                ifNull().
-                failWith(
-                    () -> IBusinessException.of(
-                        ErrorCode.SESSION_NOT_FOUND,
-                        "会话不存在",
-                        NoSuchElementException::new,
-                        "CHAT_STREAM_SESSION_NOT_FOUND"
-                    ).asException()
-                ).
-                flatMap(s ->
-                    {
-                        s.addMessage("assistant", reply);
-                        s.truncate(MAX_HISTORY_MESSAGES);
-                        //* 预警检测在持久化前执行, 确保 warningTriggered 被一并落库.
-                        warningPush(s, reply);
-                        return s.persistAndFlush().replaceWithVoid();
-                    }
-                )
+        return detectWarning(userContent).flatMap(detection ->
+            Panache.withTransaction(() ->
+                AiChatSession.
+                    <AiChatSession>findById(sessionId).
+                    onItem().
+                    ifNull().
+                    failWith(
+                        () -> IBusinessException.of(
+                            ErrorCode.SESSION_NOT_FOUND,
+                            "会话不存在",
+                            NoSuchElementException::new,
+                            "CHAT_STREAM_SESSION_NOT_FOUND"
+                        ).asException()
+                    ).
+                    flatMap(
+                        s ->
+                        {
+                            s.addMessage("assistant", reply);
+                            s.truncate(MAX_HISTORY_MESSAGES);
+                            //* 预警检测在持久化前应用, 确保 warningTriggered 被一并落库.
+                            applyWarning(s, detection);
+                            return s.persistAndFlush().replaceWithVoid();
+                        }
+                    )
+            )
         );
     }
 
@@ -240,22 +247,35 @@ public final class ChatService
         return Multi.createFrom().<String>emitter(emitter ->
             {
                 final var fullReply = new StringBuilder();
-                empatheticChatAgent.chat(history, content)
-                    .onPartialResponse(fullReply::append)
-                    .onPartialResponse(emitter::emit)
-                    .onCompleteResponse(response ->
-                        appendAssistantReply(session.id, fullReply.toString()).
-                            subscribe().with(
-                                v -> emitter.complete(),
-                                t -> { LOG.warn("流式回复持久化失败: {}", t.getMessage()); emitter.complete(); }
-                            )
-                    )
-                    .onError(error ->
-                    {
-                        LOG.warn("流式对话失败: {}", error.getMessage());
-                        emitter.fail(error);
-                    })
-                    .start();
+                empatheticChatAgent.chat(session.userId.toString(), history, content).
+                    onPartialResponse(
+                        token ->
+                        {
+                            //* 累积与推送必须合并在同一回调内: TokenStream 每类回调仅允许注册一次,
+                            //! 重复注册会在 start() 前抛 IllegalConfigurationException 导致流式端点静默断流.
+                            fullReply.append(token);
+                            emitter.emit(token);
+                        }
+                    ).
+                    onCompleteResponse(
+                        response ->
+                        //* 回调线程为 langchain4j 流式线程, 无 Vertx 上下文, 直接执行响应式事务会失败;
+                        //* 经 executeBlocking 切至 Vertx worker 线程 (与 callAiAndRespond 同一模式) 阻塞等待持久化完成.
+                        vertx.executeBlocking(
+                            () -> appendAssistantReply(session.id, content, fullReply.toString()).await().atMost(Duration.ofSeconds(60)),
+                            false
+                        ).subscribe().with(
+                            v -> emitter.complete(),
+                            t -> { LOG.warn("流式回复持久化失败: {}", t.getMessage()); emitter.complete(); }
+                        )
+                    ).
+                    onError(
+                        error ->
+                        {
+                            LOG.warn("流式对话失败: {}", error.getMessage());
+                            emitter.fail(error);
+                        }
+                    ).start();
             }
         ).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
     }
@@ -266,17 +286,20 @@ public final class ChatService
     private @NotNull Uni<String> callAiAndRespond(@NotNull AiChatSession session, @NotNull String content)
     {
         final var history = buildConversationHistory(session);
-        return vertx.executeBlocking(() -> empatheticChatAgent.chatSync(history, content), false).
-            onItem().transformToUni(reply ->
+        return vertx.executeBlocking(() -> empatheticChatAgent.chatSync(session.userId.toString(), history, content), false).
+            onItem().transformToUni(
+                reply ->
                 {
                     session.addMessage("assistant", reply);
                     session.truncate(MAX_HISTORY_MESSAGES);
-                    //* 预警检测在持久化前执行, 确保 warningTriggered 被一并落库.
-                    warningPush(session, reply);
-                    return session.persist().replaceWith(reply);
+                    //* 预警检测在 worker 线程池异步执行, 完成后才持久化, 确保 warningTriggered 被一并落库.
+                    return detectWarning(content).
+                        onItem().invoke(detection -> applyWarning(session, detection)).
+                        flatMap(v -> session.persist().replaceWith(reply));
                 }
             ).
-            onFailure().recoverWithUni(failure ->
+            onFailure().recoverWithUni(
+                failure ->
                 {
                     LOG.warn("AI 对话失败: {}", failure.getMessage());
                     //* 失败时返回友好兜底消息, 避免前端展示错误.
@@ -288,32 +311,37 @@ public final class ChatService
             );
     }
 
-    //* 对 AI 回复进行预警检测, RED 等级立即推送至用户.
-    private void warningPush(@NotNull AiChatSession session, @NotNull String text)
+    //* 对用户最新消息执行预警等级检测.
+    //! WarningDetectionAgent 的 detect 是同步阻塞调用, 直接在事件循环线程调用会触发
+    //! BlockingNotAllowedException 被静默吞掉, 导致 warningTriggered 永远为 false —
+    //! 必须经 vertx.executeBlocking 在 worker 线程池执行.
+    //! 检测对象为用户消息而非 AI 回复: 共情回复会复述用户的痛苦内容, 以回复为对象会产生误报.
+    private @NotNull Uni<@Nullable WarningDetectionResult> detectWarning(@NotNull String userContent)
     {
-        try
+        return vertx.executeBlocking(() -> warningDetectionAgent.detect(userContent), false).
+            onFailure().invoke(t -> LOG.warn("预警检测失败: {}", t.getMessage())).
+            //* 预警检测失败不阻塞主对话流程, 降级为无预警 (null).
+            onFailure().recoverWithItem(() -> null);
+    }
+
+    //* 依据检测结果标记会话预警位, RED 等级立即经 WebSocket 推送热线.
+    //! 必须在持久化前调用 (受管 Session), 确保 warningTriggered 随消息一并落库.
+    private void applyWarning(@NotNull AiChatSession session, @Nullable WarningDetectionResult detection)
+    {
+        if(detection == null)
+            return;
+        if("RED".equals(detection.warningLevel()))
         {
-            final var detection = warningDetectionAgent.detect(text);
-            if("RED".equals(detection.warningLevel()))
-            {
-                session.warningTriggered = true;
-                //* Uni 是惰性的, 必须订阅才会真正发送推送.
-                alertWebSocket.pushAlert(session.userId, detection.reason()).
-                    subscribe().with(
-                        v -> {},
-                        t -> LOG.warn("RED 预警推送执行失败: userId={}, {}", session.userId, t.getMessage())
-                    );
-            }
-            else if("YELLOW".equals(detection.warningLevel()))
-            {
-                session.warningTriggered = true;
-            }
+            session.warningTriggered = true;
+            //* Uni 是惰性的, 必须订阅才会真正发送推送.
+            alertWebSocket.pushAlert(session.userId, detection.reason()).
+                subscribe().with(
+                    v -> {},
+                    t -> LOG.warn("RED 预警推送执行失败: userId={}, {}", session.userId, t.getMessage())
+                );
         }
-        catch(Exception e)
-        {
-            LOG.warn("预警推送失败: {}", e.getMessage());
-            //* 预警推送失败不应阻塞主流程.
-        }
+        else if("YELLOW".equals(detection.warningLevel()))
+            session.warningTriggered = true;
     }
 
     //* 非法/空白 sessionId 视为新会话.
@@ -356,10 +384,7 @@ public final class ChatService
     {
         if(messagesJson == null || messagesJson.isBlank())
             return 0;
-        try
-        {
-            return JsonUtils.parseJson(messagesJson, new TypeReference<List<Map<String, String>>>() { }).size();
-        }
+        try { return JsonUtils.parseJson(messagesJson, new TypeReference<List<Map<String, String>>>() { }).size(); }
         catch(Exception e) { LOG.warn("解析 messages JSON 获取消息数失败: {}", e.getMessage()); return 0; }
     }
 
