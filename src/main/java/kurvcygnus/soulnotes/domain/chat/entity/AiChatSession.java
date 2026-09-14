@@ -5,6 +5,8 @@ import io.quarkus.hibernate.reactive.panache.PanacheEntityBase;
 import io.smallrye.mutiny.Uni;
 import jakarta.persistence.*;
 import kurvcygnus.soulnotes.utils.JsonUtils;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Instant;
@@ -33,6 +35,8 @@ public final class AiChatSession extends PanacheEntityBase
     @Column(name = "user_id", nullable = false)
     public UUID userId;
 
+    //! 缺少 @JdbcTypeCode(SqlTypes.JSON) 时 Hibernate 按 VARCHAR 提取 JSONB 列, reactive-pg-client 返回 JsonArray 触发 ClassCastException (真实数据库必现).
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "JSONB")
     public String messages;
 

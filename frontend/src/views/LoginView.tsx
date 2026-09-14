@@ -1,0 +1,124 @@
+//* 登录页: 含演示账号一键填充 (对应 sql_scripts/users_mock_data.sql).
+
+import { useState } from 'react'
+import type { FormEvent } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
+import { ApiError } from '../api/http'
+
+const DEMO_ACCOUNTS = [
+  { username: 'alice', role: '学生' },
+  { username: 'bob', role: '学生' },
+  { username: 'charlie', role: '咨询师' },
+  { username: 'diana', role: '管理员' },
+  { username: 'eve', role: '学生' },
+]
+const DEMO_PASSWORD = 'Soulnotes123!'
+
+export default function LoginView() {
+  const { login, logout } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  //* 登录成功后回跳来源页, 默认进日记页.
+  const from = (location.state as { from?: string } | null)?.from ?? '/diaries'
+
+  const handleSubmit = async (e: FormEvent): Promise<void> => {
+    e.preventDefault()
+    if (!username.trim() || !password || submitting) return
+    setSubmitting(true)
+    setError('')
+    try {
+      const data = await login(username.trim(), password)
+      //! 后端业务接口全部 @RolesAllowed("STUDENT"), 非学生账号登录后处处 403;
+      //! 此处主动拦截并回滚登录态, 避免用户"登进去了却什么都打不开".
+      if (data.role !== 'STUDENT') {
+        await logout()
+        setError('该账号角色为咨询师/管理员, 当前仅学生账号可使用业务功能。请使用 alice / bob / eve 登录。')
+        setSubmitting(false)
+        return
+      }
+      navigate(from, { replace: true })
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '登录失败, 请稍后再试')
+      setSubmitting(false)
+    }
+  }
+
+  const fillDemo = (name: string): void => {
+    setUsername(name)
+    setPassword(DEMO_PASSWORD)
+    setError('')
+  }
+
+  return (
+    <div className="auth-page">
+      <div className="auth-card card">
+        <div className="auth-brand">
+          <svg className="brand-logo auth-logo" viewBox="0 0 64 64" aria-hidden="true">
+            <circle cx="32" cy="32" r="30" fill="var(--brand)" />
+            <path d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z" fill="var(--brand-ink)" />
+          </svg>
+          <h1>心声树洞</h1>
+          <p>倾听你的每一种情绪</p>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="form-field">
+            <label className="label" htmlFor="login-username">
+              用户名
+            </label>
+            <input
+              id="login-username"
+              className="input"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
+              required
+            />
+          </div>
+          <div className="form-field">
+            <label className="label" htmlFor="login-password">
+              密码
+            </label>
+            <input
+              id="login-password"
+              className="input"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </div>
+          {error && <p className="form-error">{error}</p>}
+          <button type="submit" className="btn auth-submit" disabled={!username.trim() || !password || submitting}>
+            {submitting ? '登录中…' : '登录'}
+          </button>
+        </form>
+        <p className="auth-switch">
+          还没有账号? <Link to="/register">注册一个</Link> · <Link to="/crisis">需要帮助?</Link>
+        </p>
+        <details className="demo-box">
+          <summary>演示账号 (点击填充)</summary>
+          <div className="demo-list">
+            {DEMO_ACCOUNTS.map((a) => (
+              <button key={a.username} type="button" className="btn ghost sm demo-item" onClick={() => fillDemo(a.username)}>
+                <span className="demo-name">{a.username}</span>
+                <span className="demo-role">{a.role}</span>
+              </button>
+            ))}
+          </div>
+          <p className="demo-hint">
+            统一密码: Soulnotes123! · 日记/天气/对话仅对学生账号开放, charlie(咨询师)与 diana(管理员)登录后无业务页面权限
+            <br />
+            后端 AI 密钥为占位符时, AI 对话与分析走降级逻辑
+          </p>
+        </details>
+      </div>
+    </div>
+  )
+}

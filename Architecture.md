@@ -179,7 +179,7 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 ## 9. 数据流全景
 
 ```text
-前端 (Vue)
+前端 (React + TypeScript)
 ├─ 日记 CRUD / 天气  ->  DiaryResource -> DiaryService / EmotionWeatherService -> PostgreSQL (analysis_result JSONB)
 ├─ AI 对话 (SSE/WS)  ->  ChatResource / ChatWebSocket -> ChatService -> EmpatheticChatAgent -> TokenStream
 ├─ 预警              ->  WarningDetectionAgent (RED) -> AlertWebSocket -> 前端弹窗 (热线)

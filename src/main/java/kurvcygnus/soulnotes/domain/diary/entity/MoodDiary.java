@@ -3,6 +3,8 @@ package kurvcygnus.soulnotes.domain.diary.entity;
 import io.quarkus.hibernate.reactive.panache.PanacheEntityBase;
 import io.quarkus.hibernate.reactive.panache.PanacheQuery;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Instant;
@@ -35,6 +37,8 @@ public final class MoodDiary extends PanacheEntityBase
     @Column(name = "audio_url")
     public String audioUrl;
 
+    //! 缺少 @JdbcTypeCode(SqlTypes.JSON) 时 Hibernate 按 VARCHAR 提取 JSONB 列, reactive-pg-client 返回 JsonObject 触发 ClassCastException (真实数据库必现).
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "analysis_result", columnDefinition = "JSONB")
     public String analysisResult;
 

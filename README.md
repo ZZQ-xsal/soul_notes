@@ -52,6 +52,18 @@ chmod +x gradlew      # 非 Windows 用户; Windows 请使用 gradlew.bat
 - Dev UI: http://localhost:8080/q/dev/
 - 需要覆盖配置时, 在启动前导出环境变量即可 (见"配置表")
 
+### 前端 (React + TypeScript)
+
+前端位于 `frontend/` (Vite 开发端口 5173, 与 CORS 白名单默认值一致, 开发期 `/api` 与 `/ws` 自动代理到 8080):
+
+```bash
+cd frontend
+npm install
+npm run dev      # http://localhost:5173
+```
+
+包含登录注册 / 日记 CRUD (文字+语音) / 情绪天气预报看板 / 树洞对话 (SSE 流式) / RED 预警弹窗 (WebSocket) / 离线热线兜底页, 详见 `frontend/README.md`。
+
 ## 4. 测试
 
 ```bash
