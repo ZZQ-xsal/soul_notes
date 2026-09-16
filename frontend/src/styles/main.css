@@ -24,7 +24,7 @@
   --text-muted: #898781;
 
   /* 边框与网格 */
-  --border: rgba(11, 11, 11, 0.10);
+  --border: rgba(11, 11, 11, 0.1);
   --gridline: #e1e0d9;
   --axis: #c3c2b7;
 
@@ -39,8 +39,8 @@
   --status-serious: #ec835a;
   --status-critical: #d03b3b;
   --status-critical-ink: #b32c2c; /* critical 加深, 保证浅底上的文字对比度 */
-  --on-warning: #3d2e00;           /* warning 底上的深色文字 */
-  --success-ink: #006300;          /* 成功提示文字 (浅底深绿, 保证 4.5:1) */
+  --on-warning: #3d2e00; /* warning 底上的深色文字 */
+  --success-ink: #006300; /* 成功提示文字 (浅底深绿, 保证 4.5:1) */
 
   /* 天气图标 */
   --weather-sun: #eda100;
@@ -52,13 +52,14 @@
   --radius-lg: 16px;
   --radius-md: 12px;
   --radius-sm: 8px;
-  --shadow-card: 0 1px 2px rgba(11, 11, 11, 0.04), 0 4px 16px rgba(11, 11, 11, 0.05);
+  --shadow-card:
+    0 1px 2px rgba(11, 11, 11, 0.04), 0 4px 16px rgba(11, 11, 11, 0.05);
   --shadow-modal: 0 8px 40px rgba(11, 11, 11, 0.18);
 }
 
 /* 暗色主题: 与亮色同样的色系重新选阶, 并针对暗色表面校验过对比度 */
 @media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme='light'])) {
+  :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
 
     --brand: #74c7ba;
@@ -74,7 +75,7 @@
     --text-secondary: #c3c2b7;
     --text-muted: #898781;
 
-    --border: rgba(255, 255, 255, 0.10);
+    --border: rgba(255, 255, 255, 0.1);
     --gridline: #2c2c2a;
     --axis: #383835;
 
@@ -112,7 +113,13 @@ body {
 body {
   background: var(--bg);
   color: var(--text-primary);
-  font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
   font-size: 15px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -157,7 +164,10 @@ button {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease, opacity 0.15s ease, transform 0.05s ease;
+  transition:
+    background 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.05s ease;
   white-space: nowrap;
 }
 
@@ -201,10 +211,23 @@ button {
   background: transparent;
   color: var(--text-secondary);
   padding: 6px 10px;
+  border-color: var(--border);
 }
 
 .btn.ghost:hover:not(:disabled) {
   background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.filter-actions .btn.secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+.filter-actions .btn.secondary:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--border);
   color: var(--text-primary);
 }
 
@@ -225,7 +248,9 @@ button {
   font-size: 14px;
   font-family: inherit;
   outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .input:focus,
@@ -929,6 +954,14 @@ button {
   min-width: 150px;
 }
 
+.filter-field input[type="date"] {
+  cursor: pointer;
+}
+
+.filter-field input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}
+
 .filter-actions {
   display: flex;
   gap: 8px;
@@ -963,7 +996,9 @@ button {
 }
 
 .diary-card:hover {
-  box-shadow: 0 2px 6px rgba(11, 11, 11, 0.08), 0 8px 24px rgba(11, 11, 11, 0.08);
+  box-shadow:
+    0 2px 6px rgba(11, 11, 11, 0.08),
+    0 8px 24px rgba(11, 11, 11, 0.08);
 }
 
 .diary-card-head {
@@ -1282,7 +1317,11 @@ button {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: linear-gradient(160deg, var(--bg) 0%, color-mix(in srgb, var(--brand-soft) 60%, var(--bg)) 100%);
+  background: linear-gradient(
+    160deg,
+    var(--bg) 0%,
+    color-mix(in srgb, var(--brand-soft) 60%, var(--bg)) 100%
+  );
 }
 
 .auth-card {
