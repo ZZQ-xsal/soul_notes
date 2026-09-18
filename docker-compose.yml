@@ -38,13 +38,13 @@ services:
         condition: service_healthy
     environment:
       #* 全部可覆盖项均为 12-factor 环境变量, 与 application.properties 的 ${VAR:default} 对齐.
-      USER_NAME: kurv
-      USER_PASSWORD: CHANGE_ME_DB_PASSWORD
-      URL: postgresql://postgres:5432/soulnotes
-      REDIS_HOSTS: redis://redis:6379
-      HASH_KEY: change-me-32-bytes-minimum-secret-key!!
-      ORIGINS: http://localhost:5173
-      VOICE_STORAGE_DIR: /data/voice_uploads
+      SOULNOTES_DB_USER: kurv
+      SOULNOTES_DB_PASSWORD: CHANGE_ME_DB_PASSWORD
+      SOULNOTES_DB_URL: postgresql://postgres:5432/soulnotes
+      SOULNOTES_REDIS_HOSTS: redis://redis:6379
+      SOULNOTES_JWT_SECRET: change-me-32-bytes-minimum-secret-key!!
+      SOULNOTES_CORS_ORIGINS: http://localhost:5173
+      SOULNOTES_VOICE_DIR: /data/voice_uploads
     ports:
       - "8080:8080"
     volumes:

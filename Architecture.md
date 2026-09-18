@@ -110,7 +110,7 @@ kurvcygnus.soulnotes/
 - 验签 (`JwtAuthenticationMechanism` / `WebSocketAuthUpgradeCheck`): `jwtParser.verify(token, secret)`
   - 必须显式传入与签发一致的 secret, 否则依赖未配置的 `mp.jwt.verify.*` 公钥会失败
 - **配置要求**:
-  - `jwt.secret` (生产经 `HASH_KEY` 环境变量注入, ≥32 字节, 未配置时启动 fail-fast)
+  - `jwt.secret` (生产经 `SOULNOTES_JWT_SECRET` 环境变量注入, ≥32 字节, 未配置时启动 fail-fast)
   - `mp.jwt.verify.issuer = soul-notes` — 必须与签发 issuer 一致, 否则 smallrye-jwt 用默认 `https://quarkus.io/issuer` 导致全部验签失败
 
 ### 4.2 黑名单登出
@@ -206,20 +206,20 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 
 | 项                                                     | 说明                                                                                       |
 |--------------------------------------------------------|--------------------------------------------------------------------------------------------|
-| `jwt.secret` / `HASH_KEY`                              | 签名密钥 (≥32 字节, 生产必配)                                                              |
+| `jwt.secret` / `SOULNOTES_JWT_SECRET`                              | 签名密钥 (≥32 字节, 生产必配)                                                              |
 | `mp.jwt.verify.issuer`                                 | 必须 = `soul-notes`                                                                        |
-| `quarkus.datasource.*`                                 | PostgreSQL, 账号经 `USER_NAME`/`USER_PASSWORD`, 地址经 `URL` 覆盖                          |
-| `quarkus.redis.hosts` / `REDIS_HOSTS`                  | Redis 地址 (容器/K8s 部署必须覆盖)                                                         |
+| `quarkus.datasource.*`                                 | PostgreSQL, 账号经 `SOULNOTES_DB_USER`/`SOULNOTES_DB_PASSWORD`, 地址经 `SOULNOTES_DB_URL` 覆盖                          |
+| `quarkus.redis.hosts` / `SOULNOTES_REDIS_HOSTS`                  | Redis 地址 (容器/K8s 部署必须覆盖)                                                         |
 | `quarkus.langchain4j.openai.*`                         | AI 端点/模型/密钥 (`ai.openai.*` 占位)                                                     |
 | `crisis.hotline.*`                                     | 热线默认值                                                                                 |
-| `voice.storage.directory` / `VOICE_STORAGE_DIR`        | 语音文件存储目录                                                                           |
+| `voice.storage.directory` / `SOULNOTES_VOICE_DIR`        | 语音文件存储目录                                                                           |
 | `weather.threshold.*`                                  | 天气映射阈值                                                                               |
-| `rate.limit.chat.max-per-minute` / `RATE_LIMIT_CHAT`   | 聊天限流上限 (默认 20 次/分钟)                                                             |
-| `rate.limit.login.max-per-minute` / `RATE_LIMIT_LOGIN` | 登录限流上限 (默认 10 次/分钟)                                                             |
-| `asr.callback.api-key` / `ASR_CALLBACK_API_KEY`        | ASR 回调密钥, 配置后强制校验 `X-API-Key`                                                   |
+| `rate.limit.chat.max-per-minute` / `SOULNOTES_RATE_LIMIT_CHAT`   | 聊天限流上限 (默认 20 次/分钟)                                                             |
+| `rate.limit.login.max-per-minute` / `SOULNOTES_RATE_LIMIT_LOGIN` | 登录限流上限 (默认 10 次/分钟)                                                             |
+| `asr.callback.api-key` / `SOULNOTES_ASR_CALLBACK_KEY`        | ASR 回调密钥, 配置后强制校验 `X-API-Key`                                                   |
 | `quarkus.native.additional-build-args`                 | native 镜像固定默认时区 `Asia/Shanghai` (`-Duser.timezone`; GraalVM 21 起默认内置全部时区) |
 
-`application-dev.properties` (仅 dev profile): 本地 JWT 密钥 / DB 口令 / 均支持 `HASH_KEY`/`USER_NAME`/`USER_PASSWORD` 覆盖;
+`application-dev.properties` (仅 dev profile): 本地 JWT 密钥 / DB 口令 / 均支持 `SOULNOTES_JWT_SECRET`/`SOULNOTES_DB_USER`/`SOULNOTES_DB_PASSWORD` 覆盖;
 提交仓库时由 Git filter (`devsecrets`) 清洗本地密钥为占位符.
 
 ---
@@ -238,7 +238,7 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 - **SSE 流式持久化** (`streamAiReply` 完成回调) 依赖 AI 成功流; 当前桩实现不触发该路径, 真实 AI 下需关注回调线程的 Session 上下文
 - **`UserContextTool`** 在无 Hibernate 上下文的工具线程执行时降级返回默认文案
 - **`/voice/asr-callback`** 免认证; 配置 `asr.callback.api-key` 后强制校验 `X-API-Key` 请求头, 未配置仅原型阶段放行, 生产必配
-- **限流依赖 Redis**: 聊天 (`rate.limit.chat.max-per-minute`, 默认 20) 与登录 (`rate.limit.login.max-per-minute`, 默认 10) 限流均可经 `RATE_LIMIT_CHAT` / `RATE_LIMIT_LOGIN` 环境变量覆盖; Redis 不可用时过滤器降级放行 (fail-open)
+- **限流依赖 Redis**: 聊天 (`rate.limit.chat.max-per-minute`, 默认 20) 与登录 (`rate.limit.login.max-per-minute`, 默认 10) 限流均可经 `SOULNOTES_RATE_LIMIT_CHAT` / `SOULNOTES_RATE_LIMIT_LOGIN` 环境变量覆盖; Redis 不可用时过滤器降级放行 (fail-open)
 
 ---
 
@@ -283,7 +283,7 @@ kubectl apply -f k8s/
 - `k8s/` 包含 ConfigMap / Secret / Deployment / Service / PostgreSQL / Redis / PVC, 按依赖顺序一次应用
 - Deployment 镜像默认 `soulnotes-backend:latest`, 部署前需构建并推送至集群可访问的镜像仓库 (替换 `backend-deployment.yaml` 的 `image`)
 - 存活探针 `/q/health/live`, 就绪探针 `/q/health/ready` (由 `quarkus-smallrye-health` 提供)
-- 语音文件通过 PVC `soulnotes-voice-pvc` 挂载至 `/data/voice_uploads` (`VOICE_STORAGE_DIR`)
+- 语音文件通过 PVC `soulnotes-voice-pvc` 挂载至 `/data/voice_uploads` (`SOULNOTES_VOICE_DIR`)
 
 ### 14.5 环境变量总表
 
@@ -291,13 +291,13 @@ kubectl apply -f k8s/
 
 | 环境变量                                                                   | 对应配置项                                                    | 默认值                                        | 说明                                     |
 |----------------------------------------------------------------------------|---------------------------------------------------------------|-----------------------------------------------|------------------------------------------|
-| `REDIS_HOSTS`                                                              | `quarkus.redis.hosts`                                         | `redis://localhost:6379`                      | Redis 地址, 容器/K8s 必配                |
-| `HASH_KEY`                                                                 | `jwt.secret`                                                  | (空, 必配)                                    | JWT 签名密钥, ≥32 字节                   |
-| `USER_NAME` / `USER_PASSWORD`                                              | `quarkus.datasource.username` / `quarkus.datasource.password` | (必配)                                        | PostgreSQL 账号口令                      |
-| `URL`                                                                      | `quarkus.datasource.reactive.url`                             | `postgresql://localhost:5432/soulnotes`       | PostgreSQL 响应式连接地址                |
-| `ORIGINS`                                                                  | `quarkus.http.cors.origins`                                   | `http://localhost:5173`                       | CORS 白名单                              |
-| `CRISIS_HOTLINE_PRIMARY` / `CRISIS_HOTLINE_BACKUP` / `CRISIS_HOTLINE_NAME` | `crisis.hotline.*`                                            | `400-161-9995` / `12355` / `全国心理援助热线` | 高危预警 (RED) 热线                      |
-| `VOICE_STORAGE_DIR`                                                        | `voice.storage.directory`                                     | `voice_uploads`                               | 语音文件存储目录                         |
-| `RATE_LIMIT_CHAT`                                                          | `rate.limit.chat.max-per-minute`                              | `20`                                          | 聊天限流上限 (次/分钟)                   |
-| `RATE_LIMIT_LOGIN`                                                         | `rate.limit.login.max-per-minute`                             | `10`                                          | 登录限流上限 (次/分钟)                   |
-| `ASR_CALLBACK_API_KEY`                                                     | `asr.callback.api-key`                                        | (空)                                          | ASR 回调密钥, 配置后强制校验 `X-API-Key` |
+| `SOULNOTES_REDIS_HOSTS`                                                              | `quarkus.redis.hosts`                                         | `redis://localhost:6379`                      | Redis 地址, 容器/K8s 必配                |
+| `SOULNOTES_JWT_SECRET`                                                                 | `jwt.secret`                                                  | (空, 必配)                                    | JWT 签名密钥, ≥32 字节                   |
+| `SOULNOTES_DB_USER` / `SOULNOTES_DB_PASSWORD`                                              | `quarkus.datasource.username` / `quarkus.datasource.password` | (必配)                                        | PostgreSQL 账号口令                      |
+| `SOULNOTES_DB_URL`                                                                      | `quarkus.datasource.reactive.url`                             | `postgresql://localhost:5432/soulnotes`       | PostgreSQL 响应式连接地址                |
+| `SOULNOTES_CORS_ORIGINS`                                                                  | `quarkus.http.cors.origins`                                   | `http://localhost:5173`                       | CORS 白名单                              |
+| `SOULNOTES_CRISIS_HOTLINE_PRIMARY` / `SOULNOTES_CRISIS_HOTLINE_BACKUP` / `SOULNOTES_CRISIS_HOTLINE_NAME` | `crisis.hotline.*`                                            | `400-161-9995` / `12355` / `全国心理援助热线` | 高危预警 (RED) 热线                      |
+| `SOULNOTES_VOICE_DIR`                                                        | `voice.storage.directory`                                     | `voice_uploads`                               | 语音文件存储目录                         |
+| `SOULNOTES_RATE_LIMIT_CHAT`                                                          | `rate.limit.chat.max-per-minute`                              | `20`                                          | 聊天限流上限 (次/分钟)                   |
+| `SOULNOTES_RATE_LIMIT_LOGIN`                                                         | `rate.limit.login.max-per-minute`                             | `10`                                          | 登录限流上限 (次/分钟)                   |
+| `SOULNOTES_ASR_CALLBACK_KEY`                                                     | `asr.callback.api-key`                                        | (空)                                          | ASR 回调密钥, 配置后强制校验 `X-API-Key` |

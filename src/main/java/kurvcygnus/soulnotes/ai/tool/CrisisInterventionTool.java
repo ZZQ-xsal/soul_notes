@@ -3,6 +3,7 @@ package kurvcygnus.soulnotes.ai.tool;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import jakarta.enterprise.context.ApplicationScoped;
+import kurvcygnus.soulnotes.utils.constants.ConfigDefaults;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
 
@@ -22,9 +23,10 @@ public final class CrisisInterventionTool
     private final @NotNull String hotlineName;
 
     //* 默认热线兜底 (仅当无 Redis 且无配置时).
-    public static final @NotNull String DEFAULT_PRIMARY = "400-161-9995";
-    public static final @NotNull String DEFAULT_BACKUP = "12355";
-    public static final @NotNull String DEFAULT_NAME   = "全国心理援助热线";
+    //* 委托: 兼容别名, 权威单一来源为 [[ConfigDefaults]], 防止字面量漂移.
+    public static final @NotNull String DEFAULT_PRIMARY = ConfigDefaults.HOTLINE_PRIMARY;
+    public static final @NotNull String DEFAULT_BACKUP  = ConfigDefaults.HOTLINE_BACKUP;
+    public static final @NotNull String DEFAULT_NAME    = ConfigDefaults.HOTLINE_NAME;
 
     public CrisisInterventionTool(
         @ConfigProperty(name = "crisis.hotline.primary", defaultValue = DEFAULT_PRIMARY) @NotNull String primary,

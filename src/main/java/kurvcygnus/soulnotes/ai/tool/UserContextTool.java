@@ -8,6 +8,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import kurvcygnus.soulnotes.domain.diary.entity.MoodDiary;
 import kurvcygnus.soulnotes.utils.JsonUtils;
 import kurvcygnus.soulnotes.utils.TimeUtils;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,13 +29,16 @@ public final class UserContextTool
 {
     private static final Logger LOG = LoggerFactory.getLogger(UserContextTool.class);
 
-    private static final int RECENT_DAYS = 7;
-
     private static final @NotNull TypeReference<Map<String, Object>> ANALYSIS_MAP_TYPE = new TypeReference<>() {};
+
+    //* 用户上下文工具回溯天数.
+    private final int recentDays;
+
+    public UserContextTool(@ConfigProperty(name = "ai.context.recent-days", defaultValue = "7") int recentDays) { this.recentDays = recentDays; }
 
     /**
      * <b>获取用户近期情绪摘要</b>
-     * <p>查询最近 {@value RECENT_DAYS} 天的日记分析结果, 返回自然语言摘要.</p>
+     * <p>查询最近 N 天的日记分析结果, 返回自然语言摘要.</p>
      *
      * @param userId 用户 ID
      * @return 情绪摘要文本
@@ -47,7 +51,7 @@ public final class UserContextTool
         {
             final var uuid    = java.util.UUID.fromString(userId);
             final var end     = LocalDate.now(TimeUtils.ZONE_ASIA_SHANGHAI);
-            final var start   = end.minusDays(RECENT_DAYS);
+            final var start   = end.minusDays(recentDays);
             final var startTs = start.atStartOfDay(TimeUtils.ZONE_ASIA_SHANGHAI).toInstant();
             final var endTs   = end.plusDays(1).atStartOfDay(TimeUtils.ZONE_ASIA_SHANGHAI).toInstant();
 
@@ -58,7 +62,7 @@ public final class UserContextTool
                 atMost(Duration.ofSeconds(5));
 
             if(diaries.isEmpty())
-                return "用户在过去" + RECENT_DAYS + "天内没有日记记录。";
+                return "用户在过去" + recentDays + "天内没有日记记录。";
 
             return buildSummary(diaries);
         }
@@ -70,14 +74,15 @@ public final class UserContextTool
     }
 
     //region 摘要构建
-    private static @NotNull String buildSummary(@NotNull List<MoodDiary> diaries)
+    //* 非 static: 摘要文案需引用构造器注入的配置字段 recentDays.
+    private @NotNull String buildSummary(@NotNull List<MoodDiary> diaries)
     {
         var totalPositive = .0;
         var totalNegative = .0;
         var totalAnxiety  = .0;
         var parsedCount   = 0;
 
-        for(final var diary : diaries)
+        for(final var diary: diaries)
         {
             if(diary.analysisResult == null || diary.analysisResult.isBlank())
                 continue;
@@ -105,7 +110,7 @@ public final class UserContextTool
 
         final var sb = new StringBuilder();
         sb.append("用户近 ").
-            append(RECENT_DAYS).
+            append(recentDays).
             append(" 天共记录了 ").
             append(diaries.size()).
             append(" 篇日记，其中 ").

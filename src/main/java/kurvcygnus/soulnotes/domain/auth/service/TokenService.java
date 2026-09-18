@@ -55,7 +55,7 @@ public final class TokenService
     {
         //! 启动 fail-fast: 未配置或强度不足的密钥直接拒绝启动, 防止生产环境静默使用弱密钥.
         if(jwtSecret.isBlank() || jwtSecret.getBytes(StandardCharsets.UTF_8).length < 32)
-            throw new IllegalStateException("jwt.secret 未配置或强度不足: 请通过 HASH_KEY 环境变量提供至少 32 字节的签名密钥");
+            throw new IllegalStateException("jwt.secret 未配置或强度不足: 请通过 SOULNOTES_JWT_SECRET 环境变量提供至少 32 字节的签名密钥");
 
         this.redisValues = redisDS.value(String.class);
         this.jwtSecret  = jwtSecret;

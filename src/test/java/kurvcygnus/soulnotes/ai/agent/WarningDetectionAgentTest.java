@@ -22,9 +22,10 @@ class WarningDetectionAgentTest
         assertTrue(WarningDetectionAgent.class.isAnnotationPresent(RegisterAiService.class));
     }
 
+    //* 提示词配置化 (Spec §4) 后签名: detect(systemPrompt, content), 首参 @V("systemPrompt") 由调用方传入生效提示词.
     @Test void method_detect_ShouldHaveCorrectSignature() throws Exception
     {
-        final var method = WarningDetectionAgent.class.getDeclaredMethod("detect", String.class);
+        final var method = WarningDetectionAgent.class.getDeclaredMethod("detect", String.class, String.class);
         assertNotNull(method);
         assertEquals(WarningDetectionResult.class, method.getReturnType());
         assertTrue(method.isAnnotationPresent(SystemMessage.class));
@@ -33,10 +34,17 @@ class WarningDetectionAgentTest
 
     @Test void method_detect_ShouldHaveVAnnotation() throws Exception
     {
-        final var method = WarningDetectionAgent.class.getDeclaredMethod("detect", String.class);
+        final var method = WarningDetectionAgent.class.getDeclaredMethod("detect", String.class, String.class);
         final var params = method.getParameters();
-        assertEquals(1, params.length);
-        assertTrue(params[0].isAnnotationPresent(V.class));
-        assertEquals("content", params[0].getAnnotation(V.class).value());
+        assertEquals(2, params.length);
+        assertEquals("systemPrompt", params[0].getAnnotation(V.class).value());
+        assertEquals("content", params[1].getAnnotation(V.class).value());
+    }
+
+    //* @SystemMessage 必须委托给 {{systemPrompt}} 模板变量 (langchain4j 从所有 @V 参数解析), 否则配置覆盖不生效.
+    @Test void method_detect_SystemMessage_ShouldDelegateToSystemPromptVariable() throws Exception
+    {
+        final var method = WarningDetectionAgent.class.getDeclaredMethod("detect", String.class, String.class);
+        assertArrayEquals(new String[] {"{{systemPrompt}}"}, method.getAnnotation(SystemMessage.class).value());
     }
 }

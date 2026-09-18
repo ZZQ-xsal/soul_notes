@@ -9,6 +9,7 @@ import jakarta.ws.rs.core.MediaType;
 import kurvcygnus.soulnotes.config.RedisStartupConfig;
 import kurvcygnus.soulnotes.dto.ApiResponse;
 import kurvcygnus.soulnotes.utils.constants.ApiEndpointConstants;
+import kurvcygnus.soulnotes.utils.constants.ConfigDefaults;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.LinkedHashMap;
@@ -45,8 +46,12 @@ public final class CrisisResource
                 final var parts = raw.split("\\|");
 
                 final var result = new LinkedHashMap<String, String>();
+                //* 名称回退刻意不同于 [[ConfigDefaults#HOTLINE_NAME]] ("全国心理援助热线"): 此分支意味着 Redis 数据已损坏
+                //* 而非缺失 (数据缺失时 RedisStartupConfig 已兜底为权威默认值), 对未知数据断言具体官方名称会造成误导,
+                //* 故保留描述服务类别的泛化标签; backup 同理回退为空串而非 HOTLINE_BACKUP.
                 result.put("name", parts.length >= 1 && !parts[0].isBlank() ? parts[0] : "心理援助热线");
-                result.put("primary", parts.length >= 2 ? parts[1] : "400-161-9995");
+                //* 主号码无此区分: 离线安全网要求任何情况下都必须展示真实可拨热线, 故必须与权威常量同源.
+                result.put("primary", parts.length >= 2 ? parts[1] : ConfigDefaults.HOTLINE_PRIMARY);
                 result.put("backup", parts.length >= 3 ? parts[2] : "");
                 result.put("message", "你不需要独自面对一切, 专业的帮助随时可用。");
 

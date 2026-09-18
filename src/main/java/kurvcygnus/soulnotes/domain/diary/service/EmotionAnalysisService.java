@@ -7,6 +7,7 @@ import kurvcygnus.soulnotes.ai.agent.MoodAnalysisAgent;
 import kurvcygnus.soulnotes.ai.agent.WarningDetectionAgent;
 import kurvcygnus.soulnotes.ai.dto.MoodAnalysisResult;
 import kurvcygnus.soulnotes.ai.dto.WarningDetectionResult;
+import kurvcygnus.soulnotes.config.PromptProvider;
 import kurvcygnus.soulnotes.domain.diary.entity.MoodDiary;
 import kurvcygnus.soulnotes.utils.JsonUtils;
 import kurvcygnus.soulnotes.utils.PrintUtils;
@@ -32,18 +33,21 @@ public final class EmotionAnalysisService
 
     private final @NotNull MoodAnalysisAgent moodAnalysisAgent;
     private final @NotNull WarningDetectionAgent warningDetectionAgent;
+    private final @NotNull PromptProvider promptProvider;
     private final @NotNull AlertWebSocket alertWebSocket;
     private final @NotNull Vertx vertx;
 
     public EmotionAnalysisService(
         @NotNull MoodAnalysisAgent moodAnalysisAgent,
         @NotNull WarningDetectionAgent warningDetectionAgent,
+        @NotNull PromptProvider promptProvider,
         @NotNull AlertWebSocket alertWebSocket,
         @NotNull Vertx vertx
     )
     {
         this.moodAnalysisAgent = moodAnalysisAgent;
         this.warningDetectionAgent = warningDetectionAgent;
+        this.promptProvider = promptProvider;
         this.alertWebSocket = alertWebSocket;
         this.vertx = vertx;
     }
@@ -80,8 +84,8 @@ public final class EmotionAnalysisService
         return vertx.executeBlocking(
                 () ->
                 {
-                    final var moodResult = moodAnalysisAgent.analyze(diary.content);
-                    final var warningResult = warningDetectionAgent.detect(diary.content);
+                    final var moodResult = moodAnalysisAgent.analyze(promptProvider.moodAnalysis(), diary.content);
+                    final var warningResult = warningDetectionAgent.detect(promptProvider.warningDetection(), diary.content);
                     diary.analysisResult = mergeResults(moodResult, warningResult);
 
                     //* 日记场景在线 RED 预警: 立即推送至用户 /ws/alert 连接.

@@ -11,6 +11,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import kurvcygnus.soulnotes.ai.agent.EmpatheticChatAgent;
 import kurvcygnus.soulnotes.ai.agent.WarningDetectionAgent;
 import kurvcygnus.soulnotes.ai.dto.WarningDetectionResult;
+import kurvcygnus.soulnotes.config.PromptProvider;
 import kurvcygnus.soulnotes.domain.chat.dto.ChatMessageVo;
 import kurvcygnus.soulnotes.domain.chat.dto.ChatSendRequest;
 import kurvcygnus.soulnotes.domain.chat.dto.ChatSessionVo;
@@ -19,6 +20,7 @@ import kurvcygnus.soulnotes.exception.ErrorCode;
 import kurvcygnus.soulnotes.exception.IBusinessException;
 import kurvcygnus.soulnotes.utils.JsonUtils;
 import kurvcygnus.soulnotes.websocket.AlertWebSocket;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -46,26 +48,30 @@ public final class ChatService
 {
     private static final Logger LOG = LoggerFactory.getLogger(ChatService.class);
 
-    //* 会话历史最多保留的消息条数, 防止 JSONB 无限增长与 Token 超限.
-    private static final int MAX_HISTORY_MESSAGES = 50;
-
     //region 注入
     private final @NotNull EmpatheticChatAgent empatheticChatAgent;
     private final @NotNull WarningDetectionAgent warningDetectionAgent;
+    private final @NotNull PromptProvider promptProvider;
     private final @NotNull AlertWebSocket alertWebSocket;
     private final @NotNull Vertx vertx;
+    //* 会话历史最多保留的消息条数, 防止 JSONB 无限增长与 Token 超限.
+    private final int maxHistoryMessages;
 
     public ChatService(
         @NotNull EmpatheticChatAgent empatheticChatAgent,
         @NotNull WarningDetectionAgent warningDetectionAgent,
+        @NotNull PromptProvider promptProvider,
         @NotNull AlertWebSocket alertWebSocket,
-        @NotNull Vertx vertx
+        @NotNull Vertx vertx,
+        @ConfigProperty(name = "chat.history.max-messages", defaultValue = "50") int maxHistoryMessages
     )
     {
         this.empatheticChatAgent = empatheticChatAgent;
         this.warningDetectionAgent = warningDetectionAgent;
+        this.promptProvider = promptProvider;
         this.alertWebSocket = alertWebSocket;
         this.vertx = vertx;
+        this.maxHistoryMessages = maxHistoryMessages;
     }
     //endregion
 
@@ -91,7 +97,7 @@ public final class ChatService
             flatMap(session ->
                 {
                     session.addMessage("user", req.content());
-                    session.truncate(MAX_HISTORY_MESSAGES);
+                    session.truncate(maxHistoryMessages);
                     return callAiAndRespond(session, req.content());
                 }
             ).
@@ -103,7 +109,7 @@ public final class ChatService
      * <p>返回 {@link Multi<String>} 以支持前端的逐字渲染.</p>
      * <ul>
      *     <li>加载/创建 Session, 先持久化用户消息</li>
-     *     <li>调用 {@link EmpatheticChatAgent#chat(String, String, String)} 获取 {@link dev.langchain4j.service.TokenStream}</li>
+     *     <li>调用 {@link EmpatheticChatAgent#chat(String, String, String, String)} 获取 {@link dev.langchain4j.service.TokenStream}</li>
      *     <li>在 worker 线程池启动流式调用, 逐块推送至 {@link Multi}</li>
      *     <li>流式完成后以独立事务持久化 AI 回复</li>
      * </ul>
@@ -181,7 +187,8 @@ public final class ChatService
     }
 
     //* 在独立事务中追加并持久化用户消息, 返回受管的 Session (含最新历史).
-    private static @NotNull Uni<AiChatSession> appendUserMessage(@NotNull UUID sessionId, @NotNull String content)
+    //* 非 static: 历史截断需引用构造器注入的配置字段 maxHistoryMessages.
+    private @NotNull Uni<AiChatSession> appendUserMessage(@NotNull UUID sessionId, @NotNull String content)
     {
         return Panache.withTransaction(() ->
             AiChatSession.
@@ -199,7 +206,7 @@ public final class ChatService
                 flatMap(s ->
                     {
                         s.addMessage("user", content);
-                        s.truncate(MAX_HISTORY_MESSAGES);
+                        s.truncate(maxHistoryMessages);
                         return s.persistAndFlush().replaceWith(s);
                     }
                 )
@@ -230,7 +237,7 @@ public final class ChatService
                         s ->
                         {
                             s.addMessage("assistant", reply);
-                            s.truncate(MAX_HISTORY_MESSAGES);
+                            s.truncate(maxHistoryMessages);
                             //* 预警检测在持久化前应用, 确保 warningTriggered 被一并落库.
                             applyWarning(s, detection);
                             return s.persistAndFlush().replaceWithVoid();
@@ -247,7 +254,7 @@ public final class ChatService
         return Multi.createFrom().<String>emitter(emitter ->
             {
                 final var fullReply = new StringBuilder();
-                empatheticChatAgent.chat(session.userId.toString(), history, content).
+                empatheticChatAgent.chat(promptProvider.empatheticChat(), session.userId.toString(), history, content).
                     onPartialResponse(
                         token ->
                         {
@@ -286,12 +293,12 @@ public final class ChatService
     private @NotNull Uni<String> callAiAndRespond(@NotNull AiChatSession session, @NotNull String content)
     {
         final var history = buildConversationHistory(session);
-        return vertx.executeBlocking(() -> empatheticChatAgent.chatSync(session.userId.toString(), history, content), false).
+        return vertx.executeBlocking(() -> empatheticChatAgent.chatSync(promptProvider.empatheticChat(), session.userId.toString(), history, content), false).
             onItem().transformToUni(
                 reply ->
                 {
                     session.addMessage("assistant", reply);
-                    session.truncate(MAX_HISTORY_MESSAGES);
+                    session.truncate(maxHistoryMessages);
                     //* 预警检测在 worker 线程池异步执行, 完成后才持久化, 确保 warningTriggered 被一并落库.
                     return detectWarning(content).
                         onItem().invoke(detection -> applyWarning(session, detection)).
@@ -305,7 +312,7 @@ public final class ChatService
                     //* 失败时返回友好兜底消息, 避免前端展示错误.
                     final var fallback = "我似乎有些走神了，你能再说一遍吗？";
                     session.addMessage("assistant", fallback);
-                    session.truncate(MAX_HISTORY_MESSAGES);
+                    session.truncate(maxHistoryMessages);
                     return session.persist().replaceWith(fallback);
                 }
             );
@@ -318,7 +325,7 @@ public final class ChatService
     //! 检测对象为用户消息而非 AI 回复: 共情回复会复述用户的痛苦内容, 以回复为对象会产生误报.
     private @NotNull Uni<@Nullable WarningDetectionResult> detectWarning(@NotNull String userContent)
     {
-        return vertx.executeBlocking(() -> warningDetectionAgent.detect(userContent), false).
+        return vertx.executeBlocking(() -> warningDetectionAgent.detect(promptProvider.warningDetection(), userContent), false).
             onFailure().invoke(t -> LOG.warn("预警检测失败: {}", t.getMessage())).
             //* 预警检测失败不阻塞主对话流程, 降级为无预警 (null).
             onFailure().recoverWithItem(() -> null);
@@ -354,7 +361,8 @@ public final class ChatService
     }
 
     //* 将 Session 中的消息列表格式化为对话历史文本 (用于 AI 输入).
-    private static @NotNull String buildConversationHistory(@NotNull AiChatSession session)
+    //* 非 static: 滚动上限来自构造器注入的配置字段 maxHistoryMessages.
+    private @NotNull String buildConversationHistory(@NotNull AiChatSession session)
     {
         if(session.messages == null || session.messages.isBlank())
             return "";
@@ -362,7 +370,7 @@ public final class ChatService
         {
             final var messages = JsonUtils.parseJson(session.messages, new TypeReference<List<Map<String, String>>>() {});
             final var sb       = new StringBuilder();
-            final var start    = Math.max(0, messages.size() - MAX_HISTORY_MESSAGES);
+            final var start    = Math.max(0, messages.size() - maxHistoryMessages);
             for(int i = start; i < messages.size(); i++)
             {
                 final var msg     = messages.get(i);

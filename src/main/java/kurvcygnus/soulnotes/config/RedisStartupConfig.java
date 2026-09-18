@@ -7,6 +7,7 @@ import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import kurvcygnus.soulnotes.utils.PrintUtils;
+import kurvcygnus.soulnotes.utils.constants.ConfigDefaults;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
@@ -21,7 +22,6 @@ import org.slf4j.LoggerFactory;
  * @since 2.0
  */
 @ApplicationScoped
-@SuppressWarnings("unused")//! ReactiveRedisDataSource 为 quarkus-redis-client 生成的 Bean, IDE 静态分析误报未满足依赖.
 public final class RedisStartupConfig
 {
     private static final Logger LOG = LoggerFactory.getLogger(RedisStartupConfig.class);
@@ -31,13 +31,14 @@ public final class RedisStartupConfig
 
     //! Redis 不可用时, 使用配置中的默认值, 确保离线兜底.
     //* crisis:hotline 存储格式: "热线名称|电话号码"
-    private static final @NotNull String CRISIS_HOTLINE_KEY = "crisis:hotline";
+    //* 常量命名为 HOTLINE_REDIS_KEY 而非 CRISIS_HOTLINE_KEY, 避免与 SOULNOTES_CRISIS_HOTLINE_* 环境变量族混淆.
+    private static final @NotNull String HOTLINE_REDIS_KEY = "crisis:hotline";
 
     public RedisStartupConfig(
         @NotNull ReactiveRedisDataSource redisDS,
-        @ConfigProperty(name = "crisis.hotline.primary", defaultValue = "400-161-9995") @NotNull String primary,
-        @ConfigProperty(name = "crisis.hotline.backup", defaultValue = "12355") @NotNull String backup,
-        @ConfigProperty(name = "crisis.hotline.name", defaultValue = "全国心理援助热线") @NotNull String name
+        @ConfigProperty(name = "crisis.hotline.primary", defaultValue = ConfigDefaults.HOTLINE_PRIMARY) @NotNull String primary,
+        @ConfigProperty(name = "crisis.hotline.backup", defaultValue = ConfigDefaults.HOTLINE_BACKUP) @NotNull String backup,
+        @ConfigProperty(name = "crisis.hotline.name", defaultValue = ConfigDefaults.HOTLINE_NAME) @NotNull String name
     )
     {
         this.redisValues = redisDS.value(String.class);
@@ -50,7 +51,7 @@ public final class RedisStartupConfig
     void onStart(@Observes @NotNull StartupEvent ev)
     {
         //* 若 Redis 中无 crisis:hotline, 写入配置/默认值.
-        redisValues.setnx(CRISIS_HOTLINE_KEY, defaultHotline).
+        redisValues.setnx(HOTLINE_REDIS_KEY, defaultHotline).
             invoke(
                 success ->
                 {
@@ -77,7 +78,7 @@ public final class RedisStartupConfig
     public @NotNull Uni<String> getHotline()
     {
         //* 响应式读取, 无阻塞; Redis 故障时降级到默认值.
-        return redisValues.get(CRISIS_HOTLINE_KEY).
+        return redisValues.get(HOTLINE_REDIS_KEY).
             map(cached -> (cached != null && !cached.isBlank()) ? cached : defaultHotline).
             onFailure().recoverWithItem(
                 t ->

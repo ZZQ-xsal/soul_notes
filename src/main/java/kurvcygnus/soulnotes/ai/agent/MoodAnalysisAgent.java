@@ -5,7 +5,6 @@ import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 import io.quarkiverse.langchain4j.RegisterAiService;
 import kurvcygnus.soulnotes.ai.dto.MoodAnalysisResult;
-import kurvcygnus.soulnotes.utils.constants.AiPromptConstants;
 
 /**
  * <b>情感分析 Agent</b>
@@ -18,7 +17,9 @@ import kurvcygnus.soulnotes.utils.constants.AiPromptConstants;
 @RegisterAiService
 public interface MoodAnalysisAgent
 {
-    @SystemMessage(AiPromptConstants.MOOD_ANALYSIS_SYSTEM_PROMPT)
+    //* {@code @V("systemPrompt")} 可在 {@code @SystemMessage} 模板内解析: 提示词配置化 (ai.prompt.*, Spec §4) 的接线点,
+    //* 内置默认人设由 PromptProvider 回退保证, Agent 侧不再硬编码常量.
+    @SystemMessage("{{systemPrompt}}")
     @UserMessage("日记内容: {{content}}")
-    MoodAnalysisResult analyze(@V("content") String content);
+    MoodAnalysisResult analyze(@V("systemPrompt") String systemPrompt, @V("content") String content);
 }

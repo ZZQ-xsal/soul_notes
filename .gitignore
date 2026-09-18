@@ -48,4 +48,11 @@ voice_uploads/
 .superpowers/
 docs/superpowers/
 
+#* Setup 向导输出 (本地实例配置, 不入库).
+config/
+.env
+
+#* ZCode CLI 运行时目录 (Task 3 遗留, 不属项目源码).
+.zcode/
+
 DEV.md

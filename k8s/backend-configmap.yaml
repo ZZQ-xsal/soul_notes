@@ -3,7 +3,7 @@ kind: ConfigMap
 metadata:
   name: soulnotes-backend-config
 data:
-  URL: "postgresql://postgres:5432/soulnotes"
-  REDIS_HOSTS: "redis://redis:6379"
-  ORIGINS: "http://localhost:5173"
-  VOICE_STORAGE_DIR: "/data/voice_uploads"
+  SOULNOTES_DB_URL: "postgresql://postgres:5432/soulnotes"
+  SOULNOTES_REDIS_HOSTS: "redis://redis:6379"
+  SOULNOTES_CORS_ORIGINS: "http://localhost:5173"
+  SOULNOTES_VOICE_DIR: "/data/voice_uploads"
