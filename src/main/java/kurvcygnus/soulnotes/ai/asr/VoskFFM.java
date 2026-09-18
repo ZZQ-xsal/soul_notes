@@ -7,7 +7,6 @@ import org.jetbrains.annotations.Nullable;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
-import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import java.lang.foreign.ValueLayout;
@@ -37,9 +36,13 @@ public class VoskFFM
 {
     //region 句柄
 
-    //* final_result 返回的 const char* 在 FFM 下是 0 长度段, getString 会因找不到结束符抛
-    //* IndexOutOfBounds (Spike 坑清单 #1): 声明返回布局时用 64KB 序列布局开读取窗口, 覆盖 Vosk
+    //* final_result 返回的 const char* 在 FFM 下是 0 长度段, 直接 getString 会因找不到结束符抛
+    //* IndexOutOfBounds (Spike 坑清单 #1): 拿到指针后 reinterpret 为 64KB 窗口段, 覆盖 Vosk
     //* final JSON 的实际上限, getString 才有边界可依.
+    //* 窗口经 MemorySegment#reinterpret 运行时重开而非 withTargetLayout 声明在 downcall 描述符上:
+    //! target layout 既无法被 GraalVM Tracing Agent 采集也无法写入 foreign 元数据 (指针仅可表达
+    //! void*), 声明在描述符上会让 native 镜像缺失该 downcall 注册而运行期爆炸; 纯 ADDRESS 签名
+    //! (与 vosk_model_new 同形) 可被完整采集.
     private static final long RESULT_JSON_WINDOW_BYTES = 64 * 1024;
 
     private final @Nullable SymbolLookup lookup; //* 持有引用防止其绑定的 Arena 回收后动态库被卸载 (测试 fake 实例为 null)
@@ -101,7 +104,7 @@ public class VoskFFM
         this.recognizerNewHandle = bind(lookup, "vosk_recognizer_new", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_FLOAT));
         this.recognizerFreeHandle = bind(lookup, "vosk_recognizer_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
         this.acceptWaveformHandle = bind(lookup, "vosk_recognizer_accept_waveform", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
-        this.finalResultHandle = bind(lookup, "vosk_recognizer_final_result", FunctionDescriptor.of(ValueLayout.ADDRESS.withTargetLayout(MemoryLayout.sequenceLayout(RESULT_JSON_WINDOW_BYTES, ValueLayout.JAVA_BYTE)), ValueLayout.ADDRESS));
+        this.finalResultHandle = bind(lookup, "vosk_recognizer_final_result", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
         setLogLevelHandle = bind(lookup, "vosk_set_log_level", FunctionDescriptor.ofVoid(ValueLayout.JAVA_INT));
     }
 
@@ -200,7 +203,12 @@ public class VoskFFM
         final var resultPtr = (MemorySegment) call(finalResultHandle, recognizer);
         if(resultPtr == null || resultPtr.address() == 0)
             throw new IllegalStateException("vosk_recognizer_final_result 返回 NULL");
-        return resultPtr.getString(0, StandardCharsets.UTF_8);
+        //* 0 长度指针段无 getString 边界, reinterpret 为固定窗口段读取 (窗口语义见类常量处注释);
+        //* reinterpret 仅重解读地址不拷贝内存, confined arena 随作用域关闭, cleanup 回调传 null 即无附加释放.
+        try(var arena = Arena.ofConfined())
+        {
+            return resultPtr.reinterpret(RESULT_JSON_WINDOW_BYTES, arena, null).getString(0, StandardCharsets.UTF_8);
+        }
     }
 
     /**
