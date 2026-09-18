@@ -1,4 +1,4 @@
-# Soul Notes 后端 — 架构文档
+# 心灵札记 (Soul Notes) — 架构文档
 
 ## 1. 项目概述
 
@@ -255,7 +255,7 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 | `rate.limit.chat.max-per-minute` / `SOULNOTES_RATE_LIMIT_CHAT`   | 聊天限流上限 (默认 20 次/分钟)                                                             |
 | `rate.limit.login.max-per-minute` / `SOULNOTES_RATE_LIMIT_LOGIN` | 登录限流上限 (默认 10 次/分钟)                                                             |
 | `rate.limit.voice.max-per-minute` / `SOULNOTES_RATE_LIMIT_VOICE` | 语音上传限流上限 (默认 10 次/分钟, 不进向导清单)                                           |
-| `quarkus.native.additional-build-args`                 | native 镜像固定默认时区 `Asia/Shanghai` (`-Duser.timezone`; GraalVM 21 起默认内置全部时区) |
+| `quarkus.native.additional-build-args`                 | native 镜像构建参数: 固定默认时区 `Asia/Shanghai` + 四个静态 HttpClient 持有类 (`AsrRuntimeManager`/`WebhookAlertNotifier`/`HttpModelCatalog`/`ClinicalSchemaNormalizer`) 强制运行时初始化 (防 image heap 固化) + `--enable-native-access` (Vosk FFM 受限调用声明) |
 
 `application-dev.properties` (仅 dev profile): 本地 JWT 密钥 / DB 口令 / 均支持 `SOULNOTES_JWT_SECRET`/`SOULNOTES_DB_USER`/`SOULNOTES_DB_PASSWORD` 覆盖;
 提交仓库时由 Git filter (`devsecrets`) 清洗本地密钥为占位符.
@@ -282,51 +282,6 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 
 ---
 
-## 14. 部署
+## 14. 部署与配置
 
-### 14.1 镜像构建 (JVM)
-
-```bash
-./gradlew build
-docker build -f src/main/docker/Dockerfile.jvm -t soulnotes-backend .
-```
-
-`Dockerfile.jvm` 基于 UBI 9 的 OpenJDK 25 运行时基座 (`registry.access.redhat.com/ubi9/openjdk-25-runtime:1.24`), 分层复制 `build/quarkus-app` 产物 (JVM 模式, 支持原生调试端口等 run-java.sh 能力). JVM 模式运行 ASR 建议经 `JAVA_OPTS_APPEND`/`JDK_JAVA_OPTIONS` 注入 `--enable-native-access=ALL-UNNAMED` (compose/K8s 编排已内置).
-
-### 14.2 Native 构建
-
-```bash
-./gradlew build -Dquarkus.native.enabled=true -Dquarkus.native.container-build=true
-docker build -f src/main/docker/Dockerfile.native -t soulnotes-backend-native .
-```
-
-- `-Dquarkus.native.container-build=true` 使 native 编译在容器内完成, 本地无需安装 GraalVM
-- `Dockerfile.native` 基于 `ubi9-minimal` 将 `build/*-runner` 打包为极简镜像 (无 JVM, 启动更快、内存占用更低); ASR 的 FFM 绑定方案经 Spike 验证 native 可行 (编译期常量 lib 路径形态; 生产代码的运行时 `libraryLookup` 绑定形态与整体镜像的 native 冒烟测试待补), `--enable-native-access` 对 native 镜像不适用, 运行时仅需准备 `asr-model/` 目录
-- 镜像通过 `quarkus.native.additional-build-args=-Duser.timezone=Asia/Shanghai` 固定默认时区, 与 `TimeUtils` 业务时区一致 (GraalVM 21 起 native 默认内置完整 tzdb); `application.properties` + `db/schema/*.sql` + `knowledge/**` 已显式包含进 native 资源
-
-### 14.3 docker-compose
-
-前置: `./gradlew build` (`Dockerfile.jvm` 依赖 `build/quarkus-app` 产物), 然后一键编排:
-
-```bash
-docker compose up -d --build
-```
-
-`docker-compose.yml` 编排 PostgreSQL + Redis + 后端 (JVM 模式), 后端环境变量均为 12-factor 覆盖项 (完整表见 README §7.1), 语音文件挂载命名卷 `voice_uploads`, ASR 运行时挂载命名卷 `asr_model` (`/data/asr-model`); PostgreSQL 数据持久化于命名卷 `pgdata` — 首次启动为空库, 需经 `--setup` 向导 (TTY) 或 `sql_scripts/*_init.sql` 完成一次建库表初始化.
-
-### 14.4 Kubernetes (K8s)
-
-```bash
-kubectl apply -f k8s/
-```
-
-- `k8s/` 包含 ConfigMap / Secret / Deployment / Service / PostgreSQL / Redis / PVC, 按依赖顺序一次应用
-- Deployment 镜像默认 `soulnotes-backend:latest`, 部署前需构建并推送至集群可访问的镜像仓库 (替换 `backend-deployment.yaml` 的 `image`)
-- 存活探针 `/q/health/live`, 就绪探针 `/q/health/ready` (由 `quarkus-smallrye-health` 提供)
-- 语音文件通过 PVC `soulnotes-voice-pvc` 挂载至 `/data/voice_uploads` (`SOULNOTES_VOICE_DIR`)
-- ASR 运行时通过 PVC `soulnotes-asr-pvc` 挂载至 `/data/asr-model` (`SOULNOTES_ASR_RUNTIME_DIR`); Deployment 已注入 `JAVA_OPTS_APPEND=--enable-native-access=ALL-UNNAMED`
-- PostgreSQL 数据持久化于 PVC `soulnotes-postgres-pvc`; 空库首启会被启动校验 BLOCK, 初始化同 §14.3
-
-### 14.5 环境变量
-
-全部 39 项的总表以 README §7.1 为单一权威 (Architecture 不再重复维护, 防双源漂移); 核心覆盖项: `SOULNOTES_DB_URL` / `SOULNOTES_DB_USER` / `SOULNOTES_DB_PASSWORD` / `SOULNOTES_REDIS_HOSTS` / `SOULNOTES_JWT_SECRET` / `SOULNOTES_AI_*` / `SOULNOTES_ASR_RUNTIME_DIR` / `SOULNOTES_VOICE_DIR` / `SOULNOTES_ALERT_WEBHOOK_URL`.
+部署形态 (打包运行 / JVM 镜像 / docker-compose / Kubernetes / Native 镜像), 环境变量总表 (39 项 `SOULNOTES_*`), 配置向导与启动前校验, 以及机构集成 (本地 ASR / Webhook 预警 / 知识包 / 结构化输出) 的**单一权威参考是 [CONFIGURATION.md](./CONFIGURATION.md)** — 本文档不再重复维护, 防双源漂移.
