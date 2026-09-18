@@ -301,7 +301,7 @@ docker build -f src/main/docker/Dockerfile.native -t soulnotes-backend-native .
 ```
 
 - `-Dquarkus.native.container-build=true` 使 native 编译在容器内完成, 本地无需安装 GraalVM
-- `Dockerfile.native` 基于 `ubi9-minimal` 将 `build/*-runner` 打包为极简镜像 (无 JVM, 启动更快、内存占用更低); ASR 的 FFM 绑定已验证 native 可行, `--enable-native-access` 对 native 镜像不适用, 运行时仅需准备 `asr-model/` 目录
+- `Dockerfile.native` 基于 `ubi9-minimal` 将 `build/*-runner` 打包为极简镜像 (无 JVM, 启动更快、内存占用更低); ASR 的 FFM 绑定方案经 Spike 验证 native 可行 (编译期常量 lib 路径形态; 生产代码的运行时 `libraryLookup` 绑定形态与整体镜像的 native 冒烟测试待补), `--enable-native-access` 对 native 镜像不适用, 运行时仅需准备 `asr-model/` 目录
 - 镜像通过 `quarkus.native.additional-build-args=-Duser.timezone=Asia/Shanghai` 固定默认时区, 与 `TimeUtils` 业务时区一致 (GraalVM 21 起 native 默认内置完整 tzdb); `application.properties` + `db/schema/*.sql` + `knowledge/**` 已显式包含进 native 资源
 
 ### 14.3 docker-compose

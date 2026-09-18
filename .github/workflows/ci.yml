@@ -8,6 +8,33 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # Mock-LLM 全链路 @QuarkusTest 强依赖 postgres + redis; GitHub Actions 的 service 容器
+    # 在 hosted runner 上直接绑定 localhost (同网络命名空间), 与本地开发容器同形, 测试无需改动.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kurv
+          POSTGRES_PASSWORD: CHANGE_ME_DB_PASSWORD
+          POSTGRES_DB: soulnotes
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kurv -d soulnotes"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,6 +48,11 @@ jobs:
 
       - name: Make gradlew executable
         run: chmod +x gradlew
+
+      # service 容器的 postgres 是空库: 先应用与向导 applySchema 同源的初始化脚本,
+      # 全链路用例 (users/ai_chat_sessions/mood_diaries) 才有表可用; \i 引用按仓库根相对路径解析.
+      - name: Init database schema
+        run: PGPASSWORD=CHANGE_ME_DB_PASSWORD psql -h localhost -U kurv -d soulnotes -v ON_ERROR_STOP=1 -f init_schema.sql
 
       - name: Run unit tests
         run: ./gradlew :test --console=plain

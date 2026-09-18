@@ -132,7 +132,7 @@ import java.util.Objects;
         final var view = ConfigView.load();
         final IDatabaseGateway gateway = new PgGateway();
         //* HttpModelCatalog 无状态 (静态 HttpClient 复用), Pre-Launch 先于 CDI 启动, 与 ASR/DB 端口同样纯构造注入.
-        final var result = new SetupWizard(Path.of(""), asrControl(view, items), gateway, new HttpModelCatalog()).run(items, view, io);
+        final var result = new SetupWizard(Path.of(""), asrControl(view, items), gateway, new HttpModelCatalog(), dir -> asrControlForDir(dir, view, items)).run(items, view, io);
         if(result.action() == SetupWizard.NextAction.CANCELLED)
             System.exit(1);  //! 取消提示已由向导写往 stderr; 向导中途取消以退出码 1 收场, 区别于下方用户主动退出的正常返回.
         if(result.action() == SetupWizard.NextAction.FAILED)
@@ -173,10 +173,15 @@ import java.util.Objects;
     //* Pre-Launch 全程处于 CDI 启动之前, AsrRuntimeManager 只能纯构造装配 (ready() 为纯文件检查, 不触网);
     //* 运行时目录与 lib JAR 地址均经向导元数据 + 配置视图解析, 与校验/向导同源 (单一来源 application.properties 的
     //* ${ENV:default}), 不复制内置默认字面量; lib URL 经 resolveLibUrl 归一空值, 保证自定义 JAR 源 (如 arm 构建) 生效.
-    //* 注意: 向导落盘后 LAUNCH 前以 freshView 重建实例仅使校验/就绪判定读到新目录, 向导会话内已下载到旧目录的文件不会迁移.
     static @NotNull AsrRuntimeManager asrControl(@NotNull ConfigView view, @NotNull List<PropertyMetaParser.ConfigItemMeta> items)
     {
-        final var runtimeDir = metaValue(view, items, "asr.runtime.dir");
+        return asrControlForDir(metaValue(view, items, "asr.runtime.dir"), view, items);
+    }
+
+    //* 向导会话内 asr.runtime.dir 变更后的重建点: 目录由 SetupWizard 从会话 values 传入 (非本视图解析值),
+    //* 保证向导内下载落会话当前目录、回执以新实例 ready() 判定; lib URL 不在 ASR 触发键内, 仍取向导前视图 (已知边界).
+    private static @NotNull AsrRuntimeManager asrControlForDir(@NotNull String runtimeDir, @NotNull ConfigView view, @NotNull List<PropertyMetaParser.ConfigItemMeta> items)
+    {
         final var libUrl = AsrRuntimeManager.resolveLibUrl(metaValue(view, items, "asr.lib.url"));
         return new AsrRuntimeManager(Path.of(runtimeDir), AsrRuntimeManager.DEFAULT_MODEL_URL, libUrl);
     }

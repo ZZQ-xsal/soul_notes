@@ -8,20 +8,27 @@ import io.vertx.mutiny.core.Vertx;
 import kurvcygnus.soulnotes.ai.agent.EmpatheticChatAgent;
 import kurvcygnus.soulnotes.ai.agent.WarningDetectionAgent;
 import kurvcygnus.soulnotes.ai.dto.WarningDetectionResult;
+import kurvcygnus.soulnotes.config.ClinicalSchemaNormalizer;
 import kurvcygnus.soulnotes.config.PromptProvider;
 import kurvcygnus.soulnotes.domain.chat.entity.AiChatSession;
 import kurvcygnus.soulnotes.utils.JsonUtils;
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import kurvcygnus.soulnotes.utils.constants.AiPromptConstants;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -39,6 +46,12 @@ class ChatServiceTest
 {
     //region 结构化输出管线测试基建
     private static final Vertx VERTX = Vertx.vertx();
+
+    private static final String VALID_CUSTOM_SCHEMA =
+        "{\"type\": \"object\", \"properties\": {\"gad7\": {\"type\": \"integer\"}}, \"required\": [\"gad7\"]}";
+
+    @TempDir
+    static Path tempDir;
 
     @AfterAll static void closeVertx() { VERTX.closeAndAwait(); }
 
@@ -76,13 +89,33 @@ class ChatServiceTest
     }
 
     @SuppressWarnings("ConstantConditions")//! 测试缝: Vertx 为类级共享实例, 其余未用依赖置 null 是纯单测构造服务实例的唯一途径.
-    private static ChatService newService(boolean taggingOn, PromptProvider promptProvider)
-    { return new ChatService(new RecordingChatAgent(""), new StubWarningAgent(), promptProvider, List.of(), VERTX, 50, taggingOn); }
+    private static ChatService newService(boolean taggingOn, PromptProvider promptProvider, ClinicalSchemaNormalizer normalizer)
+    { return new ChatService(new RecordingChatAgent(""), new StubWarningAgent(), promptProvider, normalizer, List.of(), VERTX, 50, taggingOn); }
 
     //* 主链路替身: buildSystemPrompt 在 executeBlocking 内执行, 必须注入可用的 PromptProvider (空配置 = 内置默认).
     private static ChatService newService(boolean taggingOn, EmpatheticChatAgent chatAgent)
     {
-        return new ChatService(chatAgent, new StubWarningAgent(), new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty()), List.of(), VERTX, 50, taggingOn);
+        return new ChatService(chatAgent, new StubWarningAgent(), new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer(), List.of(), VERTX, 50, taggingOn);
+    }
+
+    //* 契约侧替身: LLM 替身一旦被调用即测试失败 — 默认旁路与缓存查询 (cachedFor) 都不允许触发归一化.
+    private static ClinicalSchemaNormalizer unusedNormalizer()
+    {
+        return new ClinicalSchemaNormalizer(
+            new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
+            "", "", "test-model", newCacheFile(),
+            prompt ->
+            {
+                Objects.requireNonNull(prompt);
+                throw new AssertionError("契约组装不得触发 LLM 归一化调用");
+            }
+        );
+    }
+
+    private static Path newCacheFile()
+    {
+        try { return Files.createTempDirectory(tempDir, "chat-cache-").resolve("clinical-schema-cache.json"); }
+        catch(IOException e) { throw new IllegalStateException(e); }
     }
 
     private static AiChatSession newSession()
@@ -118,23 +151,73 @@ class ChatServiceTest
     }
     //endregion
 
-    //region 结构化输出管线: 契约组装
+    //region 结构化输出管线: 契约组装 (三态: 默认 / 自定义已归一 / 自定义未归一)
     @Test void buildSystemPrompt_Off_ReturnsBasePromptOnly() throws Exception
     {
-        assertEquals(AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT, invokeBuildSystemPrompt(newService(false, new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty()))));
+        assertEquals(AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT, invokeBuildSystemPrompt(newService(false, new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer())));
     }
 
-    @Test void buildSystemPrompt_On_AppendsContractAfterBase() throws Exception
+    @Test void buildSystemPrompt_On_DefaultSchema_AppendsShellWithDefaultFields() throws Exception
     {
-        final var expected = AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT + "\n\n" + AiPromptConstants.CLINICAL_OUTPUT_CONTRACT;
-        assertEquals(expected, invokeBuildSystemPrompt(newService(true, new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty()))));
+        final var prompt = invokeBuildSystemPrompt(newService(true, new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer()));
+        assertTrue(prompt.startsWith(AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT), "机构/内置提示词必须在前");
+        assertTrue(prompt.contains("[输出契约]"), "契约壳必须随 clinical.tagging 注入");
+        assertTrue(prompt.contains(AiPromptConstants.CLINICAL_OUTPUT_SCHEMA_DEFAULT), "默认结构定义字段说明必须随契约下发");
+    }
+
+    @Test void buildSystemPrompt_On_DefaultSchema_ShellAndSchemaAssembleContract() throws Exception
+    {
+        final var expected = PrintUtils.quickFormat(
+            "{}\n\n{}",
+            AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT,
+            PrintUtils.quickFormat(AiPromptConstants.CLINICAL_OUTPUT_CONTRACT, AiPromptConstants.CLINICAL_OUTPUT_SCHEMA_DEFAULT)
+        );
+        assertEquals(expected, invokeBuildSystemPrompt(newService(true, new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer())));
     }
 
     @Test void buildSystemPrompt_On_InstitutionalPromptStaysFirst() throws Exception
     {
         //* 合并规则: 机构提示词在前, 功能契约段在后 — 契约首行的最高优先级声明兜底机构指令冲突.
-        final var provider = new PromptProvider(Optional.of("机构自定义人设"), Optional.empty(), Optional.empty());
-        assertEquals("机构自定义人设\n\n" + AiPromptConstants.CLINICAL_OUTPUT_CONTRACT, invokeBuildSystemPrompt(newService(true, provider)));
+        final var provider = new PromptProvider(Optional.of("机构自定义人设"), Optional.empty(), Optional.empty(), Optional.empty());
+        final var expected = PrintUtils.quickFormat(
+            "{}\n\n{}",
+            "机构自定义人设",
+            PrintUtils.quickFormat(AiPromptConstants.CLINICAL_OUTPUT_CONTRACT, AiPromptConstants.CLINICAL_OUTPUT_SCHEMA_DEFAULT)
+        );
+        assertEquals(expected, invokeBuildSystemPrompt(newService(true, provider, unusedNormalizer())));
+    }
+
+    @Test void buildSystemPrompt_On_CustomNormalizedSchema_AppendsNormalizedSchema() throws Exception
+    {
+        final var provider = new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("输出 gad7 分数与风险"));
+        //* 预热缓存: 模拟启动期归一化已成功.
+        final var normalizer = new ClinicalSchemaNormalizer(provider, "", "", "test-model", newCacheFile(), prompt ->
+        {
+            Objects.requireNonNull(prompt);
+            return VALID_CUSTOM_SCHEMA;
+        });
+        assertNotNull(normalizer.ensureNormalized());
+
+        final var prompt = invokeBuildSystemPrompt(newService(true, provider, normalizer));
+
+        assertTrue(prompt.contains("gad7"), "已归一化的自定义结构必须随契约下发");
+        assertTrue(prompt.contains("[输出契约]"), "契约壳仍需注入");
+        assertTrue(prompt.startsWith("输出 gad7 分数与风险".strip()) || prompt.contains(AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT), "基础提示词仍在前");
+    }
+
+    @Test void buildSystemPrompt_On_CustomUnNormalizedSchema_FallsBackToBaseOnly() throws Exception
+    {
+        final var provider = new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("输出 gad7 分数与风险"));
+        //* 空缓存替身: cachedFor 必须只查缓存不触发 LLM, 未命中 = 增强暂禁.
+        final var normalizer = new ClinicalSchemaNormalizer(provider, "", "", "test-model", newCacheFile(),
+            prompt ->
+            {
+                Objects.requireNonNull(prompt);
+                throw new AssertionError("缓存查询不得触发 LLM 归一化调用");
+            });
+
+        assertEquals(AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT, invokeBuildSystemPrompt(newService(true, provider, normalizer)),
+            "自定义结构未归一化时结构化增强暂禁, 仅发送基础提示词");
     }
     //endregion
 
@@ -150,7 +233,7 @@ class ChatServiceTest
         invokeCallAiAndRespond(newService(true, agent), session).
             onFailure().recoverWithItem(() -> null).await().atMost(Duration.ofSeconds(10));
 
-        assertEquals(AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT + "\n\n" + AiPromptConstants.CLINICAL_OUTPUT_CONTRACT, agent.systemPrompts.getFirst(), "契约开启时 systemPrompt 必须携带契约段");
+        assertEquals(PrintUtils.quickFormat("{}\n\n{}", AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT, PrintUtils.quickFormat(AiPromptConstants.CLINICAL_OUTPUT_CONTRACT, AiPromptConstants.CLINICAL_OUTPUT_SCHEMA_DEFAULT)), agent.systemPrompts.getFirst(), "契约开启时 systemPrompt 必须携带契约壳与默认结构定义");
         final var stored = assistantContents(session);
         assertEquals("今天辛苦了", stored.getFirst(), "落库文本必须是剥离契约块后的正文 (历史回喂不再携带契约块)");
         assertFalse(stored.getFirst().contains("soulnotes"));

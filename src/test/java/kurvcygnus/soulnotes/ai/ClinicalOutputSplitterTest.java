@@ -56,6 +56,19 @@ class ClinicalOutputSplitterTest
         assertEquals("v", payload.get("extra").get("k").asText());
     }
 
+    //* 结构定义配置化守卫: 自定义结构归一化后字段集与默认 (tags/riskLevel/summary) 完全不同,
+    //! 拆流器只耦合 <!--soulnotes {...}--> 包装格式, 绝不耦合字段集 — 该守卫防止未来误加字段假设.
+    @Test void split_CustomSchemaPayload_ParsesFine()
+    {
+        final var result = ClinicalOutputSplitter.split(
+            "今天辛苦了<!--soulnotes {\"gad7\": 12, \"risk\": \"高\"}-->");
+        assertEquals("今天辛苦了", result.text());
+        final var payload = result.payload();
+        assertNotNull(payload);
+        assertEquals(12, payload.get("gad7").asInt());
+        assertEquals("高", payload.get("risk").asText());
+    }
+
     @Test void split_TrailingWhitespaceAfterBlock_IsStripped()
     {
         final var result = ClinicalOutputSplitter.split(

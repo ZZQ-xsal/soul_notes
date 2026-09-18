@@ -6,9 +6,8 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.PoolOptions;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.Socket;
+import kurvcygnus.soulnotes.support.InfraProbes;
+
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -28,20 +27,9 @@ class PgGatewayTest
     private static final String USER = "kurv";
     private static final String PASSWORD = "CHANGE_ME_DB_PASSWORD";
 
-    //* 500ms 短超时只为 assume 探路: 判定容器是否存在, 不参与探测本身 (探测超时由网关 connectTimeout 5s 负责).
-    private static boolean reachable(int port)
-    {
-        try(var socket = new Socket())
-        {
-            socket.connect(new InetSocketAddress(HOST, port), 500);
-            return true;
-        }
-        catch(IOException e) { return false; }
-    }
-
     @Test void probeRealServerReturnsOkWhenSchemaComplete()
     {
-        assumeTrue(reachable(PORT), "本机 postgres 未运行, 跳过真机探测用例");
+        assumeTrue(InfraProbes.postgresReachable(), "本机 postgres 未运行, 跳过真机探测用例");
         final var result = new PgGateway().probe(new DbTarget(HOST, PORT, DB, USER, PASSWORD));
         assertEquals(ProbeResult.State.OK, result.state());
         assertTrue(result.missingTables().isEmpty());
@@ -49,14 +37,14 @@ class PgGatewayTest
 
     @Test void probeRealServerMapsWrongPasswordToAuthFailed()
     {
-        assumeTrue(reachable(PORT), "本机 postgres 未运行, 跳过真机探测用例");
+        assumeTrue(InfraProbes.postgresReachable(), "本机 postgres 未运行, 跳过真机探测用例");
         final var result = new PgGateway().probe(new DbTarget(HOST, PORT, DB, USER, "wrong-password-for-test"));
         assertEquals(ProbeResult.State.AUTH_FAILED, result.state());
     }
 
     @Test void probeRealServerMapsMissingDatabaseToDbMissing()
     {
-        assumeTrue(reachable(PORT), "本机 postgres 未运行, 跳过真机探测用例");
+        assumeTrue(InfraProbes.postgresReachable(), "本机 postgres 未运行, 跳过真机探测用例");
         //* 连接不存在的库不产生任何写入: 服务端校验库名后直接 FATAL 3D000.
         final var result = new PgGateway().probe(new DbTarget(HOST, PORT, "soulnotes_probe_absent_db", USER, PASSWORD));
         assertEquals(ProbeResult.State.DB_MISSING, result.state());
@@ -64,7 +52,7 @@ class PgGatewayTest
 
     @Test void probeRefusedPortMapsToUnreachable()
     {
-        assumeTrue(!reachable(5999), "端口 5999 意外被占用, 跳过拒绝连接用例");
+        assumeTrue(!InfraProbes.reachable(HOST, 5999), "端口 5999 意外被占用, 跳过拒绝连接用例");
         final var result = new PgGateway().probe(new DbTarget(HOST, 5999, DB, USER, PASSWORD));
         assertEquals(ProbeResult.State.UNREACHABLE, result.state());
     }
@@ -73,7 +61,7 @@ class PgGatewayTest
     //* 此处用只读双 SELECT 实证本版本 Vert.x 支持该语义, 不触达任何写路径.
     @Test void simpleQueryProtocolAcceptsMultiStatementBatch()
     {
-        assumeTrue(reachable(PORT), "本机 postgres 未运行, 跳过真机探测用例");
+        assumeTrue(InfraProbes.postgresReachable(), "本机 postgres 未运行, 跳过真机探测用例");
         final var vertx = Vertx.vertx();
         try
         {

@@ -20,13 +20,16 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 
 /**
  * <b>Pre-Launch 配置向导</b>.
  * <p>pnpm 风格折叠清单的交互实现: 模式选择 (简单 = 仅必填 / 全面 = 全部) → 逐项编辑 (就地校验) →
  * 摘要确认 → 双文件落盘 → 完成屏 (启动/退出). 仅显式值进入结果与落盘, 未动项保持内置默认.</p>
  * <p>ASR 运行时交互: 保存 {@code asr.engine} / {@code asr.runtime.dir} 条目后触发一次
- * 就绪检查, 未就绪现场询问是否立即下载 (进度行内回显); 控制端口经构造注入, null = 禁用该交互.</p>
+ * 就绪检查, 未就绪现场询问是否立即下载 (进度行内回显); 控制端口经构造注入, null = 禁用该交互.
+ * 会话内改过 {@code asr.runtime.dir} 时, 就绪检查/下载/回执一律以目录重建函数产出的
+ * "当前目录实例" 为准 (下载落会话新目录, 回执以新实例 {@code ready()} 判定), 重建函数 null 时回退预装配端口.</p>
  * <p>数据库交互流: 数据库组三项 (URL/用户名/密码) 全部保存且值指纹变化时触发一次性
  * probe → 五态分流 (直通 ✔ / 即时 ✗ 回重编辑 / 自动建库 / 询问建表); 网关经构造注入, null = 禁用该流.</p>
  * <p>AI 模型拉取步: AI 接入组 endpoint+key 保存且值指纹变化时触发一次性模型列表拉取
@@ -82,8 +85,10 @@ public final class SetupWizard
     private static final @NotNull SecureRandom RANDOM = new SecureRandom();
 
     //* ASR 运行时交互触发键: 保存任一条目后触发一次 ready() 检查 (asr.lib.url 仅改下载源, 不触发).
+    //* ASR_RUNTIME_DIR_ENV 单独收口: 会话内该值变化时, 就绪检查/下载须以它重建控制实例 (单一来源).
+    private static final @NotNull String ASR_RUNTIME_DIR_ENV = "SOULNOTES_ASR_RUNTIME_DIR";
     private static final @NotNull Set<String> ASR_TRIGGER_ENVS =
-        Set.of("SOULNOTES_ASR_ENGINE", "SOULNOTES_ASR_RUNTIME_DIR");
+        Set.of("SOULNOTES_ASR_ENGINE", ASR_RUNTIME_DIR_ENV);
 
     //* DB 交互流触发键: 数据库组三项 envName; 组名与元数据单一来源 (application.properties @group) 对齐.
     private static final @NotNull String DB_GROUP = "数据库";
@@ -103,6 +108,9 @@ public final class SetupWizard
 
     private final @NotNull Path workDir;
     private final @Nullable IAsrRuntimeControl asrControl;
+    //* 会话内 asr.runtime.dir 变更后的重建点: 目录 (来自会话 values) → 该目录的控制实例.
+    //* null = 无重建能力, ASR 交互恒用预装配 asrControl (兼容既有构造器与旧测试).
+    private final @Nullable Function<String, IAsrRuntimeControl> asrControlForDir;
     private final @Nullable IDatabaseGateway dbGateway;
     private final @Nullable IModelCatalog modelCatalog;
 
@@ -135,12 +143,31 @@ public final class SetupWizard
         @Nullable IDatabaseGateway dbGateway,
         @Nullable IModelCatalog modelCatalog
     )
+    { this(workDir, asrControl, dbGateway, modelCatalog, null); }
+
+    /**
+     * <span style="color: 95cc6d">全量构造入口 (含 ASR 目录重建点).</span>
+     * @param workDir          落盘工作目录
+     * @param asrControl       ASR 运行时控制端口, 以向导前配置视图预装配 (null = 禁用未就绪询问/下载交互)
+     * @param dbGateway        数据库探测/修复网关 (null = 禁用数据库交互流)
+     * @param modelCatalog     模型目录拉取端口 (null = 禁用 AI 模型拉取步)
+     * @param asrControlForDir 会话内运行时目录 → 控制实例的重建函数 (null = 恒用预装配端口);
+     *                         就绪检查/下载/回执以它产出的当前目录实例为准, 防 "下载落旧目录 + 误报就绪"
+     */
+    public SetupWizard(
+        @NotNull Path workDir,
+        @Nullable IAsrRuntimeControl asrControl,
+        @Nullable IDatabaseGateway dbGateway,
+        @Nullable IModelCatalog modelCatalog,
+        @Nullable Function<String, IAsrRuntimeControl> asrControlForDir
+    )
     {
         Objects.requireNonNull(workDir, "Param \"workDir\" must not be null!");
         this.workDir = workDir;
         this.asrControl = asrControl;
         this.dbGateway = dbGateway;
         this.modelCatalog = modelCatalog;
+        this.asrControlForDir = asrControlForDir;
     }
 
     //endregion
@@ -187,7 +214,7 @@ public final class SetupWizard
                         case SAVE ->
                         {
                             //* ASR 条目保存后触发运行时就绪检查: EOF 于询问符处沿用向导取消路径.
-                            if(!offerAsrRuntimeIfNotReady(visible.get(expanded), io)) return cancelled(io);
+                            if(!offerAsrRuntimeIfNotReady(visible.get(expanded), values, io)) return cancelled(io);
                             //* 数据库组三项齐备且值指纹变化时触发 DB 探测/修复流: EOF 于询问符处同走取消路径.
                             final var step = runDbFlowIfTriggered(visible.get(expanded), values, dbProbeKey, io);
                             if(step.outcome() == DbFlowOutcome.CANCEL) return cancelled(io);
@@ -384,12 +411,18 @@ public final class SetupWizard
 
     /**
      * <span style="color: 95ccfd">ASR 条目保存后的就绪检查与就地下载询问.</span>
-     * <p>就绪静默跳过 — 反复提示会淹没清单主流程; 就绪判定为纯文件检查, 即刻返回.</p>
+     * <p>就绪静默跳过 — 反复提示会淹没清单主流程; 就绪判定为纯文件检查, 即刻返回.
+     * 检查/下载/回执一律以 {@link #effectiveAsrControl} 的 "当前目录实例" 为准.</p>
      * @return false = 询问符处 EOF (沿用向导取消路径), 调用方立即收场
      */
-    private boolean offerAsrRuntimeIfNotReady(@NotNull PropertyMetaParser.ConfigItemMeta meta, @NotNull TerminalIO io)
+    private boolean offerAsrRuntimeIfNotReady(
+        @NotNull PropertyMetaParser.ConfigItemMeta meta,
+        @NotNull Map<String, String> values,
+        @NotNull TerminalIO io
+    )
     {
-        if(asrControl == null || !ASR_TRIGGER_ENVS.contains(meta.envName()) || asrControl.ready())
+        final @Nullable IAsrRuntimeControl control = effectiveAsrControl(values);
+        if(control == null || !ASR_TRIGGER_ENVS.contains(meta.envName()) || control.ready())
             return true;
         io.writeOut(PrintUtils.quickFormat("{}\n", dim("ASR 运行时未就绪 (缺少本地模型或动态库, 语音转写暂不可用)")));
         while(true)
@@ -400,7 +433,7 @@ public final class SetupWizard
             final var t = raw.strip();
             if(t.isEmpty() || t.equalsIgnoreCase("y"))
             {
-                downloadRuntime(io);
+                downloadRuntime(control, io);
                 return true;
             }
             if(t.equalsIgnoreCase("n"))
@@ -412,18 +445,29 @@ public final class SetupWizard
         }
     }
 
-    //* 阻塞等待下载 (Pre-Launch 无事件循环, await 是唯一消费方式); 失败不中断向导, 就地给灰色提示后继续主流程.
-    private void downloadRuntime(@NotNull TerminalIO io)
+    //* ASR 交互的控制实例解析 (重建点): 会话内改过运行时目录时以目录重建, 否则用预装配端口 —
+    //* 保证下载落会话当前目录而非向导启动前的旧目录, 就绪判定与回执同源 (不说谎).
+    private @Nullable IAsrRuntimeControl effectiveAsrControl(@NotNull Map<String, String> values)
     {
-        final @Nullable IAsrRuntimeControl control = asrControl;
-        if(control == null)
-            return;  //! 不可达防御: 下载入口只会由 offerAsrRuntimeIfNotReady 在端口非 null 时进入.
+        final var sessionDir = values.get(ASR_RUNTIME_DIR_ENV);
+        if(sessionDir != null && asrControlForDir != null)
+            return asrControlForDir.apply(sessionDir);
+        return asrControl;
+    }
+
+    //* 阻塞等待下载 (Pre-Launch 无事件循环, await 是唯一消费方式); 失败不中断向导, 就地给灰色提示后继续主流程.
+    //* 回执以本实例 ready() 判定而非下载动作的完成信号: 下载成功 ≠ 运行时就绪, 两者分叉时必须如实告知.
+    private static void downloadRuntime(@NotNull IAsrRuntimeControl control, @NotNull TerminalIO io)
+    {
         final var printed = new AtomicBoolean(false);  //* 首帧直接输出, 后续帧先抹上一行再重写.
         try
         {
             control.ensureDownloaded((received, total) -> renderProgress(io, printed, received, total)).
                 await().indefinitely();
-            io.writeOut(PrintUtils.quickFormat("{}\n", ok("✔ ASR 运行时就绪")));
+            if(control.ready())
+                io.writeOut(PrintUtils.quickFormat("{}\n", ok("✔ ASR 运行时就绪")));
+            else
+                io.writeOut(PrintUtils.quickFormat("{}\n", dim("下载已完成, 但运行时仍未就绪, 可稍后手动放置或重试")));
         }
         catch(Exception e)
         {

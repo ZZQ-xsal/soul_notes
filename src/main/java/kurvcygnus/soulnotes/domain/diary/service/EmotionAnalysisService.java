@@ -1,5 +1,6 @@
 package kurvcygnus.soulnotes.domain.diary.service;
 
+import io.quarkus.arc.All;
 import io.smallrye.mutiny.Uni;
 import io.vertx.mutiny.core.Vertx;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -11,11 +12,13 @@ import kurvcygnus.soulnotes.config.PromptProvider;
 import kurvcygnus.soulnotes.domain.diary.entity.MoodDiary;
 import kurvcygnus.soulnotes.utils.JsonUtils;
 import kurvcygnus.soulnotes.utils.PrintUtils;
-import kurvcygnus.soulnotes.websocket.AlertWebSocket;
+import kurvcygnus.soulnotes.websocket.IAlertNotifier;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.UUID;
 
 /**
  * <b>情感分析服务</b>
@@ -26,7 +29,7 @@ import java.util.LinkedHashMap;
  * @since 2.0
  */
 @ApplicationScoped
-@SuppressWarnings("unused")//! AI Agent / AlertWebSocket 为 Quarkus 运行时生成 Bean, IDE 静态分析误报未满足依赖.
+@SuppressWarnings("unused")//! AI Agent 为 Quarkus 运行时生成 Bean, IDE 静态分析误报未满足依赖.
 public final class EmotionAnalysisService
 {
     private static final @NotNull Logger LOG = PrintUtils.getLogger();
@@ -34,21 +37,24 @@ public final class EmotionAnalysisService
     private final @NotNull MoodAnalysisAgent moodAnalysisAgent;
     private final @NotNull WarningDetectionAgent warningDetectionAgent;
     private final @NotNull PromptProvider promptProvider;
-    private final @NotNull AlertWebSocket alertWebSocket;
+    //* 预警渠道 fan-out (与 ChatService 同构): 日记来源 RED 与聊天共用 websocket/webhook 双渠道互为冗余.
+    //* @All 是 Arc 集合注入的必要限定符: 缺失时注入点退化为对 List 类型 bean 的普通解析, 应用启动即
+    //! UnsatisfiedResolutionException (渠道全部缺席时 @All 语义为注入空集合, 不阻断启动).
+    private final @NotNull List<IAlertNotifier> alertNotifiers;
     private final @NotNull Vertx vertx;
 
     public EmotionAnalysisService(
         @NotNull MoodAnalysisAgent moodAnalysisAgent,
         @NotNull WarningDetectionAgent warningDetectionAgent,
         @NotNull PromptProvider promptProvider,
-        @NotNull AlertWebSocket alertWebSocket,
+        @All @NotNull List<IAlertNotifier> alertNotifiers,
         @NotNull Vertx vertx
     )
     {
         this.moodAnalysisAgent = moodAnalysisAgent;
         this.warningDetectionAgent = warningDetectionAgent;
         this.promptProvider = promptProvider;
-        this.alertWebSocket = alertWebSocket;
+        this.alertNotifiers = alertNotifiers;
         this.vertx = vertx;
     }
 
@@ -88,15 +94,9 @@ public final class EmotionAnalysisService
                     final var warningResult = warningDetectionAgent.detect(promptProvider.warningDetection(), diary.content);
                     diary.analysisResult = mergeResults(moodResult, warningResult);
 
-                    //* 日记场景在线 RED 预警: 立即推送至用户 /ws/alert 连接.
+                    //* 日记场景在线 RED 预警: 逐渠道 fire-and-forget 推送 (websocket + webhook 互为冗余).
                     if("RED".equals(warningResult.warningLevel()))
-                    {
-                        alertWebSocket.pushAlert(diary.userId, warningResult.reason()).
-                            subscribe().with(
-                                v -> {},
-                                t -> LOG.warn("日记 RED 预警推送失败: userId={}, {}", diary.userId, t.getMessage())
-                            );
-                    }
+                        pushRedAlert(diary.userId, warningResult.reason());
                     return diary;
                 },
                 false
@@ -105,6 +105,19 @@ public final class EmotionAnalysisService
     }
 
     //region 辅助方法
+
+    //* 日记来源 RED 预警的渠道分发 (与 ChatService#applyWarning 同构): 逐渠道 fire-and-forget, 不回落具体渠道.
+    //* Uni 是惰性的, 必须订阅才真正触发推送; 渠道实现保证失败仅日志 (接口契约),
+    //! 订阅级兜底仅防渠道外的意外实现缺陷, 不允许预警分发拖垮分析主流程.
+    private void pushRedAlert(@NotNull UUID userId, @NotNull String reason)
+    {
+        for(final var notifier : alertNotifiers)
+            notifier.notify(userId, "RED", reason).
+                subscribe().with(
+                    v -> {},
+                    t -> LOG.warn("日记 RED 预警推送执行失败: channel={}, userId={}, {}", notifier.channel(), userId, t.getMessage())
+                );
+    }
 
     private static @NotNull String mergeResults(
         @NotNull MoodAnalysisResult mood,

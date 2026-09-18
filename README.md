@@ -134,7 +134,7 @@ chmod +x gradlew      # 非 Windows 用户; Windows 请使用 gradlew.bat
 docker build -f src/main/docker/Dockerfile.native -t soulnotes-backend-native .
 ```
 
-`Dockerfile.native` 基于 ubi9-minimal, 无 JVM, 启动更快、内存占用更低. 镜像通过 `quarkus.native.additional-build-args=-Duser.timezone=Asia/Shanghai` 固定默认时区 (GraalVM 21 起 native 默认内置完整 tzdb). ASR 的 FFM 绑定已在 GraalVM Native Image 双侧验证可行 (JVM 模式的 `--enable-native-access` 注入对 native 镜像不适用也不需要), 但运行时仍需按 §8 挂载/准备 `asr-model/` 目录.
+`Dockerfile.native` 基于 ubi9-minimal, 无 JVM, 启动更快、内存占用更低. 镜像通过 `quarkus.native.additional-build-args=-Duser.timezone=Asia/Shanghai` 固定默认时区 (GraalVM 21 起 native 默认内置完整 tzdb). ASR 的 FFM 绑定方案经 Spike 验证可行 (编译期常量 lib 路径形态, JVM 与 Native Image 双侧, 证据: `docs/superpowers/notes/2026-09-14-asr-spike-notes.md`); 生产代码的运行时 `libraryLookup` 绑定形态与整体镜像的 native 冒烟测试待补. JVM 模式的 `--enable-native-access` 注入对 native 镜像不适用也不需要, 但运行时仍需按 §8 挂载/准备 `asr-model/` 目录.
 
 ## 6. 演示账号
 
@@ -173,6 +173,7 @@ docker build -f src/main/docker/Dockerfile.native -t soulnotes-backend-native .
 | `SOULNOTES_AI_MAX_TOKENS`             | 单次回复 Token 上限                                    | `1024`                                    |
 | `SOULNOTES_AI_TIMEOUT`                | AI 请求超时 (Quarkus Duration 格式, 如 30s / 1m)       | `30s`                                     |
 | `SOULNOTES_CLINICAL_TAGGING`          | 结构化输出契约开关 (on/true 开启, 默认关闭; 见 §11)    | `false`                                   |
+| `SOULNOTES_PROMPT_CLINICAL_SCHEMA`    | 副医生结构定义 (自然语言, 启动时经 LLM 归一化并缓存; 见 §11.1) | 空 (内置 canonical 结构)          |
 | `SOULNOTES_ASR_ENGINE`                | ASR 引擎, 当前仅 `vosk` 可选, 其他值拒绝启动           | `vosk`                                    |
 | `SOULNOTES_ASR_RUNTIME_DIR`           | ASR 运行时目录 (lib/ + model/, 见 §8)                  | `asr-model`                               |
 | `SOULNOTES_ASR_LIB_URL`               | libvosk 来源 JAR 地址 (非动态库直链; 留空用内置默认)   | 空 (aliyun 镜像 vosk-0.3.45 JAR)          |
@@ -348,3 +349,22 @@ Webhook 行为契约:
   选 HTML 注释而非 code fence: 注释在 markdown/HTML 渲染下天然不渲染 — 即使剥离失败透传, 前端用户也不可见; 标识符 `soulnotes` 固定 (解析器只认自家标记), schema 宽松 (未知字段忽略)
 - **拆流**: 后端以宽容正则 (容忍 `<!---` / 空白 / `--!>` 变体) 取回复中最后一个块, Jackson 解析成功 → 正文剔除该块后返回前端 (`ChatMessageVo` 不变, 前端零改动, 仅见共情文本), 结构化结果本轮仅 DEBUG 日志; 解析失败/无块 → 整条回复按纯文本透传 (优雅降级)
 - **边界**: 剥离是主机制, 注释隐形仅是兜底 — 前端若以纯文本 (非 markdown) 渲染, 透传的注释会以原文可见, 两者缺一不可
+
+### 11.1 结构定义配置化 (自然语言 → LLM 归一化 → 指纹缓存)
+
+契约中的 "JSON 结构描述" 可由机构自定义 (`SOULNOTES_PROMPT_CLINICAL_SCHEMA`, 自然语言描述字段与语义), 因自然语言结构不稳定, 新增 **LLM 归一化 + SHA-256 指纹缓存** 层:
+
+- **契约拆分**: 契约 = **固定壳** (优先级声明 + `<!--soulnotes {...}-->` 包装格式 + 三条硬性要求) + **结构定义节** (可配置). `soulnotes` 标识符与包装格式由系统固定 (拆流器正则强耦合), 勿在自定义描述中更改包装方式
+- **默认免归一 (canonical)**: 内置 tags/riskLevel/summary 字段说明即为默认结构, 未配置或留空时直接使用, **零 LLM 调用** — 回滚到默认 = 永久稳定
+- **归一化**: 自定义描述在启动时异步送 LLM 转换为严格 JSON Schema (draft 2020-12 形态: 顶层 object + properties/required), 产物经形态校验 (合法 JSON 对象且含 properties), 不合法重试一次
+- **指纹缓存**: 按 `SHA-256(有效结构描述)` 多条目缓存, 持久化到工作目录 `config/clinical-schema-cache.json` (`{"entries":[{promptHash, schema, normalizedAt, model}]}`, 按归一时间保留最近 5 条) + 内存 L1. 自定义 A → 默认 → 回到 A 时命中 A 缓存, 回滚语义为缓存命中 + 行为一致
+- **降级矩阵** (绝不让不稳定结构上线):
+
+  | 场景 | 行为 |
+  |------|------|
+  | 默认结构 (未配置/留空) | 免归一直用, 零 LLM 调用 |
+  | 自定义 + 归一化成功 | 契约下发归一化 JSON Schema, 落盘缓存 |
+  | 自定义 + LLM 失败但缓存命中 | 使用缓存 |
+  | 自定义 + LLM 失败且无缓存 | WARN + 结构化输出增强暂禁 (仅发基础提示词), 等下次启动重试 |
+
+- **`config/clinical-schema-cache.json`**: 本地实例运行时产物, 已被 `.gitignore` 锚定排除; 文件损坏时自动忽略并从头累积, 不影响启动

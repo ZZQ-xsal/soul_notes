@@ -19,21 +19,26 @@ public final class PromptProvider
     private final @NotNull Optional<String> empathetic;
     private final @NotNull Optional<String> warning;
     private final @NotNull Optional<String> mood;
+    //* 副医生结构定义 (自然语言): 空白回退 canonical 默认, 非空经 ClinicalSchemaNormalizer 归一化后上线.
+    private final @NotNull Optional<String> clinicalSchema;
 
     public PromptProvider(
         @ConfigProperty(name = "ai.prompt.empathetic-chat") @NotNull Optional<String> empathetic,
         @ConfigProperty(name = "ai.prompt.warning-detection") @NotNull Optional<String> warning,
-        @ConfigProperty(name = "ai.prompt.mood-analysis") @NotNull Optional<String> mood
+        @ConfigProperty(name = "ai.prompt.mood-analysis") @NotNull Optional<String> mood,
+        @ConfigProperty(name = "ai.prompt.clinical-schema") @NotNull Optional<String> clinicalSchema
     )
     {
         this.empathetic = empathetic;
         this.warning = warning;
         this.mood = mood;
+        this.clinicalSchema = clinicalSchema;
     }
 
     public @NotNull String empatheticChat() { return effective(empathetic, AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT); }
     public @NotNull String warningDetection() { return effective(warning, AiPromptConstants.WARNING_DETECTION_SYSTEM_PROMPT); }
     public @NotNull String moodAnalysis() { return effective(mood, AiPromptConstants.MOOD_ANALYSIS_SYSTEM_PROMPT); }
+    public @NotNull String clinicalSchema() { return effective(clinicalSchema, AiPromptConstants.CLINICAL_OUTPUT_SCHEMA_DEFAULT); }
 
     private static @NotNull String effective(@NotNull Optional<String> override, @NotNull String fallback)
     {

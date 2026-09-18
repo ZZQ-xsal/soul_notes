@@ -8,6 +8,7 @@ import io.quarkus.test.junit.TestProfile;
 import io.restassured.RestAssured;
 import jakarta.inject.Inject;
 import kurvcygnus.soulnotes.domain.chat.entity.AiChatSession;
+import kurvcygnus.soulnotes.support.InfraProbes;
 import kurvcygnus.soulnotes.support.MockLlmProfile;
 import kurvcygnus.soulnotes.support.MockLlmServer;
 import kurvcygnus.soulnotes.support.PipelineUsers;
@@ -15,6 +16,7 @@ import kurvcygnus.soulnotes.utils.PrintUtils;
 import kurvcygnus.soulnotes.utils.constants.ApiEndpointConstants;
 import org.hibernate.reactive.mutiny.Mutiny;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIf;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -42,12 +44,19 @@ import static org.junit.jupiter.api.Assertions.*;
  *     <li>④ {@code /chat/stream} SSE: 多 chunk 到达且拼接等于 mock 文本</li>
  *     <li>⑤ {@code /ws/chat} WebSocket: 流式帧拼接等于 mock 文本 (token 鉴权升级)</li>
  * </ul>
+ * <p>基建守卫: 强依赖本机 postgres + redis (CI 由 service 容器提供), 缺席时应用启动即失败,
+ * {@code assumeTrue} 来不及救 — 以 {@code @EnabledIf} 在 JUnit 执行条件层整类跳过 (本地开发者双保险).</p>
  * @since 2.0
  */
 @QuarkusTest
 @TestProfile(MockLlmProfile.class)
+@EnabledIf(value = "pipelineInfraReachable", disabledReason = "本机 postgres/redis 未运行, 跳过 Mock-LLM 全链路用例")
 class ChatPipelineTest
 {
+    //* @EnabledIf 的引用方法必须落在被注解类内: QuarkusTest 类加载器下跨类全限定字符串解析失败 (实测),
+    //* 故逐类以同名静态方法委托公共探测 [[InfraProbes#pipelineInfraReachable]], 判定逻辑单一来源不变.
+    static boolean pipelineInfraReachable() { return InfraProbes.pipelineInfraReachable(); }
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
     private static final Duration AWAIT = Duration.ofSeconds(20);

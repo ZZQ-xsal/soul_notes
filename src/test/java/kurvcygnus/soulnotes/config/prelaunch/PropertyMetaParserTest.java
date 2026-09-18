@@ -133,6 +133,20 @@ class PropertyMetaParserTest
         assertTrue(items.stream().noneMatch(i -> "app.brand-name".equals(i.key())), "品牌名属部署微调, 不得进入向导清单");
     }
 
+    //* 临床结构定义项: 带标签进入 AI 高级组, 紧邻结构化输出契约开关 (向导展示顺序即文件顺序).
+    @Test void parseResourceClinicalSchemaTaggedAdjacentToClinicalTagging()
+    {
+        final var items = PropertyMetaParser.parseResource();
+        final var schema = indexOfEnv(items, "SOULNOTES_PROMPT_CLINICAL_SCHEMA");
+        final var tagging = indexOfEnv(items, "SOULNOTES_CLINICAL_TAGGING");
+        assertTrue(schema >= 0 && tagging >= 0, "ai.prompt.clinical-schema 必须带标签进入向导");
+        assertEquals(items.get(tagging).group(), items.get(schema).group(), "必须与 clinical.tagging 同组 (AI 高级)");
+        assertEquals(1, schema - tagging, "必须紧邻 clinical.tagging (向导展示顺序即文件顺序)");
+        assertEquals("", items.get(schema).defaultValue(), "默认必须为空 (空 = 使用内置 canonical 结构定义)");
+        assertTrue(items.get(schema).explain().contains("归一"), "说明必须写明启动时经 LLM 归一化并缓存");
+        assertTrue(items.get(schema).explain().contains("soulnotes"), "说明必须写明标识符由系统固定");
+    }
+
     private static int indexOfEnv(List<PropertyMetaParser.ConfigItemMeta> items, String env)
     {
         return IntStream.range(0, items.size()).filter(i -> env.equals(items.get(i).envName())).findFirst().orElse(-1);

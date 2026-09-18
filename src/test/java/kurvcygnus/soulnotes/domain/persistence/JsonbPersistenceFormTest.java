@@ -6,6 +6,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.smallrye.mutiny.Uni;
 import kurvcygnus.soulnotes.domain.chat.entity.AiChatSession;
 import kurvcygnus.soulnotes.domain.diary.entity.MoodDiary;
+import kurvcygnus.soulnotes.support.InfraProbes;
 import kurvcygnus.soulnotes.utils.JsonUtils;
 import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.hibernate.SessionFactory;
@@ -19,9 +20,6 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -51,22 +49,12 @@ class JsonbPersistenceFormTest
 
     private static Mutiny.SessionFactory factory;
 
-    //* 500ms 短超时只为 assume 探路: 判定容器是否存在, 不参与连接本身 (先例: PgGatewayTest).
-    private static boolean reachable()
-    {
-        try(var socket = new Socket())
-        {
-            socket.connect(new InetSocketAddress(HOST, PORT), 500);
-            return true;
-        }
-        catch(IOException e) { return false; }
-    }
-
     @BeforeAll
     @SuppressWarnings("InstantiationOfUtilityClass")//! JsonUtils 为 final 全静态成员类, IDE 误报实例化; 构造器正是 CDI 桥接注入入口.
     static void bootStandaloneReactiveFactory()
     {
-        assumeTrue(reachable(), "本机 postgres 未运行, 跳过 JSONB 持久化形态真库用例");
+        //* 判定逻辑收编至测试源公共工具 (与 @EnabledIf 全链路守卫同源), 500ms 短超时只判端口有无监听者.
+        assumeTrue(InfraProbes.postgresReachable(), "本机 postgres 未运行, 跳过 JSONB 持久化形态真库用例");
 
         //* 纯测试环境无 CDI 容器, 手动构造与生产等价的 mapper (含 JavaTimeModule).
         new JsonUtils(new ObjectMapper().registerModule(new JavaTimeModule()));

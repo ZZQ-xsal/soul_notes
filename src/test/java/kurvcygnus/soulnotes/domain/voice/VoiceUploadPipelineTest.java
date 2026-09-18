@@ -4,9 +4,11 @@ import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
 import io.restassured.RestAssured;
 import kurvcygnus.soulnotes.support.FixedAsrEngine;
+import kurvcygnus.soulnotes.support.InfraProbes;
 import kurvcygnus.soulnotes.support.MockLlmProfile;
 import kurvcygnus.soulnotes.support.PipelineUsers;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIf;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -20,12 +22,19 @@ import static org.hamcrest.Matchers.nullValue;
  * <p>ASR 引擎由 {@link FixedAsrEngine} 替身 (MockLlmProfile 启用的 CDI Alternative) 承担,
  * 走真实 HTTP multipart 面: 认证 → multipart 解析 → 文件落盘 → 同步转录 → 响应携带 transcribedText.
  * 转录五路径 (成功/静音/引擎失败/非 WAV/超限) 已由 {@code VoiceResourceTest} 在资源层覆盖, 此处不重复.</p>
+ * <p>基建守卫: 强依赖本机 postgres + redis (CI 由 service 容器提供), 缺席时应用启动即失败,
+ * {@code assumeTrue} 来不及救 — 以 {@code @EnabledIf} 在 JUnit 执行条件层整类跳过 (本地开发者双保险).</p>
  * @since 2.0
  */
 @QuarkusTest
 @TestProfile(MockLlmProfile.class)
+@EnabledIf(value = "pipelineInfraReachable", disabledReason = "本机 postgres/redis 未运行, 跳过语音上传全链路用例")
 class VoiceUploadPipelineTest
 {
+    //* @EnabledIf 的引用方法必须落在被注解类内: QuarkusTest 类加载器下跨类全限定字符串解析失败 (实测),
+    //* 故以同名静态方法委托公共探测 [[InfraProbes#pipelineInfraReachable]], 判定逻辑单一来源不变.
+    static boolean pipelineInfraReachable() { return InfraProbes.pipelineInfraReachable(); }
+
     @Test
     void voiceUpload_HttpMultipart_ShouldTranscribeAndReturnTextInResponse()
     {

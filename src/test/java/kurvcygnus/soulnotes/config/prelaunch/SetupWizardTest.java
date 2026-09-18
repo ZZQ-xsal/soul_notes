@@ -12,12 +12,14 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -214,6 +216,7 @@ class SetupWizardTest
         private boolean ready;
         private IOException downloadFailure;
         private boolean alreadyDownloading;
+        private boolean readyAfterDownload = true;
         private int downloadCalls;
         private final List<int[]> progressFrames = new ArrayList<>();
 
@@ -228,8 +231,21 @@ class SetupWizardTest
                 return Uni.createFrom().failure(downloadFailure);
             for(final int[] frame : progressFrames)
                 progress.accept(frame[0], frame[1]);
-            ready = true;  //* 成功语义: 下载完成后运行时就绪
+            ready = readyAfterDownload;  //* 成功语义: 下载完成后运行时就绪 (回执真值测试可脚本化为未就绪)
             return Uni.createFrom().voidItem();
+        }
+    }
+
+    //* 目录感知工厂替身: 记录重建点请求的目录, 每目录发一个独立替身实例 (断言下载确实发生在会话新目录实例上).
+    private static final class DirAwareAsrControlFactory implements Function<String, IAsrRuntimeControl>
+    {
+        final List<String> requestedDirs = new ArrayList<>();
+        final Map<String, FakeAsrControl> created = new HashMap<>();
+
+        @Override public IAsrRuntimeControl apply(String dir)
+        {
+            requestedDirs.add(dir);
+            return created.computeIfAbsent(dir, k -> new FakeAsrControl());
         }
     }
 
@@ -322,6 +338,44 @@ class SetupWizardTest
         assertEquals(0, control.downloadCalls, "EOF 不得触发下载");
         assertTrue(sink.toString().contains("已取消"), "取消提示必须可见");
         assertFalse(Files.exists(dir.resolve("config")), "取消不得落盘");
+    }
+
+    //* 会话内改运行时目录: 重建点必须以向导会话 values 中的当前目录请求新实例 —
+    //* 下载落新目录 (旧目录实例零触碰), 就绪检查与回执同样取新实例判定 (修复 "文件落旧目录 + 误报就绪").
+    @Test void asrRuntimeDirChangedInSession_DownloadRebuildsControlWithSessionDir() throws Exception
+    {
+        final var base = new FakeAsrControl();  //* 向导前旧目录的预装配实例: 全程不得被触碰.
+        final var factory = new DirAwareAsrControlFactory();
+        final var sink = new StringBuilder();
+        final var newDir = "asr-warehouse/session-runtime";
+        //* 脚本: 全面模式 → 引擎项留空保存 → [Y/n] 选 n → 目录项输入新目录保存 → [Y/n] 回车 Y (对重建实例下载) → 摘要确认 → 退出.
+        final var io = TerminalIO.fake(List.of("2", "", "n", newDir, "", "y", "2"), sink);
+        final var result = new SetupWizard(dir, base, null, null, factory).run(asrFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.EXIT, result.action());
+        assertEquals(List.of(newDir), factory.requestedDirs, "重建点必须以会话 values 中的当前目录请求实例");
+        assertEquals(0, base.downloadCalls, "向导前旧目录实例不得触发下载 (防文件落旧目录)");
+        assertEquals(1, factory.created.get(newDir).downloadCalls, "下载必须发生在新目录重建实例上");
+        assertTrue(sink.toString().contains("✔ ASR 运行时就绪"), "回执必须以新实例 ready() 判定");
+    }
+
+    //* 回执真值: 下载动作成功但新实例 ready() 为 false 时, 不得打印就绪回执 (向导不得替运行时说谎).
+    @Test void asrDownloadSucceedsButSessionDirNotReady_ReceiptMustNotClaimReady() throws Exception
+    {
+        final var factory = new DirAwareAsrControlFactory();
+        final var broken = new FakeAsrControl();
+        broken.readyAfterDownload = false;  //* 脚本化 "下载成功但布局仍不就绪": 回执判定必须读到 false.
+        factory.created.put("asr-warehouse/broken-runtime", broken);
+        final var sink = new StringBuilder();
+        final var newDir = "asr-warehouse/broken-runtime";
+        //* 脚本: 全面模式 → 引擎项留空保存 (基座端口为 null, 此处无询问) → 目录项输入新目录保存 → [Y/n] 回车 Y → 摘要确认 → 退出.
+        final var io = TerminalIO.fake(List.of("2", "", newDir, "", "y", "2"), sink);
+        final var result = new SetupWizard(dir, null, null, null, factory).run(asrFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.EXIT, result.action());
+        assertEquals(1, broken.downloadCalls, "下载应发生在新目录重建实例上");
+        assertFalse(sink.toString().contains("✔ ASR 运行时就绪"), "新实例未就绪时不得误报就绪");
+        assertTrue(sink.toString().contains("仍未就绪"), "回执必须如实告知运行时仍未就绪");
     }
 
     //endregion

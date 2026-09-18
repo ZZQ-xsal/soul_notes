@@ -13,6 +13,7 @@ import kurvcygnus.soulnotes.ai.ClinicalOutputSplitter;
 import kurvcygnus.soulnotes.ai.agent.EmpatheticChatAgent;
 import kurvcygnus.soulnotes.ai.agent.WarningDetectionAgent;
 import kurvcygnus.soulnotes.ai.dto.WarningDetectionResult;
+import kurvcygnus.soulnotes.config.ClinicalSchemaNormalizer;
 import kurvcygnus.soulnotes.config.PromptProvider;
 import kurvcygnus.soulnotes.domain.chat.dto.ChatMessageVo;
 import kurvcygnus.soulnotes.domain.chat.dto.ChatSendRequest;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * <b>AI 对话服务</b>
@@ -53,10 +55,15 @@ public final class ChatService
 {
     private static final Logger LOG = LoggerFactory.getLogger(ChatService.class);
 
+    //* LLM 失败时的兜底文案: send 与 stream 两条路径必须使用同一份, 保证降级语义对称.
+    private static final @NotNull String FALLBACK_REPLY = "我似乎有些走神了，你能再说一遍吗？";
+
     //region 注入
     private final @NotNull EmpatheticChatAgent empatheticChatAgent;
     private final @NotNull WarningDetectionAgent warningDetectionAgent;
     private final @NotNull PromptProvider promptProvider;
+    //* 临床结构归一化缓存: 自定义结构只有归一化产物才允许进入对话契约.
+    private final @NotNull ClinicalSchemaNormalizer schemaNormalizer;
     //* 预警渠道 fan-out: CDI 注入全部 IAlertNotifier 实现 (websocket/webhook), 渠道可插拔.
     //* @All 是 Arc 集合注入的必要限定符: 缺失时注入点退化为对 List 类型 bean 的普通解析, 应用启动即
     //! UnsatisfiedResolutionException (渠道全部缺席时 @All 语义为注入空集合, 不阻断启动).
@@ -66,11 +73,14 @@ public final class ChatService
     private final int maxHistoryMessages;
     //* 结构化输出契约开关 ("副医生"预埋): on 时共情提示词追加契约段, 回复落库前拆流.
     private final boolean clinicalTagging;
+    //* 结构增强暂禁告警只发一次: 未命中缓存的每条消息都 WARN 会把启动期降级放大成告警噪音.
+    private final @NotNull AtomicBoolean schemaSuspendedWarned = new AtomicBoolean();
 
     public ChatService(
         @NotNull EmpatheticChatAgent empatheticChatAgent,
         @NotNull WarningDetectionAgent warningDetectionAgent,
         @NotNull PromptProvider promptProvider,
+        @NotNull ClinicalSchemaNormalizer schemaNormalizer,
         @All @NotNull List<IAlertNotifier> alertNotifiers,
         @NotNull Vertx vertx,
         @ConfigProperty(name = "chat.history.max-messages", defaultValue = "50") int maxHistoryMessages,
@@ -80,6 +90,7 @@ public final class ChatService
         this.empatheticChatAgent = empatheticChatAgent;
         this.warningDetectionAgent = warningDetectionAgent;
         this.promptProvider = promptProvider;
+        this.schemaNormalizer = schemaNormalizer;
         this.alertNotifiers = alertNotifiers;
         this.vertx = vertx;
         this.maxHistoryMessages = maxHistoryMessages;
@@ -299,7 +310,24 @@ public final class ChatService
                         error ->
                         {
                             LOG.warn("流式对话失败: {}", error.getMessage());
-                            emitter.fail(error);
+                            //* 降级与 send 路径对称 (冒烟发现: 原实现 fail 流导致前端收到 200 + 空流黑洞):
+                            //* LLM 失败仍补发兜底文案并正常收流; 兜底文案同样落库, 持久化失败也照发 (与 send 语义一致).
+                            vertx.executeBlocking(
+                                () -> appendAssistantReply(session.id, content, FALLBACK_REPLY).await().atMost(Duration.ofSeconds(60)),
+                                false
+                            ).subscribe().with(
+                                v ->
+                                {
+                                    emitter.emit(FALLBACK_REPLY);
+                                    emitter.complete();
+                                },
+                                t ->
+                                {
+                                    LOG.warn("流式兜底持久化失败: {}", t.getMessage());
+                                    emitter.emit(FALLBACK_REPLY);
+                                    emitter.complete();
+                                }
+                            );
                         }
                     ).start();
             }
@@ -332,23 +360,39 @@ public final class ChatService
                 {
                     LOG.warn("AI 对话失败: {}", failure.getMessage());
                     //* 失败时返回友好兜底消息, 避免前端展示错误.
-                    final var fallback = "我似乎有些走神了，你能再说一遍吗？";
-                    session.addMessage("assistant", fallback);
+                    session.addMessage("assistant", FALLBACK_REPLY);
                     session.truncate(maxHistoryMessages);
-                    return session.persist().replaceWith(fallback);
+                    return session.persist().replaceWith(FALLBACK_REPLY);
                 }
             );
     }
 
-    //* 组装共情对话 systemPrompt (合并规则): 机构/内置提示词在前, 功能契约段在后,
-    //* 契约段首行声明最高优先级, 兜底机构提示词中"不要输出 JSON"之类指令对输出格式的破坏;
+    //* 组装共情对话 systemPrompt (合并规则): 机构/内置提示词在前, 功能契约壳在后,
+    //* 契约壳首行声明最高优先级, 兜底机构提示词中"不要输出 JSON"之类指令对输出格式的破坏;
     //* off 时不追加, 提示词与 token 成本同现状逐字节一致.
     private @NotNull String buildSystemPrompt()
     {
         final var base = promptProvider.empatheticChat();
         if(!clinicalTagging)
             return base;
-        return PrintUtils.quickFormat("{}\n\n{}", base, AiPromptConstants.CLINICAL_OUTPUT_CONTRACT);
+        final var schema = resolveSchemaForContract();
+        if(schema == null)
+            return base;//* 自定义结构无归一化缓存: 结构化增强暂禁, 仅发基础提示词.
+        return PrintUtils.quickFormat("{}\n\n{}", base, PrintUtils.quickFormat(AiPromptConstants.CLINICAL_OUTPUT_CONTRACT, schema));
+    }
+
+    //* 结构定义解析: 默认 canonical 免归一零成本直用 (回滚即永久稳定); 自定义结构必须命中归一化缓存
+    //* 才允许上线 — 自然语言结构不稳定, 未经归一化的自由文本绝不下发; 未命中 = 启动期归一化未成功,
+    //* 一次性 WARN 留痕后等下次启动重试 (缓存查询不触发 LLM, 请求路径零外呼).
+    private @Nullable String resolveSchemaForContract()
+    {
+        final var effective = promptProvider.clinicalSchema();
+        if(AiPromptConstants.CLINICAL_OUTPUT_SCHEMA_DEFAULT.equals(effective))
+            return effective;
+        final var normalized = schemaNormalizer.cachedFor(ClinicalSchemaNormalizer.sha256Hex(effective));
+        if(normalized == null && schemaSuspendedWarned.compareAndSet(false, true))
+            LOG.warn("自定义临床结构定义尚无归一化缓存, 结构化输出增强暂禁 (仅发基础提示词), 等下次启动重试归一化");
+        return normalized;
     }
 
     //* 落库前拆流: on 时剥离回复末尾的 soulnotes 结构化块, 防止块在多轮历史间重复累积 (省 token);
@@ -385,6 +429,9 @@ public final class ChatService
         if("RED".equals(detection.warningLevel()))
         {
             session.warningTriggered = true;
+            //* 渠道全空的 WARN 哨兵: 双渠道配置全丢时 RED 分发退化为纯标记, 必须留痕而非静默.
+            if(alertNotifiers.isEmpty())
+                LOG.warn("RED 预警无任何通知渠道可用 (IAlertNotifier 实现缺失), 仅标记会话: userId={}", session.userId);
             //* Uni 是惰性的, 必须订阅才真正触发推送; 渠道实现保证失败仅日志 (接口契约),
             //! 订阅级兜底仅防渠道外的意外实现缺陷, 不允许预警分发拖垮会话主流程.
             for(final var notifier : alertNotifiers)

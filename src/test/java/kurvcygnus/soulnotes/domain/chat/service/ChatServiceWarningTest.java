@@ -43,12 +43,12 @@ class ChatServiceWarningTest
         }
     }
 
-    //! applyWarning 仅触碰 alertNotifiers 与 session, 其余依赖 (Agent/PromptProvider/Vertx)
+    //! applyWarning 仅触碰 alertNotifiers 与 session, 其余依赖 (Agent/PromptProvider/归一化器/Vertx)
     //! 在该测试路径不可达, 置 null 安全 (构造器无 requireNonNull 校验); clinicalTagging 不参与该路径, 恒 false.
     @SuppressWarnings("ConstantConditions")//! 测试缝: 未用依赖置 null 是纯单测构造服务实例的唯一途径.
     private static ChatService newService(List<IAlertNotifier> notifiers)
     {
-        return new ChatService(null, null, null, notifiers, null, 50, false);
+        return new ChatService(null, null, null, null, notifiers, null, 50, false);
     }
 
     private static void invokeApplyWarning(ChatService service, AiChatSession session, WarningDetectionResult detection) throws InvocationTargetException, NoSuchMethodException, IllegalAccessException
@@ -98,5 +98,17 @@ class ChatServiceWarningTest
 
         assertFalse(session.warningTriggered);
         assertTrue(channel.userIds.isEmpty(), "NONE 与无检测结果均不得触发渠道推送");
+    }
+
+    //* 空渠道哨兵: RED 仍须标记会话且不得抛出; WARN 哨兵日志防 "渠道全部缺席" 静默退化
+    //* (log 行为本体依赖日志后端 appender, 单测不可观测, 此处钉住的是可观测副作用的一半: 会话标记与主流程存活).
+    @Test void applyWarning_RedWithNoChannels_StillFlagsSessionWithoutThrowing() throws Exception
+    {
+        final var session = new AiChatSession();
+        session.userId = UUID.randomUUID();
+
+        assertDoesNotThrow(() -> invokeApplyWarning(newService(List.of()), session, new WarningDetectionResult("RED", "检测到自伤倾向", "立即干预")),
+            "渠道全空时预警分发必须静默存活, 不允许炸掉会话主流程");
+        assertTrue(session.warningTriggered, "无渠道可推也不得丢失会话预警位标记");
     }
 }
