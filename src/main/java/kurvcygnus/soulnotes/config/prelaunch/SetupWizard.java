@@ -112,7 +112,6 @@ public final class SetupWizard
     private static final int GENERATE_RANDOM_BYTES = 48;
     //* readCommand 的哨兵: null 已被 EOF 占用, 以 -1 表示 "q 完成".
     private static final int CMD_FINISH = -1;
-    private static final @NotNull SecureRandom RANDOM = new SecureRandom();
 
     //* ASR 运行时交互触发键: 保存任一条目后触发一次 ready() 检查 (asr.lib.url 仅改下载源, 不触发).
     //* ASR_RUNTIME_DIR_ENV 单独收口: 会话内该值变化时, 就绪检查/下载须以它重建控制实例 (单一来源).
@@ -1148,8 +1147,12 @@ public final class SetupWizard
     /** GENERATE 空输入的自动生成: 48 字节 SecureRandom → base64 (64 字符, 天然满足 minLength 32 下限). */
     private static @NotNull String generateSecret()
     {
+        //* 每次调用局部创建: static final 持有 SecureRandom 会被 native 构建期类初始化固化种子进
+        //! image heap 抛 UnsupportedFeatureException (CI 实测; 与 PsychologyTipsRetriever 的 Random
+        //! 实例字段同坑); 向导一次性调用, 重建开销可忽略.
+        final var random = new SecureRandom();
         final var bytes = new byte[GENERATE_RANDOM_BYTES];
-        RANDOM.nextBytes(bytes);
+        random.nextBytes(bytes);
         return Base64.getEncoder().encodeToString(bytes);
     }
 
