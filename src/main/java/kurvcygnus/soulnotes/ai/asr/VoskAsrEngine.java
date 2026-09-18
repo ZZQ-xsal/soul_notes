@@ -27,7 +27,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * <b>Vosk 本地 ASR 引擎</b>
+ * Vosk 本地 ASR 引擎.
  * <p>语音 -> 文本 管道的本地实现: 经 {@link AsrRuntimeManager} 取 libvosk 动态库与模型目录,
  * 每请求新建/销毁 Recognizer 完成整段 WAV 转录.</p>
  *
@@ -42,7 +42,7 @@ import java.util.Objects;
  * <p>{@code @Startup} 急切实例化: ArC 客户端代理默认惰性创建 Bean, 若无此注解,
  * 引擎名配置错误会被推迟到首次 transcribe 才以 CreationException 暴露, 不满足
  * "SOULNOTES_ASR_ENGINE 配错 -> 启动期失败" 的快败契约.</p>
- * @since 1.0
+ * @since 1.1.0
  */
 @Startup
 @ApplicationScoped
@@ -73,7 +73,8 @@ public final class VoskAsrEngine implements IAsrEngine
     //endregion
 
     /**
-     * <span style="color: 95cc6d">CDI 构造入口.</span>
+     * CDI 构造入口.
+     *
      * @param engineName 引擎选择 (SOULNOTES_ASR_ENGINE), 非 vosk 即拒绝启动
      * @param runtime    运行时管理器 (SOULNOTES_ASR_RUNTIME_DIR / SOULNOTES_ASR_LIB_URL)
      */
@@ -84,8 +85,12 @@ public final class VoskAsrEngine implements IAsrEngine
     ) { this(engineName, runtime, null); }
 
     /**
-     * <span style="color: 95cc6d">测试构造入口 (与既有引擎测试签名兼容).</span>
+     * 测试构造入口 (与既有引擎测试签名兼容).
      * <p>以给定运行时目录内嵌一个 manager 实例, 保持测试无需感知 manager 装配.</p>
+     *
+     * @param runtimeDir 运行时目录 (模型/动态库布局检查的根)
+     * @param engineName 引擎名, 非 vosk 即拒绝
+     * @param ffm 动态库替身, null = 生产懒加载真实库
      */
     VoskAsrEngine(@NotNull Path runtimeDir, @NotNull String engineName, @Nullable VoskFFM ffm)
     {
@@ -111,6 +116,12 @@ public final class VoskAsrEngine implements IAsrEngine
     @Override
     public @NotNull String name() { return ENGINE_NAME; }
 
+    /**
+     * 转录一个 WAV 文件: 参数校验在订阅线程, 文件存在性/就绪探测/识别全链路在 worker 池执行.
+     * <p>失败形态即错误文案: 文件不存在、运行时未就绪 (附 runtimeDir 诊断)、WAV 结构非法
+     * 与任何识别期异常 (Throwable 兜底) 都转为 {@link AsrResult#error} 文本并 WARN 记录,
+     * Uni 永不以异常完成.</p>
+     */
     @Override
     public @NotNull Uni<@NotNull AsrResult> transcribe(@NotNull Path wavFile)
     {
@@ -134,7 +145,7 @@ public final class VoskAsrEngine implements IAsrEngine
     //region 生命周期
 
     /**
-     * <span style="color: 95cc6d">释放进程内单例模型 (容器关闭时回调).</span>
+     * 释放进程内单例模型 (容器关闭时回调); 模型未曾加载时为 no-op.
      */
     @PreDestroy
     void close()
@@ -269,8 +280,15 @@ public final class VoskAsrEngine implements IAsrEngine
 
     //region WAV 解析
 
-    //* 最小 RIFF 遍历: 定位 data chunk 取原始 PCM16 载荷, 不依赖 javax.sound 的格式转换行为.
-    //* 包内可见: VoskFFMTest 真机用例复用同一解析器, 避免测试副本持有第二份可死循环的解析逻辑.
+    /**
+     * 最小 RIFF 遍历: 定位 data chunk 取原始 PCM16 载荷, 不依赖 javax.sound 的格式转换行为.
+     * <p>包内可见: VoskFFMTest 真机用例复用同一解析器, 避免测试副本持有第二份可死循环的解析逻辑.</p>
+     *
+     * @param wavFile WAV 文件路径
+     * @return data chunk 的原始 PCM16 字节
+     * @throws IOException 非合法 RIFF/WAVE 结构 (魔数不符/chunk 长度为负/data chunk 缺失或为空) —
+     *         对抗性输入在解析层即拒绝, 不进入 native 侧
+     */
     static byte[] readWavPcm(@NotNull Path wavFile) throws IOException
     {
         final var all = Files.readAllBytes(wavFile);

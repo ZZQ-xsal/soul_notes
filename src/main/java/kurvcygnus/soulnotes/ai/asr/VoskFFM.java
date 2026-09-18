@@ -18,9 +18,9 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 /**
- * <b>Vosk C API FFM 直连绑定</b>
+ * Vosk C API FFM 直连绑定.
  * <p>以 JDK 25 Foreign Function &amp; Memory API 直连 libvosk, 不经 JNI/JNA (Spike 已验证 JVM 与
- * GraalVM Native Image 双侧可行, 见 docs/superpowers/notes/2026-09-14-asr-spike-notes.md).</p>
+ * GraalVM Native Image 双侧可行).</p>
  *
  * <p>符号与签名以 alphacephei 官方 vosk_api.h 为准 (snake_case), 描述符已按其钉死:
  * 指针一律 {@code ADDRESS}, 采样率 {@code JAVA_FLOAT}, 布尔返回 {@code JAVA_INT}.</p>
@@ -30,7 +30,7 @@ import java.util.Objects;
  *
  * <p>本类非 final 且提供无参测试扩展构造器: {@link VoskAsrEngine} 的单元测试以可覆写的
  * fake 子类注入, 绕过真实动态库; 无参构造器不绑定任何句柄, 生产代码一律经 {@link #load(Path)}.</p>
- * @since 1.0
+ * @since 1.1.0
  */
 @SuppressWarnings("NullableProblems")//! Mock实现都位于测试模块下; 测试模块无法使用 JetBrains Annotations.
 public class VoskFFM
@@ -57,7 +57,7 @@ public class VoskFFM
     //endregion
 
     /**
-     * <span style="color: f84b4b">测试扩展构造器.</span>
+     * 测试扩展构造器.
      * <p>不绑定任何句柄, 仅供引擎测试的 fake 子类调用以绕开动态库; 所有实例方法必须被覆写,
      * 否则句柄字段为 null 直接 NPE.</p>
      */
@@ -74,8 +74,10 @@ public class VoskFFM
     }
 
     /**
-     * <span style="color: 95cc6d">绑定动态库并创建全部 downcall 句柄.</span>
+     * 绑定动态库并创建全部 downcall 句柄.
+     *
      * @param nativeLib libvosk 动态库路径 (win: libvosk.dll / linux: libvosk.so / mac: libvosk.dylib)
+     * @throws IllegalStateException 库文件不存在或无法加载
      */
     protected VoskFFM(@NotNull Path nativeLib)
     {
@@ -104,8 +106,9 @@ public class VoskFFM
     }
 
     /**
-     * <span style="color: 95cc6d">加载并绑定 libvosk.</span>
+     * 加载并绑定 libvosk.
      * <p>生产入口: 句柄在调用时刻 (运行时) 绑定, 满足 GraalVM 对 downcall 的初始化时序约束.</p>
+     *
      * @param nativeLib 动态库路径
      * @return 已绑定的绑定实例
      */
@@ -118,7 +121,8 @@ public class VoskFFM
     //region 调用
 
     /**
-     * <span style="color: 95cc6d">打开识别模型.</span>
+     * 打开识别模型.
+     *
      * @param modelDir 含 am/ conf/ 的模型目录
      * @return VoskModel 指针段 (C API 以 NULL 表失败, 调用方须检查 {@code address() == 0})
      */
@@ -134,7 +138,7 @@ public class VoskFFM
     }
 
     /**
-     * <span style="color: 95cc6d">释放模型.</span>
+     * 释放模型.
      */
     public void modelClose(@NotNull MemorySegment model)
     {
@@ -143,7 +147,8 @@ public class VoskFFM
     }
 
     /**
-     * <span style="color: 95cc6d">创建识别器.</span>
+     * 创建识别器.
+     *
      * @param model      已打开的模型
      * @param sampleRate 采样率 (vosk_api.h 为 float, 与前端语音管道约定 16000f)
      * @return VoskRecognizer 指针段 (调用方须检查 NULL)
@@ -156,7 +161,7 @@ public class VoskFFM
     }
 
     /**
-     * <span style="color: 95cc6d">销毁识别器.</span>
+     * 销毁识别器.
      * <p>Recognizer 非线程安全且持有音频缓冲, 识别结束 (含失败路径) 必须销毁.</p>
      */
     public void recognizerFree(@NotNull MemorySegment recognizer)
@@ -166,11 +171,12 @@ public class VoskFFM
     }
 
     /**
-     * <span style="color: 95cc6d">喂入一帧 PCM16 音频.</span>
+     * 喂入一帧 PCM16 音频.
+     *
      * @param recognizer 识别器
-     * @param pcm         PCM16 载荷片段 (native 或堆上段均可)
-     * @param length      字节长度
-     * @return true = 已接收; false = Vosk 内部异常
+     * @param pcm        PCM16 载荷片段 (native 或堆上段均可)
+     * @param length     字节长度
+     * @return true = 已接收 (含静音边界返回); false = Vosk 内部异常
      */
     public boolean acceptWaveform(@NotNull MemorySegment recognizer, @NotNull MemorySegment pcm, int length)
     {
@@ -183,8 +189,9 @@ public class VoskFFM
     }
 
     /**
-     * <span style="color: 95cc6d">取最终识别结果 JSON (形如 {@code {"text" : "..."}}).</span>
+     * 取最终识别结果 JSON (形如 {@code {"text" : "..."}}).
      * <p>返回串所有权仍属 recognizer: 本方法立即拷贝为 Java String, 调用方随后可安全释放识别器.</p>
+     *
      * @return 结果 JSON 字符串 (永不为 null; Vosk 返回 NULL 时抛 IllegalStateException)
      */
     public @NotNull String finalResult(@NotNull MemorySegment recognizer)
@@ -197,9 +204,10 @@ public class VoskFFM
     }
 
     /**
-     * <span style="color: 95cc6d">开关 Vosk 自身日志.</span>
+     * 开关 Vosk 自身日志.
      * <p>best-effort: 未 load 前调用为安全 no-op, 不使未加载环境 (如单元测试) 抛错.
      * 另注意 Kaldi 层 LOG 走自有通道直写 stderr, 本开关压不掉模型加载期的日志 (Spike 坑清单 #3).</p>
+     *
      * @param on true = 开启 Vosk 日志
      */
     public static void setLog(boolean on)
@@ -215,7 +223,7 @@ public class VoskFFM
     //region 内部
 
     /**
-     * <span style="color: 95cc6d">按符号名绑定 downcall 句柄.</span>
+     * 按符号名绑定 downcall 句柄.
      * <p>找不到符号立即抛 UnsatisfiedLinkError 并指名, 便于区分 "库未加载" 与 "符号缺失".</p>
      */
     private static @NotNull MethodHandle bind(@NotNull SymbolLookup lookup, @NotNull String symbol, @NotNull FunctionDescriptor descriptor)

@@ -13,13 +13,13 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * <b>知识包加载器</b>
+ * 知识包加载器.
  * <p>从 classpath {@code knowledge/{pack}/tips.md} 以 UTF-8 读取心理知识包并解析为 Tip 列表,
  * 使机构可经 {@code SOULNOTES_KNOWLEDGE_PACK} 切换/替换知识包而无需改代码.</p>
  * <p>块格式钉死: {@code ### 标题} 行开块, 紧随的 {@code keywords: a,b,c} 行为关键词标签 (块必需),
  * 其余行至下一块为正文. keywords 行缺失的块整体跳过并记 WARN — 残缺块进入检索会破坏匹配语义, 宁缺毋滥;
  * keywords 行存在但值为空属合法 (空标签 Tip 永不命中检索, 仍可被随机推送).</p>
- * @since 2.0
+ * @since 1.1.0
  */
 public final class KnowledgePackLoader
 {
@@ -32,9 +32,10 @@ public final class KnowledgePackLoader
     private KnowledgePackLoader() {}
 
     /**
-     * <span style="color: 95cc6d">从 classpath 加载指定知识包.</span>
+     * 从 classpath 加载指定知识包.
      * <p>包缺失/文件为空/IO 失败一律返回空列表 (仅记日志, 绝不抛出) — 回退到内置 default 包的
      * 决策由调用方 ({@link PsychologyTipsRetriever}) 统一处理, 加载器保持无状态纯职责.</p>
+     *
      * @param pack 包名 (对应 classpath 目录 knowledge/{pack}/)
      * @return 解析出的 Tip 列表 (不可变, 可能为空)
      */
@@ -61,8 +62,9 @@ public final class KnowledgePackLoader
     }
 
     /**
-     * <span style="color: 95cc6d">解析 tips.md 块格式文本.</span>
+     * 解析 tips.md 块格式文本.
      * <p>纯函数入口 (无 IO): 单测直测格式语义, 未来非 classpath 来源 (上传/远端拉取) 亦可复用.</p>
+     *
      * @param markdown tips.md 原始文本 (UTF-8)
      * @param pack     包名 (仅用于日志定位坏块)
      * @return 解析出的 Tip 列表 (不可变, 可能为空)

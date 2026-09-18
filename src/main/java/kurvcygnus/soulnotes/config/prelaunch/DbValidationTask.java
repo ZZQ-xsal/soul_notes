@@ -8,11 +8,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * <b>Pre-Launch 数据库真校验任务</b> (非 TTY 段).
+ * Pre-Launch 数据库真校验任务 (非 TTY 段).
  * <p>只探测 + 报告 (零写入): UNREACHABLE/AUTH_FAILED/DB_MISSING/SCHEMA_MISSING 均为 BLOCK —
  * 拒绝启动优于运行期 500. createDatabase/applySchema 仅由 TTY 向导路径调用.
  * ConfigValidationTask 存在 DB 相关 BLOCK (URL/凭据缺失) 时探测无意义, 本任务静默跳过让配置层先报.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 public final class DbValidationTask implements IPreLaunchTask
 {
@@ -25,16 +25,32 @@ public final class DbValidationTask implements IPreLaunchTask
     private final @NotNull IDatabaseGateway gateway;
 
     /**
-     * <span style="color: 95cc6d">纯构造入口 (Pre-Launch 无 CDI 容器, 网关手工装配).</span>
+     * 纯构造入口 (Pre-Launch 无 CDI 容器, 网关手工装配).
+     *
      * @param gateway 生产传 {@link PgGateway}, 测试传 fake
+     * @since 1.1.0
      */
     public DbValidationTask(@NotNull IDatabaseGateway gateway)
     { this.gateway = Objects.requireNonNull(gateway, "Param \"gateway\" must not be null!"); }
 
+    /** @return 固定为 "数据库连通性". */
     @Override public @NotNull String name() { return "数据库连通性"; }
 
-    @Override public int priority() { return 10; }//* 次序值越大越靠后执行 — 必须排在 ConfigValidationTask (默认 0) 之后, 无效配置时探测无意义.
+    /**
+     * @return 10 — 必须排在 ConfigValidationTask (默认 0) 之后, 无效配置时探测无意义.
+     */
+    //* 次序值越大越靠后执行 — 必须排在 ConfigValidationTask (默认 0) 之后, 无效配置时探测无意义.
+    @Override public int priority() { return 10; }
 
+    /**
+     * 执行五态探测并转译为问题: 非 OK 一律产出 BLOCK (subject 统一为 {@code SOULNOTES_DB_URL}).
+     * <p>前置条件不满足时静默跳过 (返回空 issues): 任一 DB 元数据缺失 (配置结构损坏), 或三项必配值为空
+     * (配置校验层必然已产出 BLOCK).</p>
+     *
+     * @param ctx 执行上下文
+     * @return 探测结果; OK 为空 issues, 其余五态各携带一条面向用户的 BLOCK
+     * @since 1.1.0
+     */
     @Override public @NotNull Result run(@NotNull PreLaunchContext ctx)
     {
         final var urlMeta = meta(ctx, URL_KEY);
@@ -71,8 +87,10 @@ public final class DbValidationTask implements IPreLaunchTask
         };
     }
 
+    /** 组装单条 BLOCK 级结果. */
     private static @NotNull Result block(@NotNull String message) { return new Result(List.of(new Issue(Level.BLOCK, SUBJECT, message))); }
 
+    /** 按配置键从条目元数据中定位条目; 无匹配 (键被删) 时为 empty. */
     private static @NotNull Optional<PropertyMetaParser.ConfigItemMeta> meta(@NotNull PreLaunchContext ctx, @NotNull String key)
     { return ctx.items().stream().filter(item -> key.equals(item.key())).findFirst(); }
 }

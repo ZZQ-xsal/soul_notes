@@ -7,10 +7,16 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Objects;
 
 /**
- * <b>数据库探测目标</b>: 从 {@code postgresql://[user:pass@]host:port/db} 解析出的连接四要素.
+ * 数据库探测目标: 从 {@code postgresql://[user:pass@]host:port/db} 解析出的连接四要素.
  * <p>向导支持整串粘贴 (userinfo 可选), 无 userinfo 时凭据取分离收集的 {@code SOULNOTES_DB_USER/PASSWORD}.
  * scheme 级校验由 FieldValidator 在配置层 BLOCK, 本类只负责结构解析.</p>
- * @since 2.0
+ *
+ * @param host 主机名或 IP
+ * @param port 端口, 连接串未显式给出时为 5432
+ * @param database 目标库名
+ * @param user 用户名; URL userinfo 优先, 缺失时回落到分离输入值, 可为 null
+ * @param password 密码; URL userinfo 优先, 缺失时回落到分离输入值, 可为 null
+ * @since 1.1.0
  */
 public record DbTarget(@NotNull String host, int port, @NotNull String database, @Nullable String user, @Nullable String password)
 {
@@ -18,12 +24,14 @@ public record DbTarget(@NotNull String host, int port, @NotNull String database,
     private static final int DEFAULT_PORT = 5432;
 
     /**
-     * <span style="color: 95cc6d">解析 PostgreSQL 连接串为探测目标.</span>
+     * 解析 PostgreSQL 连接串为探测目标.
+     *
      * @param url {@code postgresql://[user[:pass]@]host[:port]/db} 形式的连接串
      * @param user 无 userinfo 时使用的用户名 (可为 null)
      * @param password 无 userinfo 时使用的密码 (可为 null)
-     * @return 解析结果
+     * @return 解析出的连接四要素; 凭据取 URL userinfo, userinfo 缺失时回落到同义参数
      * @throws IllegalStateException URL 结构非法 (scheme 错误 / host 或库名缺失 / 端口非数字), 调用方转 BLOCK
+     * @since 1.1.0
      */
     public static @NotNull DbTarget parse(@NotNull String url, @Nullable String user, @Nullable String password)
     {

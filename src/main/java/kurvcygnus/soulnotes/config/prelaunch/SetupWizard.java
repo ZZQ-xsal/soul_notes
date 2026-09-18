@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
 /**
- * <b>Pre-Launch 配置向导</b>.
+ * Pre-Launch 配置向导.
  * <p>pnpm 风格折叠清单的交互实现: 模式选择 (简单 = 仅必填 / 全面 = 全部) → 逐项编辑 (就地校验) →
  * 摘要确认 → 双文件落盘 → 完成屏 (启动/退出). 仅显式值进入结果与落盘, 未动项保持内置默认.</p>
  * <p>ASR 运行时交互: 保存 {@code asr.engine} / {@code asr.runtime.dir} 条目后触发一次
@@ -40,35 +40,65 @@ import java.util.function.Function;
  * 展开块渲染于清单底部而非条目行内 (行缓冲输入无法在已输出行之间插入交互块); 重绘采用滚动重印而非
  * {@link TerminalRenderer#eraseAbove(int)} 原地抹除 — 30 项清单超出 conhost 视口时光标上移被钳制在屏顶, 行号推算不可靠
  * (例外: 下载进度为单行自刷新块, 适用 eraseAbove 原地重写).</p>
- * @since 2.0
+ * @since 1.1.0
  */
 public final class SetupWizard
 {
     //region 公共表面
 
+    /**
+     * 向导模式: SIMPLE 仅呈现必填项 (低门槛优先), FULL 呈现全部条目.
+     *
+     * @since 1.1.0
+     */
     public enum Mode
     {
+        /** 简单配置: 仅必填项进入编辑清单. */
         SIMPLE,
+        /** 全面配置: 全部条目进入编辑清单. */
         FULL
     }
 
+    /**
+     * 向导收场动作.
+     * <p>映射进程退出码: LAUNCH/EXIT 为正常收场 (0); CANCELLED/FAILED 为异常收场 (1, 由 Entrance 映射 System.exit).</p>
+     *
+     * @since 1.1.0
+     */
     //! CANCELLED 不得并入 EXIT: 向导中途取消 (EOF/Ctrl+C) 属异常收场, 由 Entrance 映射 System.exit(1); 向导自身禁调 System.exit (脚本化测试依赖). 用户主动选退出仍是 EXIT (退出码 0).
     //! FAILED 不得并入 EXIT (评审轮次 2): 写盘失败属异常收场, 退出码必须为 1 (由 Entrance 映射), 否则与用户主动退出同码, 取消/失败语义倒挂.
     public enum NextAction
     {
+        /** 确认配置后启动应用 (退出码 0). */
         LAUNCH,
+        /** 用户主动选择退出 (退出码 0). */
         EXIT,
+        /** 向导中途取消 (EOF/Ctrl+C), 未落盘 (退出码 1). */
         CANCELLED,
+        /** 落盘失败, 值未持久化 (退出码 1). */
         FAILED
     }
 
-    //* values 以 envName 为键, 仅显式设置项 (本次输入 + 已存在显式配置预填); 可选留默认项不入表, 保证落盘最小化.
-    //* 继承自环境的密钥项保留在 values (进程环境中仍生效) 但不落盘, 见 [[SetupWizard#prefill]].
+    /**
+     * 向导执行结果.
+     *
+     * @param values 以 envName 为键的显式值集 (本次输入 + 已存在显式配置预填); 仅显式设置项入表 —
+     *        可选留默认项不入表保证落盘最小化; 继承自环境的密钥项保留在 values (进程环境中仍生效) 但不落盘 (见 {@link #prefill});
+     *        CANCELLED/FAILED 收场时恒为空表, 维持 "非空 values ⟺ 已落盘" 不变量
+     * @param action 收场动作
+     * @since 1.1.0
+     */
     public record SetupResult(@NotNull Map<String, String> values, @NotNull NextAction action)
     {}
 
     //* prefill 产物: values 供交互复用; envNames 记录继承来源 — 密钥类 (SECRET/GENERATE) 继承项落盘时排除
     //* (README prod 指引: 密钥必须环境变量注入, 且摘要屏全掩码, 用户无从察觉明文被物化), 可变集: 本会话重输即移出.
+    /**
+     * 预填产物: values 供交互复用, envNames 并行记录继承来源.
+     *
+     * @param values envName 到预填值的映射 (仅显式已配置项)
+     * @param envNames values 中继承自 sysprop/env/既有配置文件的键集 — 密钥类继承项落盘时排除
+     */
     private record Prefill(@NotNull Map<String, String> values, @NotNull Set<String> envNames)
     {}
 
@@ -114,28 +144,45 @@ public final class SetupWizard
     private final @Nullable IDatabaseGateway dbGateway;
     private final @Nullable IModelCatalog modelCatalog;
 
+    /** 无端口最小构造: 当前进程工作目录落盘, 三类交互端口全部禁用. */
     public SetupWizard() { this(Path.of(""), null, null); }
 
-    //* workDir 注入点: 生产走进程工作目录, 测试注入 @TempDir 以断言落盘行为; 无交互端口的重载兼容既有调用方.
+    /**
+     * 仅注入落盘目录的构造 (生产走进程工作目录, 测试注入 @TempDir 以断言落盘行为), 交互端口全部禁用.
+     *
+     * @param workDir 落盘工作目录
+     * @since 1.1.0
+     */
     public SetupWizard(@NotNull Path workDir) { this(workDir, null, null); }
 
+    /**
+     * 单端口便利构造: 仅启用 ASR 交互, 数据库流与模型拉取步禁用.
+     *
+     * @param workDir    落盘工作目录
+     * @param asrControl ASR 运行时控制端口 (null = 禁用未就绪询问/下载交互)
+     * @since 1.1.0
+     */
     public SetupWizard(@NotNull Path workDir, @Nullable IAsrRuntimeControl asrControl) { this(workDir, asrControl, null); }
 
     /**
-     * <span style="color: 95cc6d">完整构造入口.</span>
+     * 三端口便利构造: 启用 ASR 与数据库交互, 模型拉取步禁用.
+     *
      * @param workDir    落盘工作目录
      * @param asrControl ASR 运行时控制端口 (null = 禁用未就绪询问/下载交互; Pre-Launch 于 CDI 前运行, 只能纯构造注入)
      * @param dbGateway  数据库探测/修复网关 (null = 禁用数据库交互流; 仅生产 Entrance 注入 {@link PgGateway} 或测试注入 fake)
+     * @since 1.1.0
      */
     public SetupWizard(@NotNull Path workDir, @Nullable IAsrRuntimeControl asrControl, @Nullable IDatabaseGateway dbGateway)
     { this(workDir, asrControl, dbGateway, null); }
 
     /**
-     * <span style="color: 95cc6d">完整构造入口.</span>
+     * 四端口便利构造: 启用 ASR/数据库/AI 模型拉取三类交互, 无 ASR 目录重建能力.
+     *
      * @param workDir      落盘工作目录
      * @param asrControl   ASR 运行时控制端口 (null = 禁用未就绪询问/下载交互; Pre-Launch 于 CDI 前运行, 只能纯构造注入)
      * @param dbGateway    数据库探测/修复网关 (null = 禁用数据库交互流; 仅生产 Entrance 注入 {@link PgGateway} 或测试注入 fake)
      * @param modelCatalog 模型目录拉取端口 (null = 禁用 AI 模型拉取步; 生产 Entrance 注入 {@link kurvcygnus.soulnotes.ai.HttpModelCatalog} 或测试注入 fake)
+     * @since 1.1.0
      */
     public SetupWizard(
         @NotNull Path workDir,
@@ -146,13 +193,16 @@ public final class SetupWizard
     { this(workDir, asrControl, dbGateway, modelCatalog, null); }
 
     /**
-     * <span style="color: 95cc6d">全量构造入口 (含 ASR 目录重建点).</span>
+     * 全量构造入口 (含 ASR 目录重建点), 生产 Entrance 使用.
+     *
      * @param workDir          落盘工作目录
      * @param asrControl       ASR 运行时控制端口, 以向导前配置视图预装配 (null = 禁用未就绪询问/下载交互)
      * @param dbGateway        数据库探测/修复网关 (null = 禁用数据库交互流)
      * @param modelCatalog     模型目录拉取端口 (null = 禁用 AI 模型拉取步)
      * @param asrControlForDir 会话内运行时目录 → 控制实例的重建函数 (null = 恒用预装配端口);
      *                         就绪检查/下载/回执以它产出的当前目录实例为准, 防 "下载落旧目录 + 误报就绪"
+     * @throws IllegalStateException {@code workDir} 为 null
+     * @since 1.1.0
      */
     public SetupWizard(
         @NotNull Path workDir,
@@ -175,8 +225,15 @@ public final class SetupWizard
     //region 主流程
 
     /**
-     * <span style="color: 95ccfd">执行向导主流程: 模式 → 编辑 → 摘要 → 落盘 → 完成屏.</span>
-     * <p>EOF/Ctrl+C 在写入前发生时打印取消提示并返回空表 + CANCELLED (Entrance 据此以退出码 1 收场), 不落盘; 写盘失败返回空表 + FAILED (评审轮次 2, 同为退出码 1); 写入后的 EOF 归为 EXIT (无可取消之物).</p>
+     * 执行向导主流程: 模式 → 编辑 → 摘要 → 落盘 → 完成屏.
+     *
+     * @param items 全部向导条目元数据 (文件顺序); SIMPLE 模式下仅必填项进入编辑清单, 摘要仍覆盖全部
+     * @param view 预填来源 (sysprop/env/工作目录显式配置)
+     * @param io 终端交互通道, 全程读写经由它
+     * @return 收场结果; EOF/Ctrl+C 在写入前发生时打印取消提示并返回空表 + CANCELLED (Entrance 据此以退出码 1 收场), 不落盘;
+     *         写盘失败返回空表 + FAILED (评审轮次 2, 同为退出码 1); 写入后的 EOF 归为 EXIT (无可取消之物)
+     * @throws IllegalStateException 任一参数为 null
+     * @since 1.1.0
      */
     public @NotNull SetupResult run(
         @NotNull List<PropertyMetaParser.ConfigItemMeta> items,
@@ -266,6 +323,13 @@ public final class SetupWizard
     //region 阶段一: 模式选择
 
     //* 返回 null = EOF 取消; 回车默认简单配置 (低门槛优先).
+    /**
+     * 阶段一: 询问向导模式; 回车默认简单配置 (低门槛优先), 非 1/2 输入原地红字重问.
+     *
+     * @param total 全部条目数 (全面配置选项文案用)
+     * @param io 终端交互通道
+     * @return 所选模式; EOF 取消时为 null
+     */
     private static @Nullable Mode askMode(int total, @NotNull TerminalIO io)
     {
         io.writeOut(PrintUtils.quickFormat("\n{}\n\n", emph("== Soul Notes 配置向导 ==")));
@@ -288,6 +352,13 @@ public final class SetupWizard
     //region 阶段二: 清单渲染与编辑
 
     //* 清单整屏重绘 (滚动重印, 妥协记录见类 javadoc): 组头 + v2 状态行.
+    /**
+     * 清单整屏重绘 (滚动重印, 妥协记录见类 javadoc): 逐组输出组头与各条目状态行.
+     *
+     * @param visible 当前模式下可见的条目
+     * @param values 会话显式值集 (决定行状态)
+     * @param io 终端交互通道
+     */
     private static void renderList(
         @NotNull List<PropertyMetaParser.ConfigItemMeta> visible,
         @NotNull Map<String, String> values,
@@ -308,6 +379,7 @@ public final class SetupWizard
     }
 
     //* 展开态结局: SAVE = 保留/保存并推进; DISCARD = esc 放弃折叠; CANCEL = EOF 取消.
+    /** 展开态结局: SAVE = 保留/保存并推进; DISCARD = esc 放弃折叠; CANCEL = EOF 取消. */
     private enum Outcome
     {
         SAVE,
@@ -316,9 +388,15 @@ public final class SetupWizard
     }
 
     /**
-     * <span style="color: 95ccfd">展开块交互: 输入行 + 空行 + 灰斜体解释.</span>
+     * 展开块交互: 输入行 + 空行 + 灰斜体解释.
      * <p>空输入语义: 已有当前值 → 保留; GENERATE → 自动生成; 必填未配 → 红字重问 (不折叠);
      * 可选未配 → 保留默认且不入 values. 非法输入原地红字重问; {@code esc} 放弃折叠.</p>
+     *
+     * @param meta 当前展开条目的元数据
+     * @param values 会话显式值集 (读写面: 保存写入, 回显读取)
+     * @param prefilled 继承来源键集; 本条目被重输时移出, 恢复落盘资格
+     * @param io 终端交互通道
+     * @return 展开态结局; EOF 一律归 CANCEL
      */
     private static @NotNull Outcome editExpanded(
         @NotNull PropertyMetaParser.ConfigItemMeta meta,
@@ -374,6 +452,14 @@ public final class SetupWizard
     }
 
     //* 折叠命令态: 返回 null = EOF 取消; CMD_FINISH = q 完成; >=0 = 待展开条目下标.
+    /**
+     * 折叠命令态: 序号跳转 / Enter 顺序遍历 (从 {@code next} 光标起) / q 完成; 无效输入红字重问.
+     *
+     * @param size 可见条目数 (序号范围)
+     * @param next Enter 顺序遍历的光标
+     * @param io 终端交互通道
+     * @return 待展开条目下标 (0-based); {@code q} 为 CMD_FINISH 哨兵; EOF 取消为 null
+     */
     private static @Nullable Integer readCommand(int size, int next, @NotNull TerminalIO io)
     {
         io.writeOut(PrintUtils.quickFormat("{}\n", dim("序号 跳转 / Enter 顺序遍历 / q 完成")));
@@ -397,6 +483,13 @@ public final class SetupWizard
     }
 
     //* 序号解析 (readCommand 与模型选择共用): 限长 9 位先挡超长数字串再 parse, 杜绝 parseInt 溢出异常; 合法返回 0-based 下标, 否则 null.
+    /**
+     * 序号解析 (readCommand 与模型选择共用): 限长 9 位先挡超长数字串, 杜绝 parseInt 溢出异常.
+     *
+     * @param t 用户输入文本
+     * @param size 合法序号上界 (1-based)
+     * @return 0-based 下标; 非数字或越界为 null
+     */
     private static @Nullable Integer parseIndex(@NotNull String t, int size)
     {
         if(!t.matches("[0-9]{1,9}"))
@@ -410,10 +503,14 @@ public final class SetupWizard
     //region ASR 运行时交互
 
     /**
-     * <span style="color: 95ccfd">ASR 条目保存后的就绪检查与就地下载询问.</span>
+     * ASR 条目保存后的就绪检查与就地下载询问.
      * <p>就绪静默跳过 — 反复提示会淹没清单主流程; 就绪判定为纯文件检查, 即刻返回.
      * 检查/下载/回执一律以 {@link #effectiveAsrControl} 的 "当前目录实例" 为准.</p>
-     * @return false = 询问符处 EOF (沿用向导取消路径), 调用方立即收场
+     *
+     * @param meta 刚保存的条目元数据, 据其 envName 判定是否为触发键
+     * @param values 会话显式值集, 提供运行时目录的当前取值
+     * @param io 终端交互通道
+     * @return false = 询问符处 EOF (沿用向导取消路径), 调用方立即收场; true = 静默跳过或询问流已走完
      */
     private boolean offerAsrRuntimeIfNotReady(
         @NotNull PropertyMetaParser.ConfigItemMeta meta,
@@ -447,6 +544,13 @@ public final class SetupWizard
 
     //* ASR 交互的控制实例解析 (重建点): 会话内改过运行时目录时以目录重建, 否则用预装配端口 —
     //* 保证下载落会话当前目录而非向导启动前的旧目录, 就绪判定与回执同源 (不说谎).
+    /**
+     * ASR 交互的控制实例解析 (重建点): 会话内改过运行时目录且具备重建能力时以目录重建,
+     * 否则用预装配端口 — 保证下载落会话当前目录, 就绪判定与回执同源 (不说谎).
+     *
+     * @param values 会话显式值集, 提供运行时目录当前取值
+     * @return 当前目录对应的控制实例; 端口未注入时为 null (交互整体禁用)
+     */
     private @Nullable IAsrRuntimeControl effectiveAsrControl(@NotNull Map<String, String> values)
     {
         final var sessionDir = values.get(ASR_RUNTIME_DIR_ENV);
@@ -457,6 +561,13 @@ public final class SetupWizard
 
     //* 阻塞等待下载 (Pre-Launch 无事件循环, await 是唯一消费方式); 失败不中断向导, 就地给灰色提示后继续主流程.
     //* 回执以本实例 ready() 判定而非下载动作的完成信号: 下载成功 ≠ 运行时就绪, 两者分叉时必须如实告知.
+    /**
+     * 阻塞执行运行时下载并回显进度; 下载后以 {@code ready()} 判定回执 (下载成功 ≠ 运行时就绪).
+     * <p>失败 (含 "已有下载在进行" 的并发拒绝) 不中断向导, 就地给灰色提示后继续主流程.</p>
+     *
+     * @param control ASR 运行时控制端口 (就绪判定与下载同一实例)
+     * @param io 终端交互通道
+     */
     private static void downloadRuntime(@NotNull IAsrRuntimeControl control, @NotNull TerminalIO io)
     {
         final var printed = new AtomicBoolean(false);  //* 首帧直接输出, 后续帧先抹上一行再重写.
@@ -482,11 +593,26 @@ public final class SetupWizard
 
     //* AsrRuntimeManager 并发互斥的拒绝性失败 (第二路直接失败不排队), 以消息片段识别而非裸类型 —
     //* IllegalStateException 亦被 "布局异常" 路径复用, 两者提示语义不同.
+    /**
+     * 识别 "已有下载在进行" 的并发拒绝: 以消息片段而非裸类型判定 —
+     * {@code IllegalStateException} 亦被其他路径复用, 提示语义不同.
+     *
+     * @param e 待判定异常
+     * @return 消息含 "下载任务进行中" 片段时为 true
+     */
     private static boolean isAlreadyDownloading(@NotNull IllegalStateException e)
     { return e.getMessage() != null && e.getMessage().contains("下载任务进行中"); }
 
     //* 进度行内回显 (TerminalRenderer 既有 eraseAbove 约定的唯一例外场景, 见类 javadoc): 单行自刷新.
     //* total 未知 (Content-Length 缺失, -1) 时无百分比可算, 退化为已接收 MB 数.
+    /**
+     * 进度行内回显 (eraseAbove 唯一例外场景, 见类 javadoc): 首帧直接输出, 后续帧抹上一行重写.
+     *
+     * @param io 终端交互通道
+     * @param printed 是否已输出过首帧 (跨回调状态)
+     * @param received 已接收字节数
+     * @param total 总字节数; 未知 (Content-Length 缺失) 为 -1, 此时退化为已接收 MB 数
+     */
     private static void renderProgress(@NotNull TerminalIO io, @NotNull AtomicBoolean printed, int received, int total)
     {
         final var line = total > 0
@@ -496,6 +622,7 @@ public final class SetupWizard
         printed.set(true);
     }
 
+    /** 沿原因链解到根因 (自环防御); Mutiny await 会把受检异常包一层, 类型分支前先解包. */
     private static @NotNull Throwable rootCause(@NotNull Throwable throwable)
     {
         var current = throwable;
@@ -509,6 +636,7 @@ public final class SetupWizard
     //region 数据库交互流
 
     //* DB 流结局: CONTINUE = 推进清单; REEDIT = 就地失败, 停在当前项重编辑; CANCEL = 询问符处 EOF, 沿用向导取消路径.
+    /** DB 流结局: CONTINUE = 推进清单; REEDIT = 就地失败, 停在当前项重编辑; CANCEL = 询问符处 EOF, 沿用向导取消路径. */
     private enum DbFlowOutcome
     {
         CONTINUE,
@@ -519,15 +647,27 @@ public final class SetupWizard
     //* DB 流单步产物: fingerprint = 本次实际探测的三项值指纹 (null = 未触发, 调用方不得覆盖已存指纹);
     //* 重触发判定取 "三项值指纹" 而非 "每会话一次" — 两者实现复杂度相当, 指纹版免去改值后必须重启向导重跑的可用性坑,
     //* 且天然覆盖同值重存静默跳过 (与 ASR 就绪检查的静默语义对齐).
+    /**
+     * DB 流单步产物.
+     *
+     * @param fingerprint 本次实际探测的三项值指纹 (null = 未触发, 调用方不得覆盖已存指纹)
+     * @param outcome 流结局
+     */
     private record DbFlowStep(@Nullable String fingerprint, @NotNull DbFlowOutcome outcome)
     {
         static final @NotNull DbFlowStep SKIPPED = new DbFlowStep(null, DbFlowOutcome.CONTINUE);
     }
 
     /**
-     * <span style="color: 95cc6d">数据库组条目保存后的探测/修复流入口.</span>
+     * 数据库组条目保存后的探测/修复流入口.
      * <p>触发条件: 条目属数据库组, 三项 (URL/用户名/密码) 均已有值, 且三项值指纹不同于上次探测.
      * 未触发一律静默放行 — 反复探测只会淹没清单主流程 (与 ASR 就绪检查同语义).</p>
+     *
+     * @param meta 刚保存的条目元数据, 据其组名判定是否触发
+     * @param values 会话显式值集, 提供三项的当前取值
+     * @param lastFingerprint 上次探测的三项值指纹, null = 本会话尚未探测过
+     * @param io 终端交互通道
+     * @return 本次流产物: fingerprint 为本次实际探测的值指纹 (未触发时为 null, 调用方不得覆盖已存指纹)
      */
     private @NotNull DbFlowStep runDbFlowIfTriggered(
         @NotNull PropertyMetaParser.ConfigItemMeta meta,
@@ -559,6 +699,14 @@ public final class SetupWizard
     }
 
     //* 五态分流主流程: probe → OK 直通 / SCHEMA_MISSING 询问建表 / 其余即时 ✗; DB_MISSING 先自动建库再重探.
+    /**
+     * 五态分流主流程: probe → OK 直通 / SCHEMA_MISSING 询问建表 / 其余即时 ✗; DB_MISSING 先自动建库再重探.
+     *
+     * @param gateway 探测/修复网关
+     * @param target 解析后的连接目标
+     * @param io 终端交互通道
+     * @return 流结局 (CONTINUE/REEDIT; EOF 取消在子流程内转 CANCEL)
+     */
     private static @NotNull DbFlowOutcome runDbFlow(@NotNull IDatabaseGateway gateway, @NotNull DbTarget target, @NotNull TerminalIO io)
     {
         var probe = gateway.probe(target);
@@ -602,6 +750,16 @@ public final class SetupWizard
 
     //* SCHEMA_MISSING 分支: 缺表清单 + [Y/n] 询问; y → 逐脚本建表 (进度一行一条) → 重探确认; n → 灰字提示后果并继续向导
     //* (拒绝不阻断: LAUNCH 前的 DbValidationTask 会以 BLOCK 拒绝启动, 后果链路完整).
+    /**
+     * SCHEMA_MISSING 分支: 缺表清单 + [Y/n] 询问; 同意则逐脚本建表 (进度一行一条) 后重探确认.
+     * <p>拒绝不阻断向导 — LAUNCH 前的 DbValidationTask 会以 BLOCK 拒绝启动, 后果链路完整.</p>
+     *
+     * @param gateway 探测/修复网关
+     * @param target 解析后的连接目标
+     * @param missingTables probe 得出的缺失表清单
+     * @param io 终端交互通道
+     * @return 流结局; 询问符处 EOF 为 CANCEL
+     */
     private static @NotNull DbFlowOutcome confirmSchema(
         @NotNull IDatabaseGateway gateway, @NotNull DbTarget target,
         @NotNull List<String> missingTables, @NotNull TerminalIO io
@@ -643,6 +801,7 @@ public final class SetupWizard
     //region AI 模型拉取步
 
     //* AI 流结局: CONTINUE = 推进清单; REEDIT = 401/403 密钥被拒, 停在当前项重编辑; CANCEL = 选择/输入符处 EOF, 沿用向导取消路径.
+    /** AI 流结局: CONTINUE = 推进清单; REEDIT = 401/403 密钥被拒, 停在当前项重编辑; CANCEL = 选择/输入符处 EOF, 沿用向导取消路径. */
     private enum AiFlowOutcome
     {
         CONTINUE,
@@ -653,16 +812,29 @@ public final class SetupWizard
     //* AI 流单步产物: fingerprint = 本次触发判定的值指纹 (null = 未触发/已取消, 调用方不得覆盖已存指纹).
     //* 成功路径以 "规范化后 endpoint + key" 入指纹而非触发时原值: 规范化会改写 values 中的 endpoint,
     //* 若以原值入指纹, 重存 key 会被误判为值变化而重复拉取; 失败路径原值入指纹, 同值重存静默跳过 (与 DB 流同语义).
+    /**
+     * AI 流单步产物.
+     *
+     * @param fingerprint 本次触发判定的值指纹 (null = 未触发/已取消, 调用方不得覆盖已存指纹);
+     *                    成功路径以规范化后 endpoint + key 入指纹, 防重存 key 被误判为值变化而重复拉取
+     * @param outcome 流结局
+     */
     private record AiFlowStep(@Nullable String fingerprint, @NotNull AiFlowOutcome outcome)
     {
         static final @NotNull AiFlowStep SKIPPED = new AiFlowStep(null, AiFlowOutcome.CONTINUE);
     }
 
     /**
-     * <span style="color: 95cc6d">AI 组条目保存后的模型拉取/选择流入口.</span>
+     * AI 组条目保存后的模型拉取/选择流入口.
      * <p>触发条件: 条目属 AI 接入组, endpoint 与 api-key 均已有值, 且二者值指纹不同于上次拉取.
      * properties 中 model 项位于 api-key 之前, 触发点在 key 保存时 — 选择结果直接覆写 values 中已填的
      * model 值 (清单行随重绘显示为已配置), 用户无需再手动输入模型. 未触发一律静默放行 (与 DB 流同语义).</p>
+     *
+     * @param meta 刚保存的条目元数据, 据其组名判定是否触发
+     * @param values 会话显式值集, 提供触发键与选择结果的读写面
+     * @param lastFingerprint 上次拉取的值指纹, null = 本会话尚未拉取过
+     * @param io 终端交互通道
+     * @return 本次流产物: fingerprint 为本次触发判定的值指纹 (未触发/已取消时为 null, 调用方不得覆盖已存指纹)
      */
     private @NotNull AiFlowStep runAiFlowIfTriggered(
         @NotNull PropertyMetaParser.ConfigItemMeta meta,
@@ -715,6 +887,12 @@ public final class SetupWizard
     }
 
     //* 元数据列表行: "序号. 模型ID [上下文: n|-] [思考: ✓|✗|-]"; 保持整行无着色, 行内容本身即断言面.
+    /**
+     * 渲染模型列表: "序号. 模型ID [上下文: n|-] [思考: ✓|✗|-]"; 整行无着色, 行内容本身即断言面.
+     *
+     * @param models 模型元数据列表
+     * @param io 终端交互通道
+     */
     private static void renderModelList(@NotNull List<IModelCatalog.ModelInfo> models, @NotNull TerminalIO io)
     {
         io.writeOut(PrintUtils.quickFormat("{}\n", dim(PrintUtils.quickFormat("可用模型 ({} 个):", models.size()))));
@@ -726,6 +904,13 @@ public final class SetupWizard
     }
 
     //* 返回选中下标 (0-based); -1 = EOF 取消; 越界/非数字原地红字重问 (序号解析与折叠命令态共用 [[SetupWizard#parseIndex]]).
+    /**
+     * 询问模型序号; 越界/非数字原地红字重问 (序号解析与折叠命令态共用 [[SetupWizard#parseIndex]]).
+     *
+     * @param size 模型数 (序号上界, 1-based)
+     * @param io 终端交互通道
+     * @return 选中下标 (0-based); EOF 取消为 -1
+     */
     private static int readModelIndex(int size, @NotNull TerminalIO io)
     {
         while(true)
@@ -744,6 +929,13 @@ public final class SetupWizard
     }
 
     //* 网络失败/空列表的手动兜底: 仅写 model, endpoint 保持用户原样 (未经探测证实, 不做规范化); EOF 沿取消路径.
+    /**
+     * 网络失败/空列表的手动兜底: 仅写 model 值, endpoint 保持用户原样 (未经探测证实, 不做规范化).
+     *
+     * @param values 会话显式值集 (选择结果写入 AI_MODEL_ENV)
+     * @param io 终端交互通道
+     * @return 流结局; 输入符处 EOF 为 CANCEL
+     */
     private static @NotNull AiFlowOutcome manualModelInput(@NotNull Map<String, String> values, @NotNull TerminalIO io)
     {
         while(true)
@@ -767,6 +959,15 @@ public final class SetupWizard
 
     //region 阶段三: 摘要与落盘
 
+    /**
+     * 渲染配置摘要: 分组列出全部显式值 (密钥全掩码), 继承的密钥项显式预告 "不写入文件";
+     * 无显式项时提示全部使用内置默认.
+     *
+     * @param items 全部条目元数据 (摘要始终覆盖全部, 与编辑清单的可见集无关)
+     * @param values 会话显式值集
+     * @param prefilled 继承来源键集 (密钥类预告用)
+     * @param io 终端交互通道
+     */
     private static void renderSummary(
         @NotNull List<PropertyMetaParser.ConfigItemMeta> items,
         @NotNull Map<String, String> values,
@@ -795,6 +996,12 @@ public final class SetupWizard
     }
 
     //* 返回 null = EOF 取消; TRUE = 确认写入; FALSE = 否决回编辑态.
+    /**
+     * 询问写入确认; 无效输入红字重问.
+     *
+     * @param io 终端交互通道
+     * @return TRUE = 确认写入; FALSE = 否决回编辑态; EOF 取消为 null
+     */
     private static @Nullable Boolean readConfirm(@NotNull TerminalIO io)
     {
         while(true)
@@ -809,6 +1016,16 @@ public final class SetupWizard
         }
     }
 
+    /**
+     * 落盘 (经 {@link ConfigWriter}, 原文件自动备份为 {@code .bak}) 后进入完成屏, 询问启动或退出.
+     * <p>落盘失败时向导以异常收场语义结束: stderr 报错并返回空表 + FAILED, 不存在静默半写状态.</p>
+     *
+     * @param items 全部条目元数据
+     * @param values 会话显式值集
+     * @param prefilled 继承来源键集 (密钥类落盘排除)
+     * @param io 终端交互通道
+     * @return LAUNCH/EXIT 携带非空 values; 完成屏处 EOF 归为 EXIT; 落盘失败为空表 + FAILED
+     */
     private @NotNull SetupResult finish(
         @NotNull List<PropertyMetaParser.ConfigItemMeta> items,
         @NotNull Map<String, String> values,
@@ -853,6 +1070,13 @@ public final class SetupWizard
 
     //* 预填显式配置 (sysprop/env/工作目录文件), 已配置项在清单中呈 CONFIGURED/OPTIONAL_SET, 展开态回车即保留;
     //* envNames 并行记录继承来源, 供摘要预告与 finish 排除密钥类条目落盘.
+    /**
+     * 预填显式配置 (sysprop/env/工作目录文件), 已配置项在清单中呈已配置态, 展开态回车即保留.
+     *
+     * @param items 全部条目元数据
+     * @param view 配置视图
+     * @return 预填值与继承来源键集; 无显式配置时两集合均为空
+     */
     private static @NotNull Prefill prefill(
         @NotNull List<PropertyMetaParser.ConfigItemMeta> items,
         @NotNull ConfigView view
@@ -875,6 +1099,15 @@ public final class SetupWizard
 
     //* 落盘值 = values - (prefill 来源 ∩ 密钥类): 继承密钥在进程环境中仍生效, 物化到文件违反
     //* "prod 密钥必须环境变量注入" 指引且摘要屏全掩码, 用户无从察觉; 其余显式值照常落盘.
+    /**
+     * 计算落盘值 = values - (prefill 来源 ∩ 密钥类): 继承密钥在进程环境中仍生效, 不物化到文件
+     * (prod 密钥必须环境变量注入的指引 + 掩码之下用户无从察觉明文被写入); 其余显式值照常落盘.
+     *
+     * @param items 全部条目元数据 (提供 inputType 与过滤序)
+     * @param values 会话显式值集
+     * @param prefilled 继承来源键集
+     * @return 允许落盘的显式值 (保持 values 的插入序)
+     */
     private static @NotNull Map<String, String> persistableValues(
         @NotNull List<PropertyMetaParser.ConfigItemMeta> items,
         @NotNull Map<String, String> values,
@@ -892,12 +1125,19 @@ public final class SetupWizard
     }
 
     //* 取消语义: 不落盘且累计值一并丢弃 (空表), 维持 "非空 values ⟺ 已落盘" 不变量; 返回 CANCELLED 而非 EXIT, 差异在退出码 (见 NextAction 上的 //! 注).
+    /**
+     * 取消收场: stderr 提示未写入任何文件, 累计值一并丢弃 (空表), 维持 "非空 values ⟺ 已落盘" 不变量.
+     *
+     * @param io 终端交互通道
+     * @return 空表 + CANCELLED (与 EXIT 的差异在退出码)
+     */
     private static @NotNull SetupResult cancelled(@NotNull TerminalIO io)
     {
         io.writeErr("已取消, 未写入任何文件\n");
         return new SetupResult(Map.of(), NextAction.CANCELLED);
     }
 
+    /** 密文行读取: {@link TerminalIO#readSecret} 的 String 适配; EOF 透传 null. */
     private static @Nullable String readSecretLine(@NotNull TerminalIO io)
     {
         final var chars = io.readSecret();
@@ -905,6 +1145,7 @@ public final class SetupWizard
     }
 
     //* GENERATE 空输入: 48 字节 SecureRandom → base64 (64 字符, 天然满足 minLength 32 的规则矩阵下限).
+    /** GENERATE 空输入的自动生成: 48 字节 SecureRandom → base64 (64 字符, 天然满足 minLength 32 下限). */
     private static @NotNull String generateSecret()
     {
         final var bytes = new byte[GENERATE_RANDOM_BYTES];
@@ -912,6 +1153,7 @@ public final class SetupWizard
         return Base64.getEncoder().encodeToString(bytes);
     }
 
+    /** 判定条目是否密钥类 (SECRET/GENERATE): 决定输入不回显与摘要/回显掩码. */
     private static boolean secretLike(@NotNull PropertyMetaParser.ConfigItemMeta meta)
     {
         return meta.inputType() == PropertyMetaParser.InputType.SECRET ||
@@ -919,8 +1161,16 @@ public final class SetupWizard
     }
 
     //* 密钥类字段的任何回显 (行尾/提示/摘要) 一律掩码, 明文仅存在于 values 与落盘文件.
+    /** 密钥类字段一律掩码 (明文仅存在于 values 与落盘文件), 其余原样返回. */
     private static @NotNull String displayValue(@NotNull PropertyMetaParser.ConfigItemMeta meta, @NotNull String v) { return secretLike(meta) ? MASK : v; }
 
+    /**
+     * 展开提示符的当前值后缀: 已有值显 "当前" (密钥掩码), 否则显条目默认值 (空默认不显).
+     *
+     * @param meta 条目元数据
+     * @param values 会话显式值集
+     * @return 后缀文本; 无可显内容为空串
+     */
     private static @NotNull String currentHint(
         @NotNull PropertyMetaParser.ConfigItemMeta meta,
         @NotNull Map<String, String> values
@@ -932,6 +1182,14 @@ public final class SetupWizard
         return meta.defaultValue().isEmpty() ? "" : PrintUtils.quickFormat(" [默认: {}]", displayValue(meta, meta.defaultValue()));
     }
 
+    /**
+     * 由当前值推导清单行状态: 已有值时先过格式校验 (预填值可能不合法, 整行红 + 回显原因),
+     * 合法则呈 CONFIGURED/OPTIONAL_SET; 无值时呈 REQUIRED_EMPTY/OPTIONAL_DEFAULT.
+     *
+     * @param meta 条目元数据
+     * @param values 会话显式值集
+     * @return 清单行参数对象
+     */
     private static @NotNull TerminalRenderer.ListItem stateOf(
         @NotNull PropertyMetaParser.ConfigItemMeta meta,
         @NotNull Map<String, String> values
@@ -963,17 +1221,23 @@ public final class SetupWizard
     }
 
     //* 着色速记: 收拢主要调用点的 TerminalRenderer 全限定引用, 保持渲染行可读.
+    /** 着色速记 (灰斜体): 收拢 TerminalRenderer 全限定引用, 保持渲染行可读. */
     private static @NotNull String dim(@NotNull String s) { return TerminalRenderer.paint(TerminalRenderer.Style.DIM, s); }
 
+    /** 着色速记 (黄粗斜体强调), 语义同 {@link #dim}. */
     private static @NotNull String emph(@NotNull String s) { return TerminalRenderer.paint(TerminalRenderer.Style.EMPHASIS, s); }
 
+    /** 着色速记 (绿 = 成功), 语义同 {@link #dim}. */
     private static @NotNull String ok(@NotNull String s) { return TerminalRenderer.paint(TerminalRenderer.Style.OK, s); }
 
+    /** 着色速记 (红 = 校验失败/错误), 语义同 {@link #dim}. */
     private static @NotNull String bad(@NotNull String s) { return TerminalRenderer.paint(TerminalRenderer.Style.BAD, s); }
 
     //* 展示统一正斜杠: 跨平台一致且与文档/compose 路径写法对齐.
+    /** 路径展示统一正斜杠: 跨平台一致且与文档/compose 路径写法对齐. */
     private static @NotNull String displayPath(@NotNull Path p) { return p.toString().replace('\\', '/'); }
 
+    /** 已存在文件的落盘回执备注 (原文件已备份为 *.bak); 无备份为空串. */
     private static @NotNull String bakNote(boolean had, @NotNull String bakName)
         { return had ? PrintUtils.quickFormat(" (原文件已备份为 {})", bakName) : ""; }
 

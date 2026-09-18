@@ -5,8 +5,8 @@ import jakarta.ws.rs.QueryParam;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * <b>日记列表查询参数</b>
- * <p>支持分页和时间范围过滤.</p>
+ * 日记列表查询参数, 支持分页与时间范围过滤 (JAX-RS {@code @BeanParam} 载体).
+ *
  * @since 1.0
  */
 public final class DiaryListQuery
@@ -21,7 +21,9 @@ public final class DiaryListQuery
     public int getSize() { return size; }
 
     /**
-     * <span style="color: 95cc6d">获取 {@code OFFSET} 值.</span>
+     * 计算当前分页对应的 SQL {@code OFFSET} 值.
+     *
+     * @return {@code (page - 1) * size}; page/size 经 setter 钳位后恒 >= 0
      */
     public int getOffset() { return (page - 1) * size; }
 

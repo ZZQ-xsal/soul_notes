@@ -3,9 +3,9 @@ package kurvcygnus.soulnotes.exception;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * <b>统一错误码枚举</b>
- * <p>所有业务异常使用此枚举传递一致的前后端错误信息.</p>
- * <p>格式: {@code HTTP状态码(3位) + 业务域编号(3位) + 具体错误编号(3位)}</p>
+ * 统一业务错误码枚举, 所有业务异常经此传递一致的前后端错误信息.
+ * <p>业务码格式: {@code HTTP状态码(3位) + 业务域编号(3位) + 具体错误编号(3位)},
+ * 高位段与 {@link #getHttpStatus()} 对应, 前端可据前缀直接获知 HTTP 语义.</p>
  * @since 1.0
  */
 public enum ErrorCode
@@ -51,7 +51,18 @@ public enum ErrorCode
         this.message    = message;
     }
 
+    /**
+     * @return 映射的 HTTP 状态码, 供异常映射器构造响应
+     */
     public int getHttpStatus() { return httpStatus; }
+
+    /**
+     * @return 业务错误码 (格式见类说明), 前端据此分支处理
+     */
     public int getCode()       { return code; }
+
+    /**
+     * @return 人读错误描述, 直接进入响应体的 {@code message}
+     */
     public @NotNull String getMessage() { return message; }
 }

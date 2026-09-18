@@ -1,7 +1,7 @@
 package kurvcygnus.soulnotes.utils.enums;
 
 /**
- * <b>语音处理状态枚举</b>
+ * 语音处理状态枚举.
  * <ul>
  *     <li>{@link #TRANSCRIBED} — 转录完成, transcribedText 已随响应返回 (静音空文本同属成功形态)</li>
  *     <li>{@link #FAILED} — 转录失败, message 携带原因 (离线安全网: 不转化为 5xx, 文字链路不受影响)</li>

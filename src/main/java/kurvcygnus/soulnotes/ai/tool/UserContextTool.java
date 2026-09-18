@@ -20,10 +20,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * <b>用户上下文工具</b>
+ * 用户上下文工具.
  * <p>AI Agent 可调用此工具获取用户近期的情绪状态摘要,
  * 以便在对话中提供更有针对性的共情回应.</p>
- * @since 2.0
+ * @since 1.0
  */
 @ApplicationScoped
 public final class UserContextTool
@@ -35,14 +35,20 @@ public final class UserContextTool
     //* 用户上下文工具回溯天数.
     private final int recentDays;
 
+    /**
+     * CDI 构造入口.
+     *
+     * @param recentDays 摘要回溯天数 (ai.context.recent-days, 默认 7)
+     * @since 1.1.0
+     */
     public UserContextTool(@ConfigProperty(name = "ai.context.recent-days", defaultValue = "7") int recentDays) { this.recentDays = recentDays; }
 
     /**
-     * <b>获取用户近期情绪摘要</b>
-     * <p>查询最近 N 天的日记分析结果, 返回自然语言摘要.</p>
+     * 获取用户近期情绪摘要.
+     * <p>查询最近 N 天的日记分析结果, 汇总为自然语言摘要 (篇数 + 情绪倾向 + 焦虑提示).</p>
      *
-     * @param userId 用户 ID
-     * @return 情绪摘要文本
+     * @param userId 用户 ID ({@code @ToolMemoryId} 透传)
+     * @return 情绪摘要文本; 任何失败形态 (非法 ID/查询超时/解析异常) 都降级为固定提示文本, 绝不抛出
      */
     @Tool("获取用户近期情绪状态摘要, 以便提供更贴近用户当前心境的回应")
     @SuppressWarnings("unused")

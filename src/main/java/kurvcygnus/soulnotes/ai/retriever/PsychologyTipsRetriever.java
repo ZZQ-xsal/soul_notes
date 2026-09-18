@@ -13,18 +13,23 @@ import java.util.Random;
 import java.util.stream.Stream;
 
 /**
- * <b>心理小知识检索器</b>
+ * 心理小知识检索器.
  * <p>知识库自 classpath {@code knowledge/{pack}/tips.md} 加载, {@code SOULNOTES_KNOWLEDGE_PACK}
  * 选择包 (默认 {@code default}), 机构可整包替换心理知识而无需改代码.</p>
  * <p>回退链: 配置包缺失/解析为空 → 回退内置 default 包并 WARN; default 亦不可用 → 空列表 + WARN,
  * 检索返回空. 后续可扩展为基于向量数据库的 RAG 检索.</p>
- * @since 2.0
+ * @since 1.0
  */
 @ApplicationScoped
 public final class PsychologyTipsRetriever
 {
     private static final Logger LOG = LoggerFactory.getLogger(PsychologyTipsRetriever.class);
 
+    /**
+     * 内置回退知识包名 ({@code knowledge/default/tips.md}).
+     *
+     * @since 1.1.0
+     */
     public static final String DEFAULT_PACK = "default";
 
     //* 配置包名仅用于启动后首次检索解析 (包切换经重启生效), 缓存后不再读取.
@@ -38,9 +43,11 @@ public final class PsychologyTipsRetriever
     private volatile List<@NotNull Tip> tips;
 
     /**
-     * <span style="color: 95cc6d">构造入口 (CDI 注入 / 测试直构共用).</span>
+     * 构造入口 (CDI 注入 / 测试直构共用).
      * <p>直构时 @ConfigProperty 注解不生效, 参数按普通字符串传入 — 单测借此注入任意包名验证回退链.</p>
+     *
      * @param packName 知识包名 (SOULNOTES_KNOWLEDGE_PACK, 默认 {@link #DEFAULT_PACK})
+     * @since 1.1.0
      */
     @Inject
     public PsychologyTipsRetriever(
@@ -48,10 +55,10 @@ public final class PsychologyTipsRetriever
     { this.packName = Objects.requireNonNull(packName, "Param \"packName\" must not be null!"); }
 
     /**
-     * <span style="color: 95cc6d">按关键词检索相关心理小知识.</span>
+     * 按关键词检索相关心理小知识.
      *
-     * @param query 搜索关键词, 逗号或空格分隔
-     * @return 匹配的心理知识列表 (最多 5 条)
+     * @param query 搜索关键词, 逗号或空格分隔; 空白查询直接返回空列表
+     * @return 匹配的心理知识列表 (最多 5 条); 知识包整体不可用时为空列表
      */
     public @NotNull List<@NotNull Tip> retrieve(@NotNull String query)
     {
@@ -66,9 +73,10 @@ public final class PsychologyTipsRetriever
     }
 
     /**
-     * <span style="color: 95cc6d">随机获取一条心理小知识.</span>
+     * 随机获取一条心理小知识.
      *
      * @return 随机 Tip
+     * @throws IllegalStateException 知识包为空 (default 亦缺失属部署错误) — 显式快败而非抛除零异常
      */
     public @NotNull Tip getRandomTip()
     {
@@ -84,6 +92,8 @@ public final class PsychologyTipsRetriever
      * 解析并缓存当前包的 Tip 列表.
      * <p>回退决策集中于此: 配置包非空即用; 否则 (非 default 时) 回退 default 并 WARN;
      * default 自身缺失/为空则空列表 + WARN — 每种降级态都有日志, 机构配置错误不被静默吞掉.</p>
+     *
+     * @since 1.1.0
      */
     private @NotNull List<@NotNull Tip> tips()
     {
@@ -109,7 +119,7 @@ public final class PsychologyTipsRetriever
     }
 
     /**
-     * <b>心理知识条目</b>
+     * 心理知识条目.
      *
      * @param keywords 关键词标签 (逗号分隔)
      * @param title    标题

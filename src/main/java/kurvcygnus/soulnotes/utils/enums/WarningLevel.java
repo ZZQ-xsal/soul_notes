@@ -1,7 +1,7 @@
 package kurvcygnus.soulnotes.utils.enums;
 
 /**
- * <b>预警等级枚举</b>
+ * 预警等级枚举.
  * <ul>
  *     <li>{@link #NONE} — 正常, 无需干预</li>
  *     <li>{@link #YELLOW} — 需关注, 持续低落或消极言语</li>

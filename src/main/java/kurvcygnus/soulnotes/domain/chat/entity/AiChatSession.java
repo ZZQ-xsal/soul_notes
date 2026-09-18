@@ -16,8 +16,9 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * <b>AI 对话 Session 实体</b>
- * <p>对应 {@code ai_chat_sessions} 表, {@code messages} 字段以 JSONB 存储对话历史.</p>
+ * AI 对话会话实体, 对应 {@code ai_chat_sessions} 表.
+ * <p>{@code messages} 字段以 JSONB 存储对话历史 (role/content 数组), 整段历史随会话读写.</p>
+ *
  * @since 1.0
  */
 @Entity
@@ -50,7 +51,7 @@ public final class AiChatSession extends PanacheEntityBase
 
     //region 消息操作
     /**
-     * <span style="color: 95cc6d">向对话历史追加一条消息.</span>
+     * 向对话历史追加一条消息并刷新 {@code updatedAt}.
      *
      * @param role    角色: "user" / "assistant"
      * @param content 消息内容
@@ -64,9 +65,9 @@ public final class AiChatSession extends PanacheEntityBase
     }
 
     /**
-     * <span style="color: f84b4b">截断对话历史至最近 N 条, 避免 Token 超限.</span>
+     * 截断对话历史至最近 N 条并刷新 {@code updatedAt}, 防止 JSONB 无限增长与 LLM Token 超限.
      *
-     * @param maxMessages 保留的最大消息条数
+     * @param maxMessages 保留的最大消息条数 (不足时不裁剪)
      */
     public void truncate(int maxMessages)
     {
@@ -83,10 +84,10 @@ public final class AiChatSession extends PanacheEntityBase
 
     //region 静态查询
     /**
-     * <span style="color: 95cc6d">查询指定用户的所有会话 (按更新时间倒序).</span>
+     * 查询指定用户的所有会话, 按更新时间倒序 (最近活跃在前).
      *
      * @param userId 用户 ID
-     * @return 会话列表
+     * @return 会话列表 (可能为空, 恒非 null)
      */
     public static @NotNull Uni<List<AiChatSession>> findByUserId(@NotNull UUID userId) { return find("userId = ?1 ORDER BY updatedAt DESC", userId).list(); }
     //endregion

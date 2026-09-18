@@ -10,8 +10,10 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * <b>用户实体</b>
- * <p>对应 {@code users} 表, 使用 Panache 响应式模式, 手动管理 ID.</p>
+ * 用户实体, 对应 {@code users} 表.
+ * <p>使用 Panache 响应式模式; 主键为应用层生成的 UUID, 避免暴露自增 ID 的安全风险.</p>
+ *
+ * @implNote 公开可变字段为 Panache Active Record 惯例, 仅应在服务层事务内修改.
  * @since 1.0
  */
 @Entity @Table(name = "users")
@@ -51,10 +53,10 @@ public final class User extends PanacheEntityBase
 
     //region 静态查询
     /**
-     * 根据用户名查找用户.
+     * 按用户名查找用户.
      *
      * @param username 用户名 (非空)
-     * @return 包含 {@link User} 的 {@link Uni}, 未找到时为 {@code null}
+     * @return 匹配的用户; 不存在时 {@link Uni} 以 {@code null} 项完成 (不抛异常), 调用方需判空
      */
     public static @NotNull Uni<User> findByUsername(@NotNull String username) { return find("username", username).firstResult(); }
     //endregion

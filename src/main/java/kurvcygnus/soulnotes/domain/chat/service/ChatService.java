@@ -40,13 +40,12 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * <b>AI 对话服务</b>
- * <ul>
- *     <li>发送消息 (同步 + SSE 流式)</li>
- *     <li>会话历史管理</li>
- *     <li>预警检测与推送</li>
-     *     <li>结构化输出管线 ("副医生"预埋): 契约提示词组装 + soulnotes 块拆流</li>
- * </ul>
+ * AI 对话服务, 承载树洞对话的完整链路: 消息收发 (同步 + SSE 流式)、会话历史管理、
+ * 预警检测与 RED 预警多渠道推送, 以及结构化输出管线 ("副医生"预埋: 契约提示词组装 + soulnotes 块拆流).
+ *
+ * @implNote LLM 与预警检测均为阻塞调用, 一律经 {@code vertx.executeBlocking} 在 worker 线程池执行,
+ *           结果回到事件循环后再操作 Hibernate reactive Session (规避 HR000068/069).
+ *           LLM 失败不向外抛错: send 与 stream 两条路径对称地补发固定兜底文案并正常收尾 (离线安全网).
  * @since 1.0
  */
 @ApplicationScoped
@@ -100,18 +99,17 @@ public final class ChatService
 
     //region 核心业务
     /**
-     * <span style="color: 95cc6d">发送消息并获取完整回复 (非流式).</span>
-     * <ul>
-     *     <li>加载/创建 Session</li>
-     *     <li>追加用户消息</li>
-     *     <li>调用 {@link EmpatheticChatAgent} 获取 AI 回复 (worker 线程池执行, 不阻塞事件循环)</li>
-     *     <li>检测预警等级</li>
-     *     <li>保存 Session</li>
-     * </ul>
+     * 发送用户消息并返回 AI 回复, 全程单个事务内完成持久化.
+     * <p>流程: 加载/创建 Session → 追加并截断用户消息 → worker 线程执行 LLM 调用 →
+     * 预警检测 → 持久化 AI 回复.</p>
      *
-     * @param req    发送请求
-     * @param userId 用户 ID
-     * @return AI 回复消息
+     * <p>LLM 调用失败时不抛出错误: 返回固定兜底文案 (同样落库),
+     * 保证前端永远收到可展示的回复 — 离线安全网语义的一部分.</p>
+     *
+     * @param req    发送请求 (含可选会话 ID 与消息内容)
+     * @param userId 当前认证用户 ID
+     * @return 助手角色的回复消息; LLM 不可用时为兜底文案
+     * @throws IBusinessException 会话 ID 不存在时 (SESSION_NOT_FOUND)
      */
     @WithTransaction
     public @NotNull Uni<ChatMessageVo> sendMessage(@NotNull ChatSendRequest req, @NotNull UUID userId)
@@ -128,22 +126,19 @@ public final class ChatService
     }
 
     /**
-     * <span style="color: 95cc6d">SSE 流式回复.</span>
-     * <p>返回 {@link Multi<String>} 以支持前端的逐字渲染.</p>
-     * <ul>
-     *     <li>加载/创建 Session, 先持久化用户消息</li>
-     *     <li>调用 {@link EmpatheticChatAgent#chat(String, String, String, String)} 获取 {@link dev.langchain4j.service.TokenStream}</li>
-     *     <li>在 worker 线程池启动流式调用, 逐块推送至 {@link Multi}</li>
-     *     <li>流式完成后以独立事务持久化 AI 回复</li>
-     * </ul>
+     * SSE 流式回复: 先独立事务持久化用户消息, 再逐 token 推送 AI 回复,
+     * 流式完成后以独立事务持久化完整回复并执行预警检测.
      *
-     * @param sessionId 会话 ID
+     * @param sessionId 会话 ID; {@code null}/空白/非法 UUID 一律回退为新会话 (不报错)
      * @param content   用户消息
-     * @param userId    用户 ID
-     * @return AI 回复的流式块
+     * @param userId    当前认证用户 ID
+     * @return AI 回复的流式块; LLM 中途失败时补发兜底文案后正常收流 (不向下游发失败信号),
+     *         会话不存在时以失败 Uni 发出 SESSION_NOT_FOUND
+     * @implNote Multi 返回类型无法使用 {@code @WithTransaction} (长事务会长时间占用 Hibernate session),
+     *           因此每个持久化操作都通过 {@code Panache.withTransaction} 独立事务完成.
+     *           emit 给前端的 token 保持原文, 结构化契约块只在落库文本上剥离 —
+     *           若缓冲到流结束再拆流须扣留全部 token, 既破坏逐字渲染, 流中断时还会整段丢失已扣留内容.
      */
-    //! Multi 返回类型无法使用 @WithTransaction (长事务会长时间占用 Hibernate session),
-    //! 因此每个持久化操作都通过 Panache.withTransaction 独立事务完成.
     @SuppressWarnings("unused")//! transformToMulti 返回的 Multi 即最终流, IDE 的 Mutiny 数据流分析误报为未使用发布者.
     public @NotNull Multi<String> streamMessage(
         @Nullable String sessionId,
@@ -159,10 +154,10 @@ public final class ChatService
     }
 
     /**
-     * <span style="color: 95cc6d">用户历史会话概览.</span>
+     * 查询当前用户的会话概览列表 (按最近活跃排序).
      *
-     * @param userId 用户 ID
-     * @return 会话概览列表
+     * @param userId 当前认证用户 ID
+     * @return 会话概览列表 (可能为空, 恒非 null); 预览超 50 字截断, 消息 JSON 损坏时该条计为 0 条/空预览
      */
     @WithTransaction
     public @NotNull Uni<List<ChatSessionVo>> listSessions(@NotNull UUID userId)
@@ -206,7 +201,17 @@ public final class ChatService
                     NoSuchElementException::new,
                     "CHAT_SESSION_LOOKUP_NOT_FOUND"
                 ).asException()
-            );
+            ).
+            //* 归属校验: 他人会话一律以"不存在"回应 (同码同文案), 不泄露资源存在性, 防会话枚举越权.
+            flatMap(session -> session.userId.equals(userId)
+                ? Uni.createFrom().item(session)
+                : Uni.createFrom().failure(
+                    IBusinessException.of(
+                        ErrorCode.SESSION_NOT_FOUND,
+                        "会话不存在",
+                        NoSuchElementException::new,
+                        "CHAT_SESSION_FOREIGN_ACCESS"
+                    ).asException()));
     }
 
     //* 在独立事务中追加并持久化用户消息, 返回受管的 Session (含最新历史).
@@ -367,9 +372,14 @@ public final class ChatService
             );
     }
 
-    //* 组装共情对话 systemPrompt (合并规则): 机构/内置提示词在前, 功能契约壳在后,
-    //* 契约壳首行声明最高优先级, 兜底机构提示词中"不要输出 JSON"之类指令对输出格式的破坏;
-    //* off 时不追加, 提示词与 token 成本同现状逐字节一致.
+    /**
+     * 组装共情对话 systemPrompt: 机构/内置提示词在前, 功能契约壳在后.
+     *
+     * @return 合并后的 systemPrompt; {@code clinical.tagging=off} 时不追加契约段,
+     *         提示词与 token 成本同 1.0 行为逐字节一致
+     * @since 1.1.0
+     */
+    //* 合并规则: 契约壳首行声明最高优先级, 兜底机构提示词中"不要输出 JSON"之类指令对输出格式的破坏.
     private @NotNull String buildSystemPrompt()
     {
         final var base = promptProvider.empatheticChat();
@@ -381,9 +391,14 @@ public final class ChatService
         return PrintUtils.quickFormat("{}\n\n{}", base, PrintUtils.quickFormat(AiPromptConstants.CLINICAL_OUTPUT_CONTRACT, schema));
     }
 
-    //* 结构定义解析: 默认 canonical 免归一零成本直用 (回滚即永久稳定); 自定义结构必须命中归一化缓存
-    //* 才允许上线 — 自然语言结构不稳定, 未经归一化的自由文本绝不下发; 未命中 = 启动期归一化未成功,
-    //* 一次性 WARN 留痕后等下次启动重试 (缓存查询不触发 LLM, 请求路径零外呼).
+    /**
+     * 解析可下发的结构化契约结构定义.
+     *
+     * @return 默认 canonical 结构免归一化零成本直用 (回滚即永久稳定); 自定义结构必须命中归一化缓存
+     *         才允许上线 — 未经归一化的自由文本绝不下发; 未命中 (启动期归一化未成功) 时为 {@code null},
+     *         一次性 WARN 留痕后等下次启动重试 (缓存查询不触发 LLM, 请求路径零外呼)
+     * @since 1.1.0
+     */
     private @Nullable String resolveSchemaForContract()
     {
         final var effective = promptProvider.clinicalSchema();
@@ -395,8 +410,14 @@ public final class ChatService
         return normalized;
     }
 
-    //* 落库前拆流: on 时剥离回复末尾的 soulnotes 结构化块, 防止块在多轮历史间重复累积 (省 token);
-    //* payload 本轮仅 DEBUG 日志可观测, 存储/消费明确延后; off 时原样透传不拆.
+    /**
+     * 落库前拆流: {@code clinical.tagging=on} 时剥离回复末尾的 soulnotes 结构化块,
+     * 防止契约块在多轮历史间重复累积 (省 token); off 时原样透传不拆.
+     *
+     * @param reply LLM 原始回复
+     * @return 供落库与回传前端的剥离后正文; 结构化 payload 本轮仅 DEBUG 日志可观测, 存储/消费明确延后
+     * @since 1.1.0
+     */
     private @NotNull String splitForStore(@NotNull String reply)
     {
         if(!clinicalTagging)

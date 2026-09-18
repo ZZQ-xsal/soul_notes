@@ -16,15 +16,21 @@ import java.util.Objects;
 import java.util.function.Function;
 
 /**
- * <b>Pre-Launch 配置落盘器</b>
+ * Pre-Launch 配置落盘器.
  * <p>把向导收集到的用户显式值写出为双文件 — {@code config/application.properties} (键 = meta.key) 与
  * {@code .env} (键 = 环境变量名). 未显式输入的项不落盘, 默认值继续由内置 classpath 配置提供,
  * 输出因此保持最小化, 不干扰框架默认行为.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 public final class ConfigWriter
 {
-    //* 落盘结果路径, 供向导向用户提示文件位置.
+    /**
+     * 落盘结果路径, 供向导向用户提示文件位置.
+     *
+     * @param propertiesFile {@code config/application.properties} 的落点
+     * @param envFile {@code .env} 的落点
+     * @since 1.1.0
+     */
     public record Written(@NotNull Path propertiesFile, @NotNull Path envFile)
     {}
 
@@ -33,17 +39,18 @@ public final class ConfigWriter
     //region 双文件写出
 
     /**
-     * <span style="color: 95cc6d">把用户显式值写出到工作目录的双文件.</span>
+     * 把用户显式值写出到工作目录的双文件.
      * <p>两个文件共享同一结构: 头部时间戳行 + {@code # ---- {group} ----} 分组节 + 值行;
      * properties 值行按配置键对齐, .env 值行严格 {@code envName=value} 不补齐 (机器消费兼容);
      * 分组节按条目首次出现的顺序排列 (向导按文件顺序传入), 组内无任何显式条目时该节整体省略.</p>
      *
      * @param workDir 工作目录 ({@code config/} 子目录与 {@code .env} 的落点, 不存在时自动创建)
      * @param items 向导条目元数据, 调用方给定的顺序即落盘顺序
-     * @param values 用户显式值, 以环境变量名为键
+     * @param values 用户显式值, 以环境变量名为键; 匹配不到任何条目的键静默忽略 (值集可能残留已下线条目)
      * @param timestamp 预格式化的生成时间戳, 仅用于头部注释行
      * @return 两个文件的落点路径
      * @throws IOException 目录创建/备份/写文件失败时原样向上抛 (如 {@code workDir/config} 被同名文件占用, 快速失败优于静默)
+     * @since 1.1.0
      */
     public static @NotNull Written write(
         @NotNull Path workDir,
@@ -94,12 +101,26 @@ public final class ConfigWriter
     //region 内部工具
 
     //* 已存在 → 先移为 .bak, REPLACE_EXISTING 覆盖旧备份 (仅保留最近一次).
+    /**
+     * 已存在文件先移为 {@code .bak} (覆盖旧备份, 仅保留最近一次); 文件不存在时无操作.
+     *
+     * @param file 待备份文件
+     * @throws IOException 移动失败原样上抛 (快速失败)
+     */
     private static void backupToBak(@NotNull Path file) throws IOException
     {
         if(Files.exists(file))
             Files.move(file, file.resolveSibling(PrintUtils.quickFormat("{}.bak", file.getFileName())), StandardCopyOption.REPLACE_EXISTING);
     }
 
+    /**
+     * 拼装双文件共享结构: 头部时间戳注释行 + {@code # ---- {group} ----} 分组节 (组间空行) + 逐条目值行.
+     *
+     * @param groups 分组到条目的有序映射 (首次出现序)
+     * @param timestamp 预格式化的生成时间戳
+     * @param lineOf 单条目值行渲染函数 (properties 与 .env 形态不同, 由调用方注入)
+     * @return 完整文件内容
+     */
     private static @NotNull String render(
         @NotNull Map<String, List<PropertyMetaParser.ConfigItemMeta>> groups,
         @NotNull String timestamp, @NotNull Function<PropertyMetaParser.ConfigItemMeta, String> lineOf
@@ -118,6 +139,7 @@ public final class ConfigWriter
         return sb.toString();
     }
 
+    /** 右侧补空格至指定宽度 (properties 键列对齐用). */
     private static @NotNull String pad(@NotNull String key, int width) { return PrintUtils.quickFormat("{}{}", key, " ".repeat(width - key.length())); }
 
     //endregion

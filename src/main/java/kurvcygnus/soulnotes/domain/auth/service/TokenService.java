@@ -26,10 +26,11 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * <b>JWT 令牌服务</b>
- * <ul>
- *     <li>签发 JWT、校验 JWT、将 Token 加入 Redis 黑名单以实现登出</li>
- * </ul>
+ * JWT 令牌服务, 承载 Token 的签发、黑名单注销与黑名单查询.
+ * <p>黑名单存于 Redis (Key: {@code jwt:blacklist:{jti}}), 实现无状态的分布式登出.</p>
+ *
+ * @implNote 构造期 fail-fast: jwt.secret 不足 32 字节或 issuer 空白直接拒绝启动,
+ *           防止生产环境静默使用弱密钥或签发/验签 issuer 分叉.
  * @since 1.0
  */
 @ApplicationScoped
@@ -72,10 +73,13 @@ public final class TokenService
 
     //region 核心方法
     /**
-     * <span style="color: 95cc6d">为指定用户生成 JWT.</span>
+     * 为指定用户签发 HS256 签名的 JWT.
+     * <p>subject 为用户 ID (UUID), 角色写入 groups, 并携带随机 jti 供黑名单对齐.</p>
      *
      * @param user 用户实体
-     * @return 签名后的 JWT 字符串
+     * @return 签名后的 JWT 字符串, 有效期取配置的 ttl-seconds (默认 7 天)
+     * @implNote 刻意不设置 upn 声明: 资源层以 {@code getPrincipal().getName()} 解析 userId,
+     *           若 upn 被设为 username 会导致 {@code UUID.fromString} 抛异常.
      */
     public @NotNull String generateToken(@NotNull User user)
     {
@@ -94,11 +98,12 @@ public final class TokenService
     }
 
     /**
-     * <span style="color: 95cc6d">将 Token 加入黑名单 (直到其原始过期时间).</span>
-     * <p>黑名单 Key 格式: {@code jwt:blacklist:{jti}}</p>
+     * 注销 Token: 提取 jti 写入 Redis 黑名单, TTL 为 Token 的精确剩余有效期.
      *
      * @param token 待注销的 JWT
-     * @return {@link Uni<Void>}
+     * @return 完成信号
+     * @implNote 容错降级: Token 结构无法分段时静默完成 (no-op); jti 解析失败回退 payload 哈希作 Key,
+     *           剩余有效期解析失败回退完整 TTL — 登出操作自身绝不失败.
      */
     public @NotNull Uni<Void> invalidateToken(@NotNull String token)
     {
@@ -116,10 +121,10 @@ public final class TokenService
     }
 
     /**
-     * <span style="color: f84b4b">检查 Token 是否已被列入黑名单.</span>
+     * 查询 Token 是否已被注销 (命中 Redis 黑名单).
      *
      * @param jti JWT 的 jti 声明
-     * @return {@code true} 若该 Token 已被注销
+     * @return {@code true} 表示该 Token 已被登出, 认证机制据此拒绝重建身份
      */
     public @NotNull Uni<Boolean> isBlacklisted(@NotNull String jti) { return redisValues.get(RedisKeyConstants.TOKEN_BLACKLIST.formatted(jti)).map(Objects::nonNull); }
     //endregion

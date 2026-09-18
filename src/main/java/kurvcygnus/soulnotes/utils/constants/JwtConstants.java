@@ -3,10 +3,10 @@ package kurvcygnus.soulnotes.utils.constants;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * <b>JWT 相关常量</b>
+ * JWT 认证相关常量.
  * <ul>
  *     <li>{@link #TOKEN_PREFIX} — Authorization 头的 Token 前缀</li>
- *     <li>{@link #TOKEN_PREFIX_LENGTH} — Bearer 前缀长度（用于 {@code substring}）</li>
+ *     <li>{@link #TOKEN_PREFIX_LENGTH} — Bearer 前缀长度 (用于 {@code substring})</li>
  *     <li>{@link #AUTH_HEADER} — 请求头名称</li>
  *     <li>{@link #CHALLENGE_REALM} — 认证质询 Realm</li>
  * </ul>

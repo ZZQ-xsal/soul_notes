@@ -37,12 +37,12 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * <b>语音处理 REST 资源</b>
+ * 语音处理 REST 资源, 面向 STUDENT 角色提供语音上传同步转录与已存语音文件回访端点.
  * <ul>
  *     <li>{@code POST /api/v1/voice/upload} — 上传语音文件并同步本地转录 (响应直接携带 transcribedText)</li>
  *     <li>{@code GET  /api/v1/voice/files/{fileId}} — 获取已存储的语音文件</li>
  * </ul>
- * <p>同步转录链路: 大小校验 → RIFF/WAVE 头校验 → 存储 → 引擎转录 → 响应. 转录失败不回 5xx,
+ * <p>同步转录链路: 大小校验 → RIFF/WAVE 头校验 → 存储 → 引擎转录 → 响应.转录失败不回 5xx,
  * 而是 status=FAILED + message 透传原因 (离线安全网: 文字链路与应急热线兜底不因语音失败而崩溃).</p>
  * @since 1.0
  */
@@ -57,7 +57,8 @@ public final class VoiceResource
     private final long maxSize;
 
     /**
-     * <span style="color: 95cc6d">CDI 构造入口 (构造注入, 便于以 fake 引擎做单元测试).</span>
+     * CDI 构造入口 (构造注入, 便于以 fake 引擎做单元测试).
+     *
      * @param voiceStorageService 语音存储服务
      * @param asrEngine           本地 ASR 引擎 (SOULNOTES_ASR_ENGINE 选择, 可插拔)
      * @param maxSize             上传大小上限 (字节)
@@ -75,11 +76,14 @@ public final class VoiceResource
     }
 
     /**
-     * <span style="color: 95cc6d">上传语音文件并同步转录.</span>
-     * <p>文件 I/O 与转录调度整体移交 worker 线程池, 避免阻塞事件循环.</p>
+     * 上传语音文件并同步转录, 文件 I/O 与转录调度整体移交 worker 线程池, 避免阻塞事件循环.
+     * <p>链路: 大小校验 (事件循环上, 仅数值比较) → RIFF/WAVE 头校验 (落盘前拒绝非 WAV) →
+     * 落盘存储 → 本地引擎转录 → 组装响应.</p>
      *
      * @param file 上传的语音文件 (16kHz 单声道 PCM16 WAV, 由前端 Web Audio 产出)
-     * @return 上传响应 (含转录文本或失败原因)
+     * @return 上传响应: 成功为 TRANSCRIBED + 转录文本 (静音为空串); 失败为 FAILED + message (HTTP 仍 200,
+     *         离线安全网语义)
+     * @throws IBusinessException 文件超过大小上限 (BAD_REQUEST) 或非 WAV 格式 (BAD_REQUEST) 时
      */
     @POST @Path("/upload")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
@@ -118,11 +122,11 @@ public final class VoiceResource
     }
 
     /**
-     * <span style="color: 95cc6d">获取已存储的语音文件.</span>
+     * 获取已存储的语音文件内容.
      * <p>fileId 由服务端生成 (UUID), 通过 {@link UUID#fromString} 校验防止路径穿越.</p>
      *
      * @param fileId 文件唯一标识
-     * @return 文件内容, 不存在时返回 404
+     * @return 文件内容 (application/octet-stream); fileId 非 UUID 或文件不存在时均返回 404
      */
     @GET @Path("/files/{fileId}")
     public @NotNull Uni<Response> getFile(@PathParam("fileId") @NotNull String fileId)
@@ -141,8 +145,15 @@ public final class VoiceResource
 
     //region 辅助方法
 
-    //* 最小 RIFF/WAVE 头校验 (前 12 字节), 与引擎侧解析器同源; 仅支持 16kHz 单声道 PCM16 (前端 Web Audio 产出约束).
-    //! java.nio.file.Path 以全限定名书写: 与 jakarta.ws.rs.Path (JAX-RS 注解) 简名冲突, 后者在本文件注解中出现频次更高.
+    /**
+     * 最小 RIFF/WAVE 头校验 (前 12 字节, 与引擎侧解析器同源).
+     *
+     * @param file 待校验的本地文件路径
+     * @throws IOException        文件不可读时
+     * @throws IBusinessException 非 WAV 头时 (BAD_REQUEST; 仅支持 16kHz 单声道 PCM16, 前端 Web Audio 产出约束)
+     * @since 1.1.0
+     */
+    //* java.nio.file.Path 以全限定名书写: 与 jakarta.ws.rs.Path (JAX-RS 注解) 简名冲突, 后者在本文件注解中出现频次更高.
     private static void assertWavHeader(@NotNull java.nio.file.Path file) throws IOException
     {
         try(var in = Files.newInputStream(file))
@@ -161,7 +172,15 @@ public final class VoiceResource
         }
     }
 
-    //* 转录结果映射: error 非空 → FAILED + message (HTTP 200, 离线安全网); 否则 TRANSCRIBED + 文本 (静音空串属合法成功).
+    /**
+     * 转录结果映射为响应体: error 非空 → FAILED + message (HTTP 200, 离线安全网);
+     * 否则 TRANSCRIBED + 文本 (静音空串属合法成功).
+     *
+     * @param stored 已落盘的语音文件
+     * @param result 引擎转录结果
+     * @return 上传响应 (恒成功形态, 不产生 5xx)
+     * @since 1.1.0
+     */
     private static @NotNull VoiceUploadResponse toResponse(@NotNull VoiceStorageService.StoredVoice stored, @NotNull AsrResult result)
     {
         final var audioUrl = "/api/v1/voice/files/" + stored.fileId();

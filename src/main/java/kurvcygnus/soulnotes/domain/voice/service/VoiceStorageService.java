@@ -17,12 +17,10 @@ import java.nio.file.StandardCopyOption;
 import java.util.UUID;
 
 /**
- * <b>语音文件存储服务</b>
- * <ul>
- *     <li>将上传的语音文件写入本地文件系统</li>
- *     <li>返回 {@link StoredVoice} (fileId + 实际落盘路径), 供上传链路同步转录直接取用</li>
- *     <li>读取/删除已存储文件</li>
- * </ul>
+ * 语音文件存储服务: 将上传的语音文件写入本地文件系统, 并提供读取/删除能力.
+ * <p>返回的 {@link StoredVoice} 同时携带 fileId 与实际落盘路径, 供上传链路同步转录直接取用.</p>
+ *
+ * @implNote 全部阻塞文件 I/O 经 {@code runSubscriptionOn} 移交 worker 线程池执行, 不阻塞事件循环.
  * @since 1.0
  */
 @ApplicationScoped
@@ -38,26 +36,34 @@ public final class VoiceStorageService
     ) { this.storagePath = Path.of(storageDir); }
 
     /**
-     * <b>已存储语音</b>
-     * <p>store 的返回载体: fileId 供前端回访 /voice/files 端点, path 供引擎直读 —
+     * 已存储语音的载体 record.
+     * <p>fileId 供前端回访 {@code /voice/files} 端点, path 供引擎直读 —
      * 转录必须针对存储文件而非 resteasy 临时文件 (临时文件随请求结束被清理).</p>
      *
      * @param fileId 文件唯一标识 (UUID)
      * @param path   实际落盘路径
+     * @since 1.1.0
      */
     public record StoredVoice(@NotNull String fileId, @NotNull Path path) {}
 
     //* audioUrl 的单一权威: 资源层 (upload 响应) 与 DiaryService (日记语音附件) 共用, 防路径漂移.
+    /**
+     * 由 fileId 构造语音文件访问 URL, 是 audioUrl 的单一权威来源.
+     *
+     * @param fileId 文件唯一标识
+     * @return 形如 {@code /api/v1/voice/files/{fileId}} 的访问路径
+     * @since 1.1.0
+     */
     public static @NotNull String audioUrlOf(@NotNull String fileId)
     { return "/api/v1/voice/files/" + fileId; }
 
     /**
-     * <span style="color: 95cc6d">存储语音文件.</span>
-     * <p>阻塞文件 I/O 在 worker 线程池执行, 避免阻塞事件循环.</p>
+     * 存储语音文件: 以随机 UUID 为目录、过滤后的原始文件名落盘.
      *
-     * @param fileName 原始文件名
+     * @param fileName 原始文件名 (非法字符会被替换为下划线, 防路径穿越)
      * @param input    文件输入流
      * @return 存储结果 (fileId + 实际路径)
+     * @implNote 底层 IOException 被包装为 {@link RuntimeException} 以失败 Uni 发出, 由调用方决定降级形态.
      */
     public @NotNull Uni<StoredVoice> store(@NotNull String fileName, @NotNull InputStream input)
     {
@@ -85,10 +91,10 @@ public final class VoiceStorageService
     }
 
     /**
-     * <span style="color: f84b4b">删除语音文件.</span>
+     * 删除语音文件及其目录, 尽力清理 (best-effort).
      *
      * @param fileId 文件唯一标识
-     * @return Uni<Void>
+     * @return 完成信号; 目录不存在时静默成功 (幂等), 单个文件/目录删除失败仅 WARN 不中断
      */
     public @NotNull Uni<Void> delete(@NotNull String fileId)
     {
@@ -119,11 +125,11 @@ public final class VoiceStorageService
     }
 
     /**
-     * <span style="color: 95cc6d">读取语音文件内容.</span>
-     * <p>文件不存在时返回 {@code null} (由资源层映射为 404).</p>
+     * 读取语音文件内容.
      *
      * @param fileId 文件唯一标识
-     * @return 文件字节内容, 或 {@code null}
+     * @return 文件字节内容; 文件不存在时以 {@code null} 项完成 (由资源层映射为 404)
+     * @implNote 读取期 IOException 被包装为 {@link RuntimeException} 以失败 Uni 发出.
      */
     public @NotNull Uni<byte[]> load(@NotNull String fileId)
     {

@@ -21,12 +21,13 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * <b>情感分析服务</b>
- * <ul>
- *     <li>封装 AI {@code MoodAnalysisAgent} 与 {@code WarningDetectionAgent} 的调用编排</li>
- *     <li>分析结果回写 {@link MoodDiary#analysisResult} JSONB 字段</li>
- * </ul>
- * @since 2.0
+ * 情感分析服务, 编排 AI {@code MoodAnalysisAgent} 与 {@code WarningDetectionAgent} 的调用,
+ * 并将合并结果回写 {@link MoodDiary#analysisResult} JSONB 字段.
+ * <p>检测到 RED 级预警时, 经通知渠道 fan-out (websocket/webhook) 推送热线, 与聊天链路共用渠道.</p>
+ *
+ * @implNote 阻塞 AI 调用统一经 {@code vertx.executeBlocking} 在 worker 线程执行,
+ *           结果回事件循环后再操作 Hibernate reactive Session (规避 HR000068/069).
+ * @since 1.0
  */
 @ApplicationScoped
 @SuppressWarnings("unused")//! AI Agent 为 Quarkus 运行时生成 Bean, IDE 静态分析误报未满足依赖.
@@ -59,14 +60,11 @@ public final class EmotionAnalysisService
     }
 
     /**
-     * <span style="color: 95cc6d">异步情感分析 (不阻塞主流程, 用户无需等待).</span>
-     * <p>适用于创建日记等场景 — 先保存 Diary, 后台线程执行 AI 分析, 完成后再回写结果.</p>
-     *
-     * <span style="color: f84b4b">AI 调用是同步 HTTP 请求, 通过 {@code runSubscriptionOn} 移交 worker 线程池,
-     * 避免阻塞事件循环; 持久化前必须 {@code emitOn} 回到事件循环上下文, 否则触发 HR000069.</span>
+     * 异步情感分析: AI 调用失败仅记 error 日志并原样返回日记, 不向调用方抛错.
+     * <p>适用于创建日记等场景 — 用户无需等待分析结果, 分析失败仅表现为 analysisResult 未回写.</p>
      *
      * @param diary 已持久化的日记实体
-     * @return 更新后的日记实体 (含 analysisResult)
+     * @return 更新后的日记实体 (成功时含 analysisResult); 失败时为原实体 (结果字段保持不变)
      */
     public @NotNull Uni<MoodDiary> analyzeAsync(@NotNull MoodDiary diary)
     {
@@ -76,11 +74,15 @@ public final class EmotionAnalysisService
     }
 
     /**
-     * <span style="color: f84b4b">同步情感分析与预警检测 (高优场景).</span>
-     * <p>适用于需要立即返回分析结果的场景, 调用方需等待分析结果持久化完成.</p>
+     * 同步情感分析与预警检测: 调用方需等待分析结果持久化完成后才继续.
+     * <p>适用于需要立即得到分析结果的高优场景; 分析结果合并落库,
+     * RED 级预警同时触发多渠道推送.</p>
      *
      * @param diary 已持久化的日记实体
      * @return 更新后的日记实体 (含 analysisResult)
+     * @implNote HR000068/069: Hibernate reactive Session 只能在打开它的 Vert.x 事件循环线程使用,
+     *           因此阻塞 AI 调用经 {@code vertx.executeBlocking} 在 worker 线程执行, 结果回事件循环回调,
+     *           之后的 {@code persistAndFlush} 才能安全访问请求上下文中的 Session.
      */
     public @NotNull Uni<MoodDiary> analyzeAndDetect(@NotNull MoodDiary diary)
     {
@@ -106,7 +108,13 @@ public final class EmotionAnalysisService
 
     //region 辅助方法
 
-    //* 日记来源 RED 预警的渠道分发 (与 ChatService#applyWarning 同构): 逐渠道 fire-and-forget, 不回落具体渠道.
+    /**
+     * 日记来源 RED 预警的渠道分发: 逐渠道 fire-and-forget 推送热线, 不回落具体渠道.
+     *
+     * @param userId 目标用户 ID
+     * @param reason 触发预警的原因描述
+     * @since 1.1.0
+     */
     //* Uni 是惰性的, 必须订阅才真正触发推送; 渠道实现保证失败仅日志 (接口契约),
     //! 订阅级兜底仅防渠道外的意外实现缺陷, 不允许预警分发拖垮分析主流程.
     private void pushRedAlert(@NotNull UUID userId, @NotNull String reason)

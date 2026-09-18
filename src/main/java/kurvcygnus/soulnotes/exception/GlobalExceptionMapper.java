@@ -7,19 +7,22 @@ import kurvcygnus.soulnotes.dto.ApiResponse;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * <b>全局结构化异常映射器</b>，将所有 {@link StructuredException} 统一转换为 JSON 错误响应。<br>
- * 对实现 {@link IBusinessException} 的异常提取 {@link ErrorCode} 确定 HTTP 状态码；
- * 对其他 {@link StructuredException} 回退为 500 内部错误。<hr>
- * <p><b>注意:</b></p>
- * <ul>
- *     <li>匹配 {@link StructuredException} 而非 {@link HolderException}，因为 {@link DataHolderException}
- *         是 {@link HolderException} 的兄弟类（均继承 {@link StructuredException}），后者无法被 {@code ExceptionMapper<HolderException>} 捕获。</li>
- * </ul>
- * @since 1.1
+ * 全局结构化异常映射器, 将所有 {@link StructuredException} 统一转换为 {@link ApiResponse} JSON 错误响应.
+ * <p>实现 {@link IBusinessException} 的异常按其 {@link ErrorCode} 确定 HTTP 状态码与业务码;
+ * 其余 {@link StructuredException} 回退为 500 内部错误.</p>
+ * <p>注意: 匹配 {@link StructuredException} 而非 {@link HolderException} — {@link DataHolderException}
+ * 是 {@link HolderException} 的兄弟类 (均继承 {@link StructuredException}), 若声明为
+ * {@code ExceptionMapper<HolderException>} 将无法捕获后者.</p>
+ * @since 1.0
  */
 @Provider
 public final class GlobalExceptionMapper implements ExceptionMapper<StructuredException>
 {
+    /**
+     * 将结构化异常渲染为 JSON 错误响应.
+     * @param exception 被 RESTEasy Reactive 捕获的结构化异常
+     * @return 业务异常按其 {@link ErrorCode} 构造的响应; 其余一律 500 + {@code INTERNAL_ERROR} 负载, 永不为 {@code null}
+     */
     @Override public @NotNull Response toResponse(@NotNull StructuredException exception)
     {
         if(exception instanceof IBusinessException<?> bizEx)

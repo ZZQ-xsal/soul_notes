@@ -7,29 +7,42 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * <b>模型目录拉取端口: OpenAI 兼容 {@code /models} 列表探测</b>
+ * 模型目录拉取端口: OpenAI 兼容 {@code /models} 列表探测.
  * <p>Pre-Launch 阶段 (配置向导 AI 拉取步) 运行于 CDI 容器启动之前, 只能以纯构造装配消费
  * 模型列表能力; 本接口是该消费面的最小端口, 生产实现为 {@link HttpModelCatalog}.</p>
  *
  * <p>不做 sealed: 向导的单元测试须跨包伪造本端口 (sealed permits 无法覆盖测试源),
  * 与 {@code IAsrRuntimeControl} 同一定位, 允许可替换实现.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 public interface IModelCatalog
 {
     //region 数据表面
 
-    //* 单条模型元数据: context 为上下文长度展示值, reasoning 为思考能力展示值 (✓|✗|-), 无对应扩展字段时均为 "-".
+    /**
+     * 单条模型元数据.
+     *
+     * @param id 模型 ID (OpenAI {@code data[].id}), 直接作为选择结果写回配置
+     * @param context 上下文长度展示值; 缺失/非标量时为 "-"
+     * @param reasoning 思考能力展示值 (✓|✗|-); 无对应扩展字段时为 "-"
+     */
     record ModelInfo(@NotNull String id, @NotNull String context, @NotNull String reasoning)
     {}
 
-    //* 拉取结果: normalizedEndpoint 为探测成功的 base + /v1 规范形 (langchain4j base-url 所需形态, fetch 与存储分离).
+    /**
+     * 拉取结果.
+     *
+     * @param models 模型元数据列表 (顺序即服务端返回顺序, 亦即向导序号顺序)
+     * @param normalizedEndpoint 探测成功的 base + /v1 规范形 (langchain4j base-url 所需形态, fetch 与存储分离)
+     */
     record CatalogResult(@NotNull List<ModelInfo> models, @NotNull String normalizedEndpoint)
     {
         public CatalogResult { models = List.copyOf(models); }
     }
 
-    //* 401/403 专属分型: 密钥被拒与网络失败必须可区分, 向导对前者回重编辑、后者走手动输入兜底.
+    /**
+     * 401/403 专属分型: 密钥被拒与网络失败必须可区分, 向导对前者回重编辑、后者走手动输入兜底.
+     */
     class UnauthorizedException extends Exception
     {
         public UnauthorizedException(@NotNull String message) { super(message); }
@@ -40,9 +53,9 @@ public interface IModelCatalog
     //region URL 启发式 (单一来源)
 
     /**
-     * <span style="color: 95cc6d">探测 URL 启发式: endpoint 以 {@code /v1} 结尾 → 拼 {@code /models};
-     * 否则拼 {@code /v1/models}.</span>
+     * 探测 URL 启发式: endpoint 以 {@code /v1} 结尾 → 拼 {@code /models}; 否则拼 {@code /v1/models}.
      * <p>静态置于端口而非实现: 向导须在拉取前回显最终请求 URL, 与 fetch 共用同一启发式避免两处漂移.</p>
+     *
      * @param endpoint 用户输入的 OpenAI 兼容接口根地址
      * @return 实际探测的完整 URL
      */
@@ -53,9 +66,10 @@ public interface IModelCatalog
     }
 
     /**
-     * <span style="color: 95cc6d">存储规范形 (fetch 与存储分离): base + {@code /v1}
-     * (langchain4j base-url 所需形态).</span>
+     * 存储规范形 (fetch 与存储分离): base + {@code /v1}
+     * (langchain4j base-url 所需形态).
      * <p>与 {@link #modelsUrl} 共用同一后缀判定, 避免 "拉取成功但 chat 调用 404" 的路径不一致.</p>
+     *
      * @param endpoint 用户输入的接口根地址
      * @return 规范化 endpoint, 恒以 {@code /v1} 结尾
      */
@@ -79,7 +93,8 @@ public interface IModelCatalog
     //region 拉取
 
     /**
-     * <span style="color: 95cc6d">同步拉取模型列表 (阻塞式, Pre-Launch 无事件循环可挂靠).</span>
+     * 同步拉取模型列表 (阻塞式, Pre-Launch 无事件循环可挂靠).
+     *
      * @param endpoint 用户输入的接口根地址 (启发式见 {@link #modelsUrl})
      * @param apiKey Bearer 鉴权密钥
      * @param timeout 单次请求超时

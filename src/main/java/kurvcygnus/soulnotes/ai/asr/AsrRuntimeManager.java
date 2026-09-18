@@ -33,7 +33,7 @@ import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 
 /**
- * <b>ASR 运行时管理器: 就绪检测 + 模型与原生库自动下载</b>
+ * ASR 运行时管理器: 就绪检测 + 模型与原生库自动下载.
  * <p>运行时目录布局的单一权威 (引擎 {@link VoskAsrEngine} 的路径/就绪态判定全部委托本类):
  * <pre>
  *   &lt;runtime.dir&gt;/
@@ -41,8 +41,8 @@ import java.util.zip.ZipInputStream;
  *   └── model/ &lt;模型目录&gt;/ (含 am/ 或 conf/ 即视为完整)
  * </pre></p>
  *
- * <p><span style="color: 95cc6d">布局契约: 模型 zip (顶层一层 vosk-model-small-cn-0.22/) 解压到
- * {@code <runtime.dir>/model/} 之下, 引擎既有的 model/&lt;子目录&gt; 解析无需改变.</span></p>
+ * <p>布局契约: 模型 zip (顶层一层 vosk-model-small-cn-0.22/) 解压到
+ * {@code <runtime.dir>/model/} 之下, 引擎既有的 model/&lt;子目录&gt; 解析无需改变.</p>
  *
  * <p>libvosk 来源为 Maven Central 官方 JAR (repo1.maven.org 境内直连超时, 默认走 aliyun 镜像):
  * 该 URL 是 "JAR 地址" 而非动态库直链, 下载后按平台 entry (win32-x86-64/libvosk.dll 等) 提取;
@@ -51,7 +51,7 @@ import java.util.zip.ZipInputStream;
  * <p>下载/解压全部在 worker 池执行, 失败包装为 Uni 失败由调用方决定 UI 呈现;
  * 半成品清理策略: 临时文件先落 {@code .part}, 成功后原子 move, 任何失败即刻删除临时物;
  * 模型先解压到 model/ 下暂存目录再落位, 防止半解压目录被 am/ 标志误判为完整模型.</p>
- * @since 1.0
+ * @since 1.1.0
  */
 @ApplicationScoped
 public final class AsrRuntimeManager implements IAsrRuntimeControl
@@ -93,7 +93,7 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
     //endregion
 
     /**
-     * <span style="color: 95cc6d">CDI 构造入口.</span>
+     * CDI 构造入口.
      * @param runtimeDir 运行时目录 (SOULNOTES_ASR_RUNTIME_DIR)
      * @param libUrl     libvosk JAR 下载地址 (SOULNOTES_ASR_LIB_URL, 注意是 JAR 地址而非动态库直链)
      */
@@ -104,7 +104,7 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
     ) { this(Path.of(runtimeDir), DEFAULT_MODEL_URL, resolveLibUrl(libUrl.orElse("")), HTTP_CLIENT); }
 
     /**
-     * <span style="color: 95cc6d">libvosk JAR 地址归一: 空/空白回落到内置默认 (阿里云镜像 0.3.45).</span>
+     * libvosk JAR 地址归一: 空/空白回落到内置默认 (阿里云镜像 0.3.45).
      * <p>properties 侧 asr.lib.url 默认值为空串 (向导展示友好): CDI 侧以 Optional 接住 "定义但为空"
      * 的键 (plain String 注入遇空值启动即 ConfigurationException), 空值归一在此兜底,
      * 兑现向导 "留空则默认" 的语义; Pre-Launch 装配 (Entrance) 与 CDI 构造共用本方法, 保证单一来源.</p>
@@ -114,15 +114,20 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
     public static @NotNull String resolveLibUrl(@NotNull String configured) { return configured.isBlank() ? DEFAULT_LIB_JAR_URL : configured; }
 
     /**
-     * <span style="color: 95cc6d">纯构造入口 (测试/引擎内嵌/Pre-Launch).</span>
+     * 纯构造入口 (测试/引擎内嵌/Pre-Launch).
      * <p>模型地址作为参数注入以支持回环服务器用例; Pre-Launch 阶段 (Entrance) CDI 容器尚未启动,
      * 校验任务与向导只能以本构造纯装配一个实例, 生产常量 {@link #DEFAULT_MODEL_URL}.</p>
      */
     public AsrRuntimeManager(@NotNull Path runtimeDir, @NotNull String modelUrl, @NotNull String libUrl) { this(runtimeDir, modelUrl, libUrl, HTTP_CLIENT); }
 
     /**
-     * <span style="color: 95cc6d">全参数测试构造入口.</span>
+     * 全参数测试构造入口.
      * <p>HttpClient 可注入: 单元测试以 fake 观测响应体关闭等资源契约, 无需真实网络栈.</p>
+     *
+     * @param runtimeDir 运行时目录
+     * @param modelUrl 模型 zip 下载地址
+     * @param libUrl libvosk JAR 下载地址
+     * @param httpClient 下载用客户端
      */
     AsrRuntimeManager(
         @NotNull Path runtimeDir,
@@ -144,14 +149,14 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
     //region 就绪态与路径
 
     /**
-     * <span style="color: 95cc6d">运行时是否就绪 (模型完整 + 平台动态库存在).</span>
+     * 运行时是否就绪 (模型完整 + 平台动态库存在).
      * <p>阻塞 IO, 引擎侧已在 worker 池内调用; 模型完整性以任一子目录含 am/ 或 conf/ 标志目录判定.</p>
      * @return true = 可直接进入识别
      */
     @Override public boolean ready() { return hasModelMarker() && Files.isRegularFile(nativeLib()); }
 
     /**
-     * <span style="color: 95cc6d">解析完整模型目录 (model/ 下第一个含标志目录的子目录, sorted).</span>
+     * 解析完整模型目录 (model/ 下第一个含标志目录的子目录, sorted).
      * @return 模型目录绝对路径 (相对 cwd 解析)
      * @throws IllegalStateException 无完整模型子目录或读取失败
      */
@@ -174,7 +179,9 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
     }
 
     /**
-     * <span style="color: 95cc6d">平台动态库路径 (lib/libvosk.(dll|so|dylib), 按 os.name 三态).</span>
+     * 平台动态库路径 (lib/libvosk.(dll|so|dylib), 按 os.name 三态).
+     *
+     * @return 动态库期望路径; 文件未必已存在, 存在性由 {@link #ready()} 判定
      */
     public @NotNull Path nativeLib()
     {
@@ -186,12 +193,16 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
     }
 
     /**
-     * <span style="color: 95cc6d">运行时目录 (引擎未就绪文案的诊断输出用).</span>
+     * 运行时目录 (引擎未就绪文案的诊断输出用).
+     *
+     * @return 构造时给定的运行时目录
      */
     public @NotNull Path runtimeDir() { return runtimeDir; }
 
     /**
-     * <span style="color: 95cc6d">libvosk JAR 下载地址 (下载源诊断与 Pre-Launch 装配断言用).</span>
+     * libvosk JAR 下载地址 (下载源诊断与 Pre-Launch 装配断言用).
+     *
+     * @return 已归一的 JAR 地址 (空白配置经 {@link #resolveLibUrl} 回落默认)
      */
     public @NotNull String libJarUrl() { return libJarUrl; }
 
@@ -200,7 +211,7 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
     //region 下载与安装
 
     /**
-     * <span style="color: 95cc6d">确保运行时就绪: 缺模型补模型 zip, 缺动态库补 JAR 提取.</span>
+     * 确保运行时就绪: 缺模型补模型 zip, 缺动态库补 JAR 提取.
      * <p>就绪即直接完成, 不发任何请求; 进度回调按资产分阶段触发 (模型 zip 下载与 JAR 下载各一段),
      * 参数为 (已接收字节, 总字节, Content-Length 缺失时为 -1), 在 worker 线程回调, 须快速返回.</p>
      * <p>并发调用: 已有下载进行中时第二路 Uni 直接失败 (IllegalStateException), 不排队.</p>
@@ -375,7 +386,7 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
     //region zip 解压 (zip-slip 防护)
 
     /**
-     * <span style="color: 95cc6d">逐 entry 流式解压到目标目录.</span>
+     * 逐 entry 流式解压到目标目录.
      * <p>CRC 完整性由 ZipInputStream 在每个 entry 读尽时自动校验, 不符抛 ZipException, 无需手工核验.</p>
      * <p>zip-slip 防护: entry 规范化路径必须落在目标目录内, "../" 穿越与绝对路径 entry 一律整体拒绝.</p>
      */
@@ -409,7 +420,7 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
     //region 平台探测
 
     /**
-     * <span style="color: 95cc6d">vosk 官方 JAR 内平台 entry 目录名 (0.3.45 实测布局).</span>
+     * vosk 官方 JAR 内平台 entry 目录名 (0.3.45 实测布局).
      * <p>纯函数便于单测钉死映射表; 0.3.45 仅含 win32-x86-64 / linux-x86-64 / darwin, 无 arm 构建.</p>
      * @return entry 目录名 (如 "win32-x86-64"); 平台无官方构建时为 null
      */

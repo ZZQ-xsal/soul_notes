@@ -15,12 +15,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * <b>WebSocket 升级认证网关</b>
+ * WebSocket 升级认证网关: 在 HTTP → WS 握手期完成 JWT 校验并将身份写入 {@link UserData}.
  * <ul>
  *     <li>从 {@code Authorization: Bearer} 请求头或 {@code token} 查询参数提取 JWT</li>
  *     <li>通过 {@link JWTParser#verify(String, String)} 校验签名 (HS256 对称密钥), 提取 userId 存入 {@link UserData}</li>
  *     <li>校验 Redis 黑名单, 防止已注销的 Token 被重用</li>
  * </ul>
+ *
+ * @implNote 仅对 ChatWebSocket / AlertWebSocket 端点生效 (见 {@link #appliesTo});
+ *           任一校验不通过一律拒绝升级并返回 401.
  * @since 1.0
  */
 @Singleton
@@ -51,6 +54,13 @@ public final class WebSocketAuthUpgradeCheck implements HttpUpgradeCheck
 
     //region HttpUpgradeCheck
 
+    /**
+     * 握手期认证: 提取并验签 JWT, 校验黑名单, 通过后将 userId 写入 {@link UserData}
+     * 供 {@code ChatWebSocket} / {@code AlertWebSocket} 在连接期读取.
+     *
+     * @param context 升级上下文 (HTTP 请求 + UserData)
+     * @return 校验通过为允许升级; 缺少 Token、subject 为空、Token 已注销或验签失败时拒绝升级 (401)
+     */
     @Override
     public @NotNull Uni<CheckResult> perform(@NotNull HttpUpgradeContext context)
     {
@@ -103,6 +113,12 @@ public final class WebSocketAuthUpgradeCheck implements HttpUpgradeCheck
         }
     }
 
+    /**
+     * 限定本网关仅拦截对话与预警两个 WS 端点, 其余端点不做升级认证.
+     *
+     * @param endpointId 框架分配的端点标识
+     * @return 端点 ID 含 {@code ChatWebSocket} 或 {@code AlertWebSocket} 时为 true
+     */
     @Override
     public boolean appliesTo(@NotNull String endpointId)
     {

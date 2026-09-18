@@ -23,12 +23,15 @@ import java.util.HexFormat;
 import java.util.NoSuchElementException;
 
 /**
- * <b>认证服务</b>
+ * 认证服务, 承载注册/登录/登出的核心业务.
  * <ul>
- *     <li>注册: 检查用户名唯一性 → 密码哈希 → 创建用户 → 签发 Token</li>
+ *     <li>注册: 检查用户名唯一性 → 密码强度校验与哈希 → 创建用户 → 签发 Token</li>
  *     <li>登录: 查找用户 → 密码校验 → 签发 Token</li>
  *     <li>登出: 将 Token 加入 Redis 黑名单</li>
  * </ul>
+ *
+ * @implNote 密码哈希采用 PBKDF2WithHmacSHA256 (JDK 内置, 零新增依赖, OWASP 推荐迭代次数),
+ *           并兼容校验原型阶段遗留的无盐 SHA-256 旧哈希.
  * @since 1.0
  */
 @ApplicationScoped
@@ -42,10 +45,12 @@ public final class AuthService
 
     //region 核心业务
     /**
-     * <span style="color: 95cc6d">用户注册.</span>
+     * 用户注册: 校验角色与密码强度, 唯一性检查通过后创建用户并签发 Token, 单事务完成.
      *
      * @param req 注册请求
      * @return 认证成功响应 (含 Token)
+     * @throws IBusinessException 角色非 STUDENT (BAD_REQUEST)、用户名已被占用 (USERNAME_DUPLICATE)、
+     *                            密码强度不足 (BAD_REQUEST, 长度或复杂度不达标) 时
      */
     @WithTransaction public @NotNull Uni<AuthResponse> register(@NotNull RegisterRequest req)
     {
@@ -80,10 +85,12 @@ public final class AuthService
     }
 
     /**
-     * <span style="color: 95cc6d">用户登录.</span>
+     * 用户登录: 校验用户名与密码, 通过后签发 Token.
      *
      * @param req 登录请求
      * @return 认证成功响应 (含 Token)
+     * @throws IBusinessException 用户不存在 (USER_NOT_FOUND) 或密码错误 (AUTH_UNAUTHORIZED) 时;
+     *                            兼容旧哈希校验路径, 存储哈希损坏按密码错误处理而非抛异常
      */
     @WithTransaction public @NotNull Uni<AuthResponse> login(@NotNull LoginRequest req)
     {
@@ -115,10 +122,10 @@ public final class AuthService
     }
 
     /**
-     * <span style="color: 95cc6d">用户登出 (将 Token 加入黑名单).</span>
+     * 用户登出, 将 Token 加入 Redis 黑名单直至其原过期时间, 使其立即失效.
      *
      * @param token JWT Token
-     * @return {@link Uni<Void>}
+     * @return 完成信号; Token 格式无法解析时由 {@link TokenService} 侧保证静默完成, 不抛异常
      */
     public @NotNull Uni<Void> logout(@NotNull String token) { return tokenService.invalidateToken(token); }
     //endregion

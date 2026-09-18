@@ -21,13 +21,14 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * <b>RED 预警 Webhook 渠道</b>
- * <p>面向机构服务端: RED 预警时 POST JSON 负载 {@code {type, userId, level, reason, hotline}}
- * 至配置地址, 与 WebSocket 在线推送互为冗余. {@code SOULNOTES_ALERT_WEBHOOK_URL} 空 = 渠道禁用;
+ * RED 预警 Webhook 渠道, 面向机构服务端, 与 WebSocket 在线推送互为冗余.
+ * <p>RED 预警时 POST JSON 负载 {@code {type, userId, level, reason, hotline}} 至配置地址;
+ * {@code SOULNOTES_ALERT_WEBHOOK_URL} 空 = 渠道禁用;
  * {@code SOULNOTES_ALERT_WEBHOOK_TOKEN} 非空 = 请求携带 {@code Authorization: Bearer <token>}.</p>
- * <p>fire-and-forget 安全边界: 超时 3s, 网络失败/非 2xx/JSON 序列化/热线解析失败一律仅记 WARN 日志,
- * 绝不抛出 — 机构侧服务不可用不允许影响主预警链路.</p>
- * @since 2.0
+ *
+ * @implNote fire-and-forget 安全边界: 超时 3s, 网络失败/非 2xx/JSON 序列化/热线解析失败一律仅记 WARN 日志,
+ *           绝不抛出 — 机构侧服务不可用不允许影响主预警链路.
+ * @since 1.1.0
  */
 @ApplicationScoped
 public final class WebhookAlertNotifier implements IAlertNotifier
@@ -80,8 +81,16 @@ public final class WebhookAlertNotifier implements IAlertNotifier
 
     //region 渠道实现
 
+    /**
+     * {@inheritDoc}
+     *
+     * @return 固定 {@code "webhook"}
+     */
     @Override public @NotNull String channel() { return "webhook"; }
 
+    /**
+     * {@inheritDoc} 地址空白 (渠道禁用) 时静默跳过, 不触碰热线解析也不发请求.
+     */
     @Override public @NotNull Uni<Void> notify(@NotNull UUID userId, @NotNull String level, @NotNull String reason)
     {
         //* 空白地址 = 渠道禁用: 静默跳过, 不触碰热线解析也不发请求.

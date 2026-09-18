@@ -10,13 +10,13 @@ import org.slf4j.LoggerFactory;
 import java.util.regex.Pattern;
 
 /**
- * <b>结构化输出拆流器 ("副医生"预埋)</b>
+ * 结构化输出拆流器 ("副医生"预埋).
  * <p>从 AI 回复中提取 {@code AiPromptConstants#CLINICAL_OUTPUT_CONTRACT} 约定的
  * {@code <!--soulnotes {...}-->} HTML 注释块: 命中且 JSON 合法, 正文剔除该块并返回 payload;
  * 无块或 JSON 解析失败, 整条回复原样透传 (优雅降级).</p>
  * <p>边界: 剥离是主机制, 注释在 markdown/HTML 渲染下不可见仅是兜底 — 前端若以纯文本渲染,
  * 透传的注释块会以原文可见, 两者缺一不可.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 public final class ClinicalOutputSplitter
 {
@@ -29,7 +29,7 @@ public final class ClinicalOutputSplitter
     private ClinicalOutputSplitter() { throw new IllegalAccessError("Class \"ClinicalOutputSplitter\" is not meant to be instantized!"); }
 
     /**
-     * <b>拆流结果</b>
+     * 拆流结果.
      * <ul>
      *     <li>{@code text} — 供前端展示与落库的正文; 命中块时已剔除注释块并去除块后尾随空白</li>
      *     <li>{@code payload} — 结构化负载 (宽松 schema, 未知字段忽略); 无块或解析失败时为 {@code null}</li>
@@ -42,7 +42,7 @@ public final class ClinicalOutputSplitter
     {}
 
     /**
-     * <span style="color: 95cc6d">从回复中提取最后一个 {@code soulnotes} 注释块.</span>
+     * 从回复中提取最后一个 {@code soulnotes} 注释块.
      * <p>多块时取最后一个为权威: 契约约定块在回复末尾, 但 LLM 可能在正文中复述过早期块.
      * JSON 解析失败时 payload 为 null 且正文原样透传, 解析失败经 DEBUG 日志可观测.</p>
      *

@@ -6,12 +6,12 @@ import org.jetbrains.annotations.NotNull;
 import java.util.UUID;
 
 /**
- * <b>登录/注册成功响应</b>
+ * 注册/登录成功后的认证响应体, 携带后续请求所需的全部身份信息.
  *
- * @param token    JWT Token
- * @param userId   用户 ID
+ * @param token    签发的 JWT, 客户端以 {@code Authorization: Bearer <token>} 携带
+ * @param userId   用户 ID (与 JWT subject 同值)
  * @param username 用户名
- * @param role     用户角色
+ * @param role     用户角色 (当前恒为 STUDENT, 见注册端角色提权防护)
  * @since 1.0
  */
 public record AuthResponse(

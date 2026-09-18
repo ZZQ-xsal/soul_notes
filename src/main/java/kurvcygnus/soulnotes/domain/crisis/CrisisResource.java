@@ -16,12 +16,15 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * <b>危机干预离线兜底接口</b>
+ * 危机干预离线兜底接口, 提供心理危机热线信息的公开只读端点.
  * <ul>
  *     <li>即使 AI 服务或 Redis 不可用, 此端点也能返回热线信息 (使用静态默认值)</li>
  *     <li>无认证要求, 前端可缓存结果用于离线展示</li>
  * </ul>
- * @since 2.0
+ *
+ * @implNote 这是"离线安全网"的服务端一环: 热线数据源 ({@code RedisStartupConfig}) 自带降级链,
+ *           本端点任何情况下都返回可拨打的号码而非错误.
+ * @since 1.0
  */
 @Path(ApiEndpointConstants.CRISIS_BASE)
 public final class CrisisResource
@@ -32,10 +35,11 @@ public final class CrisisResource
     public CrisisResource(@NotNull RedisStartupConfig redisConfig) { this.redisConfig = redisConfig; }
 
     /**
-     * <span style="color: 95cc6d">获取心理危机干预热线信息.</span>
-     * <p>返回当前配置的热线信息, 前端可缓存此结果用于离线展示.</p>
+     * 获取心理危机干预热线信息.
+     * <p>返回当前配置的热线信息 (name/primary/backup/message 四键),
+     * 前端可缓存此结果用于离线展示; 数据段缺失时逐键回退静态默认值, 恒返回 200.</p>
      *
-     * @return 热线信息 {@link ApiResponse}
+     * @return 热线信息 {@link ApiResponse} (恒成功, 不抛业务异常)
      */
     @GET @Path("/hotline")
     @Produces(MediaType.APPLICATION_JSON)

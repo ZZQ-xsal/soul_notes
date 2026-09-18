@@ -20,12 +20,15 @@ import java.util.NoSuchElementException;
 import java.util.UUID;
 
 /**
- * <b>日记业务服务</b>
+ * 日记业务服务, 承载日记的创建/查询/删除.
  * <ul>
  *     <li>创建日记 (写入 DB → 触发 AI 分析)</li>
  *     <li>分页查询、单条查询、删除 (校验归属)</li>
  *     <li>语音来源: audioData(Base64) 解码落盘并生成 audioUrl</li>
  * </ul>
+ *
+ * @implNote AI 分析失败不影响日记创建本身 (分析失败仅日志并降级跳过 analysisResult 回写),
+ *           保证记录行为永远成功 — 情绪记录是主链路, 分析是增值链路.
  * @since 1.0
  */
 @ApplicationScoped
@@ -45,16 +48,16 @@ public final class  DiaryService
 
     //region 核心业务
     /**
-     * <span style="color: 95cc6d">创建日记并触发 AI 分析.</span>
-     * <ul>
-     *     <li>保存日记至 DB (语音来源时先解码 Base64 落盘并生成 audioUrl)</li>
-     *     <li>异步调用 {@code MoodAnalysisAgent} 分析情感</li>
-     *     <li>检测 {@code WarningDetectionAgent} 预警等级</li>
-     * </ul>
+     * 创建日记并触发 AI 情感分析.
+     * <p>流程: 参数校验 → (语音来源时 Base64 解码落盘生成 audioUrl) → 持久化日记 →
+     * 执行情感分析与预警检测并回写 {@code analysisResult}; DB 操作在同一事务内
+     * (语音落盘为文件 I/O, 不参与事务).</p>
      *
      * @param req    创建请求
-     * @param userId 用户 ID
-     * @return 创建的日记响应
+     * @param userId 当前认证用户 ID
+     * @return 创建的日记响应 (AI 分析失败时 analysisResult 为 null, 创建本身不受影响)
+     * @throws IBusinessException content 与 audioData 均为空 (BAD_REQUEST),
+     *                            或 audioData 非法 Base64 (BAD_REQUEST) 时
      */
     @WithTransaction
     public @NotNull Uni<DiaryResponse> create(@NotNull DiaryCreateRequest req, @NotNull UUID userId)
@@ -87,11 +90,11 @@ public final class  DiaryService
     }
 
     /**
-     * <span style="color: 95cc6d">分页查询用户日记列表.</span>
+     * 分页查询用户日记列表 (创建时间倒序).
      *
-     * @param query  分页查询参数
-     * @param userId 用户 ID
-     * @return 日记响应列表
+     * @param query  分页查询参数 (page/size 经钳位, 最小 1)
+     * @param userId 当前认证用户 ID
+     * @return 当前页日记响应列表 (可能为空)
      */
     @WithTransaction
     public @NotNull Uni<List<DiaryResponse>> listByUser(
@@ -108,12 +111,13 @@ public final class  DiaryService
     }
 
     /**
-     * <span style="color: f84b4b">查询单条日记 (校验用户归属).</span>
+     * 查询单条日记详情, 校验用户归属.
      *
      * @param id     日记 ID
-     * @param userId 用户 ID (用于归属校验)
+     * @param userId 当前认证用户 ID (归属校验依据)
      * @return 日记响应
-     * @throws IBusinessException 当日记不存在或不属于该用户时抛出
+     * @throws IBusinessException 日记不存在或不属于该用户时 (均为 DIARY_NOT_FOUND,
+     *                            越权与缺失同一错误码, 不泄露他人日记的存在性)
      */
     @SuppressWarnings("JavadocDeclaration") @WithTransaction
     public @NotNull Uni<DiaryResponse> getById(long id, @NotNull UUID userId)
@@ -144,11 +148,12 @@ public final class  DiaryService
     }
 
     /**
-     * <span style="color: f84b4b">删除日记 (校验用户归属).</span>
+     * 删除日记 (硬删除), 校验用户归属.
      *
      * @param id     日记 ID
-     * @param userId 用户 ID (用于归属校验)
-     * @return {@link Uni<Void>}
+     * @param userId 当前认证用户 ID (归属校验依据)
+     * @return 完成信号
+     * @throws IBusinessException 日记不存在或不属于该用户时 (均为 DIARY_NOT_FOUND)
      */
     @WithTransaction
     public @NotNull Uni<Void> delete(long id, @NotNull UUID userId)

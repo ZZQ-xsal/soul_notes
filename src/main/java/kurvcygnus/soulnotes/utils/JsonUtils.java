@@ -9,10 +9,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * <b>JSON 工具类</b>
- * <p>基于 Jackson {@link ObjectMapper} 的单例封装, 统一项目中 JSON 序列化/反序列化入口.</p>
- * <p>实体类等非 CDI 组件无法实例注入, 故由 {@code @Startup} 强制启动期创建本 Bean,
- * 将 Quarkus 托管 ObjectMapper 写入静态桥接字段, 供静态方法读取.</p>
+ * JSON 序列化/反序列化的统一静态入口, 基于 Quarkus 托管的 Jackson {@link ObjectMapper} 单例.
+ * <p>实体类等非 CDI 组件无法实例注入 Mapper, 故由 {@code @Startup} 强制启动期创建本 Bean,
+ * 将 Quarkus 托管 ObjectMapper 写入静态桥接字段, 供静态方法读取; 单元测试可经
+ * {@link #JsonUtils(ObjectMapper)} 手动注入.</p>
  * @since 1.0
  */
 @Startup
@@ -27,12 +27,21 @@ public final class JsonUtils
 
     //endregion
 
+    /**
+     * CDI 构造注入入口: 启动期由 Quarkus 调用, 将托管 Mapper 写入静态桥接字段.
+     * @param quarkusMapper Quarkus 容器托管的 ObjectMapper, 不得为 {@code null}
+     */
     public JsonUtils(@NotNull ObjectMapper quarkusMapper) { mapper = quarkusMapper; }
 
     //region 序列化 / 反序列化
 
     /**
-     * <span style="color: 95cc6d">将对象序列化为 JSON 字符串.</span>
+     * 将对象序列化为 JSON 字符串.
+     * @param obj 待序列化对象, 不得为 {@code null}
+     * @return JSON 文本, 永不为 {@code null}
+     * @throws RuntimeException 底层 Jackson 序列化失败时抛出, cause 为 {@link JsonProcessingException},
+     *                          消息携带目标类名
+     * @since 1.0
      */
     public static @NotNull String toJson(@NotNull Object obj)
     {
@@ -41,7 +50,14 @@ public final class JsonUtils
     }
 
     /**
-     * <span style="color: 95cc6d">将 JSON 字符串反序列化为指定类型.</span>
+     * 将 JSON 字符串反序列化为指定类型.
+     * @param json JSON 文本, 不得为 {@code null}
+     * @param type 目标类型, 不得为 {@code null}
+     * @param <T>  目标类型
+     * @return 反序列化后的实例, 永不为 {@code null}
+     * @throws RuntimeException 底层 Jackson 解析失败时抛出, cause 为 {@link JsonProcessingException},
+     *                          消息携带目标类型名
+     * @since 1.0
      */
     public static <T> @NotNull T parseJson(@NotNull String json, @NotNull Class<T> type)
     {
@@ -50,7 +66,14 @@ public final class JsonUtils
     }
 
     /**
-     * <span style="color: 95cc6d">将 JSON 字符串反序列化为泛型类型 (如 {@code List<Map<String, String>>}).</span>
+     * 将 JSON 字符串反序列化为泛型类型 (如 {@code List<Map<String, String>>}).
+     * @param json    JSON 文本, 不得为 {@code null}
+     * @param typeRef 描述泛型目标类型的 {@link TypeReference}, 不得为 {@code null}
+     * @param <T>     目标类型
+     * @return 反序列化后的实例, 永不为 {@code null}
+     * @throws RuntimeException 底层 Jackson 解析失败时抛出, cause 为 {@link JsonProcessingException},
+     *                          消息携带目标类型描述
+     * @since 1.0
      */
     public static <T> @NotNull T parseJson(@NotNull String json, @NotNull TypeReference<T> typeRef)
     {
@@ -62,6 +85,11 @@ public final class JsonUtils
 
     //region 内部
 
+    /**
+     * 取当前桥接的 ObjectMapper, 未初始化时快速失败.
+     * @return 已注入的托管 Mapper
+     * @throws IllegalStateException 运行在非 Quarkus 环境且未手动注入 (如纯单元测试) 时
+     */
     private static @NotNull ObjectMapper requireMapper()
     {
         final var current = mapper;

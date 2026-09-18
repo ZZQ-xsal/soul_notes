@@ -18,11 +18,14 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * <b>RED 预警推送 WebSocket</b>
+ * RED 预警推送 WebSocket 端点 ({@code /ws/alert}), 承担在线用户的强预警弹窗通道.
  * <ul>
  *     <li>用户连接时注册到 {@link ConcurrentHashMap}, 断开时移除</li>
  *     <li>提供 {@link #pushAlert(UUID, String)} 方法供业务方触发预警推送</li>
  * </ul>
+ *
+ * @implNote 连接身份来自升级期 {@link WebSocketAuthUpgradeCheck} 写入 UserData 的 userId;
+ *           推送负载为 JSON ({@code type/message/hotline}), hotline 与 webhook 渠道同源解析.
  * @since 1.0
  */
 @WebSocket(path = "/ws/alert")
@@ -65,12 +68,12 @@ public class AlertWebSocket
 
     //region 预警推送
     /**
-     * <span style="color: f84b4b">向指定用户推送 RED 预警.</span>
-     * <p>若用户不在线 (未建立 WebSocket 连接), 则静默跳过.</p>
+     * 向指定用户推送 RED 预警 (含热线号码的 JSON 负载).
      *
      * @param userId  目标用户 ID
      * @param message 预警消息
-     * @return {@link Uni<Void>}
+     * @return 完成信号, 恒成功完成: 用户不在线时静默跳过 (仅 WARN), 发送异常也只记日志 —
+     *         预警分发绝不拖垮调用方主流程
      */
     public @NotNull Uni<Void> pushAlert(@NotNull UUID userId, @NotNull String message)
     {
@@ -105,8 +108,10 @@ public class AlertWebSocket
 
     //region 热线解析
     /**
-     * <span style="color: 95cc6d">从 Redis 或配置中解析热线主号码.</span>
-     * <p>解析逻辑收编至 {@link IAlertNotifier#primaryHotlineOf}, 与 Webhook 渠道共享同一来源, 防止两处漂移.</p>
+     * 从 Redis 或配置中解析热线主号码.
+     *
+     * @return 主号码; 解析逻辑收编至 {@link IAlertNotifier#primaryHotlineOf},
+     *         与 Webhook 渠道共享同一来源, 防止两处漂移
      */
     private @NotNull Uni<String> resolveHotline()
     {

@@ -17,13 +17,13 @@ import java.util.Locale;
 import java.util.Objects;
 
 /**
- * <b>HTTP 模型目录拉取器</b>
+ * HTTP 模型目录拉取器.
  * <p>以 JDK {@link java.net.http.HttpClient} 探测 OpenAI 兼容 {@code /models} 端点 (URL 启发式见
  * {@link IModelCatalog#modelsUrl}), 解析 {@code data[].id} 与扩展字段为向导展示行;
  * 401/403 分型为 {@link IModelCatalog.UnauthorizedException} 供向导回重编辑密钥, 其余失败归一
  * {@link IOException} 供向导走手动输入兜底 — 拉取成功即连通性 + 密钥双重验证, 不重复造验证轮子.</p>
  * <p>无状态且 Pre-Launch 阶段先于 CDI 启动, 纯构造即可用 (Entrance 直接 new).</p>
- * @since 2.0
+ * @since 1.1.0
  */
 public final class HttpModelCatalog implements IModelCatalog
 {
@@ -41,6 +41,9 @@ public final class HttpModelCatalog implements IModelCatalog
     private static final String REASONING_NO = "✗";
     private static final String FIELD_ABSENT = "-";
 
+    /**
+     * 同步阻塞拉取: 401/403 抛 {@link UnauthorizedException}, 中断/非 200/解析失败一律归一 {@link IOException}.
+     */
     @Override public @NotNull CatalogResult fetch(@NotNull String endpoint, @NotNull String apiKey, @NotNull Duration timeout)
         throws UnauthorizedException, IOException
     {

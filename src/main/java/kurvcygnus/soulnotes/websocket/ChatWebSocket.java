@@ -19,12 +19,15 @@ import org.slf4j.LoggerFactory;
 import java.util.UUID;
 
 /**
- * <b>AI 对话流式 WebSocket</b>
+ * AI 对话流式 WebSocket 端点 ({@code /ws/chat}), 与 SSE REST 路径并行的逐字对话通道.
  * <ul>
  *     <li>接收 JSON 格式的用户消息 (含 {@code content} 和可选的 {@code sessionId})</li>
  *     <li>调用 {@link ChatService#streamMessage} 获取 AI 回复流</li>
  *     <li>通过 WebSocket 逐字推送回复 Token</li>
  * </ul>
+ *
+ * @implNote 入站处理模式为 SERIAL (回调按序启动, 但不保证链路完成时长);
+ *           连接身份来自升级期 {@link WebSocketAuthUpgradeCheck} 写入 UserData 的 userId.
  * @since 1.0
  */
 @WebSocket(path = "/ws/chat", inboundProcessingMode = InboundProcessingMode.SERIAL)
@@ -70,11 +73,16 @@ public class ChatWebSocket
     //region 消息处理
 
     /**
-     * <span style="color: 95cc6d">处理用户消息并流式推送 AI 回复.</span>
-     * <p>接收 JSON: {@code {"content": "...", "sessionId": "..."}} ({@code sessionId} 可选).</p>
+     * 处理用户消息并经 {@link ChatService#streamMessage} 流式推送 AI 回复.
+     * <p>入站 JSON 形如 {@code {"content": "...", "sessionId": "..."}} ({@code sessionId} 可选);
+     * 身份缺失或内容为空时仅 WARN 并忽略该消息.</p>
      *
      * @param text       收到的 JSON 文本
      * @param connection 当前 WebSocket 连接
+     * @implNote SERIAL 入站回调在无 Hibernate 会话上下文的 worker 线程执行, 直接启动响应式链会触发
+     *           HR000068; 必须逐消息建 duplicated context (而非复用主 context) 跳转 —
+     *           Hibernate 以 context 的 local 槽位存取会话, 并发消息共用主 context 槽位时,
+     *           先完成者关闭 session 会导致后来者持久化静默失败.
      */
     @OnTextMessage
     public void onMessage(@NotNull String text, @NotNull WebSocketConnection connection)

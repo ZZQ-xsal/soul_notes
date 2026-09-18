@@ -14,12 +14,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * <b>Redis 启动配置</b>
+ * Redis 启动配置.
  * <p>应用启动时确保 Redis 中的关键 Key 存在初始值.</p>
  * <ul>
  *     <li>{@code crisis:hotline} — 心理危机热线信息, 供离线兜底使用</li>
  * </ul>
- * @since 2.0
+ * @since 1.0
  */
 @ApplicationScoped
 public final class RedisStartupConfig
@@ -34,6 +34,15 @@ public final class RedisStartupConfig
     //* 常量命名为 HOTLINE_REDIS_KEY 而非 CRISIS_HOTLINE_KEY, 避免与 SOULNOTES_CRISIS_HOTLINE_* 环境变量族混淆.
     private static final @NotNull String HOTLINE_REDIS_KEY = "crisis:hotline";
 
+    /**
+     * CDI 构造入口, 从 crisis.hotline.* 配置组装默认热线串 (Redis 缺席时的最终兜底).
+     *
+     * @param redisDS 响应式 Redis 数据源
+     * @param primary 主热线号码
+     * @param backup 备用热线号码
+     * @param name 热线名称
+     * @since 1.0
+     */
     public RedisStartupConfig(
         @NotNull ReactiveRedisDataSource redisDS,
         @ConfigProperty(name = "crisis.hotline.primary", defaultValue = ConfigDefaults.HOTLINE_PRIMARY) @NotNull String primary,
@@ -46,7 +55,11 @@ public final class RedisStartupConfig
     }
 
     /**
-     * <span style="color: 95cc6d">应用启动时初始化 Redis Key.</span>
+     * 应用启动时初始化 Redis Key: 仅当 {@code crisis:hotline} 不存在时写入配置/默认值 (setnx 语义).
+     * 初始化失败只记 WARN 不阻断启动 — 后续读取侧仍有默认值兜底, 离线热线不可缺席.
+     *
+     * @implNote 订阅即发即弃, 不阻塞启动线程; 写入冲突 (key 已存在) 与故障都不视为错误路径.
+     * @since 1.0
      */
     void onStart(@Observes @NotNull StartupEvent ev)
     {
@@ -70,10 +83,12 @@ public final class RedisStartupConfig
     //region 热线获取
 
     /**
-     * <span style="color: 95cc6d">获取心理援助热线字符串.</span>
-     * <p>优先返回 Redis 中的值, 不可用时回退到配置默认值.</p>
+     * 获取心理援助热线字符串.
+     * <p>优先返回 Redis 中的值; Redis 故障或值为空时回退到配置默认值.</p>
      *
-     * @return 热线字符串 "名称|主号码|备用号码" 的 {@link Uni}
+     * @return 热线字符串 "名称|主号码|备用号码" 的 {@link Uni}; 任何失败形态都不让订阅方收到失败信号 —
+     *         离线兜底红线要求热线必须始终可得
+     * @since 1.0
      */
     public @NotNull Uni<String> getHotline()
     {

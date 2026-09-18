@@ -42,7 +42,7 @@ dependencies {
 }
 
 group = 'kurvcygnus.soulnotes'
-version = '1.0.0'
+version = '1.1.0'
 
 java {
     //* JDK 25 迁移: 构建/运行/CI/Docker 基镜像已全链路同步至 25, 工具链直接由 JAVA_HOME 指定, 无需 toolchain API.

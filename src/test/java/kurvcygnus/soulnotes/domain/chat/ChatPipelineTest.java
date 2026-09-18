@@ -285,6 +285,41 @@ class ChatPipelineTest
         webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
     }
 
+    //region ⑥ 会话归属校验
+    @Test
+    void chatSend_ForeignSession_ShouldReturnNotFoundWithoutLeaking()
+    {
+        final var owner = PipelineUsers.register();
+        final var intruder = PipelineUsers.register();
+        MockLlmProfile.server().respondWithText("只说给主人听。");
+
+        chatSend(owner.token(), "主人与 AI 的私聊内容");
+
+        final var sessionId = RestAssured.
+            given().
+            header("Authorization", PipelineUsers.bearer(owner.token())).
+            when().
+            get(ApiEndpointConstants.CHAT_BASE + "/sessions").
+            then().
+            statusCode(200).
+            extract().path("data[0].sessionId");
+
+        final var body = RestAssured.
+            given().
+            header("Authorization", PipelineUsers.bearer(intruder.token())).
+            contentType("application/json").
+            body(PrintUtils.quickFormat("{\"sessionId\":\"{}\",\"content\":\"越权尝试\"}", sessionId)).
+            when().
+            post(ApiEndpointConstants.CHAT_BASE + "/send").
+            then().
+            statusCode(404).
+            extract().asString();
+
+        assertTrue(body.contains("404020"), PrintUtils.quickFormat("业务码应为 404020 (会话不存在): {}", body));
+        assertTrue(body.contains("会话不存在"), PrintUtils.quickFormat("响应必须以'不存在'回应, 不泄露资源存在性: {}", body));
+    }
+    //endregion
+
     //* 字符多重集规范化 (排序拼接): 用于并发交错帧的内容等价比对, 不依赖到达顺序.
     private static String sortedChars(String s)
     {

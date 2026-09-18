@@ -1,7 +1,7 @@
 package kurvcygnus.soulnotes.utils.constants;
 
 /**
- * <b>AI 提示词常量</b>
+ * AI 提示词常量.
  * <p>内置默认人设, 可被 {@code ai.prompt.*} 配置覆盖 (留空或未配置时回退至此, 见 {@code PromptProvider}).</p>
  * @since 1.0
  */
@@ -12,8 +12,8 @@ public final class AiPromptConstants
     //region MoodAnalysisAgent
 
     /**
-     * <b>情感分析 Agent 系统提示词</b>
-     * <p>定义 JSON 输出格式、评分范围、共情且非医学化描述原则。</p>
+     * 情感分析 Agent 系统提示词.
+     * <p>定义 JSON 输出格式、评分范围、共情且非医学化描述原则.</p>
      */
     public static final String MOOD_ANALYSIS_SYSTEM_PROMPT = """
         你是一个情绪分析专家。分析用户日记中的情感倾向。
@@ -33,10 +33,10 @@ public final class AiPromptConstants
     //region WarningDetectionAgent
 
     /**
-     * <b>预警检测 Agent 系统提示词</b>
-     * <p>定义 NONE/YELLOW/RED 三级标准、高危信号识别规则、JSON 输出格式。</p>
+     * 预警检测 Agent 系统提示词.
+     * <p>定义 NONE/YELLOW/RED 三级标准、高危信号识别规则、JSON 输出格式.</p>
      *
-     * <span style="color: f84b4b">此检测结果直接影响用户安全，必须严格而谨慎。</span>
+     * <p>此检测结果直接影响用户安全, 必须严格而谨慎.</p>
      */
     public static final String WARNING_DETECTION_SYSTEM_PROMPT = """
         你是一个心理危机预警检测器。分析文本中是否存在自我伤害、自杀倾向等高风险信号。
@@ -63,8 +63,8 @@ public final class AiPromptConstants
     //region EmpatheticChatAgent
 
     /**
-     * <b>共情对话 Agent 系统提示词</b>
-     * <p>定义角色设定（心声树洞）、回复风格（温暖非医学化）、安全规则与工具使用。</p>
+     * 共情对话 Agent 系统提示词.
+     * <p>定义角色设定 (心声树洞), 回复风格 (温暖非医学化), 安全规则与工具使用.</p>
      */
     public static final String EMPATHETIC_CHAT_SYSTEM_PROMPT = """
         你是一个「心声树洞」—— 温暖、不评判的心理倾听者。
@@ -95,14 +95,15 @@ public final class AiPromptConstants
     //region ClinicalOutputContract
 
     /**
-     * <b>结构化输出契约壳 ("副医生"预埋)</b>
+     * 结构化输出契约壳 ("副医生"预埋).
      * <p>提示词驱动的扩展机制: 不走 Java 接口钩子, 开启 {@code SOULNOTES_CLINICAL_TAGGING} 后
      * 由 {@code ChatService} 追加在机构/内置共情提示词之后合并发送, AI 回复末尾携带结构化 JSON
      * 注释块, 后端经 {@code ClinicalOutputSplitter} 拆流 — 前端仅见文本.</p>
      * <p>本常量为固定壳 (优先级声明 + 包装格式 + 硬性要求), 结构定义节以 {@code {}} 占位,
      * 运行时由 {@code ChatService} 填入 {@link #CLINICAL_OUTPUT_SCHEMA_DEFAULT} 或归一化后的自定义结构.</p>
      *
-     * <span style="color: f84b4b">标识符 {@code soulnotes} 是拆流器唯一认定的自家标记, 契约措辞可打磨, 该标识符不可改动.</span>
+     * <p>标识符 {@code soulnotes} 是拆流器唯一认定的自家标记, 契约措辞可打磨, 该标识符不可改动.</p>
+     * @since 1.1.0
      */
     //* 契约段特意使用半角标点; 首行"优先级最高"声明用于兜底内置提示词末尾"不要包含 JSON"等指令
     //* 与契约的冲突 (合并规则: 机构提示词在前, 契约段在后).
@@ -122,10 +123,11 @@ public final class AiPromptConstants
         """;
 
     /**
-     * <b>内置默认结构定义 (canonical)</b>
+     * 内置默认结构定义 (canonical).
      * <p>tags/riskLevel/summary 三字段语义 + 宽松扩展说明. 作为 canonical 默认结构可免归一化
      * 直接使用 (零 LLM 调用); 用户未配置 {@code ai.prompt.clinical-schema} 或回滚留空时恒定回归至此,
      * 行为永久稳定.</p>
+     * @since 1.1.0
      */
     public static final String CLINICAL_OUTPUT_SCHEMA_DEFAULT = """
         - tags: 字符串数组, 从本轮对话提取心理/情绪标签, 仅供人类专家参考, 非医疗诊断; 无可提取信息时输出空数组.

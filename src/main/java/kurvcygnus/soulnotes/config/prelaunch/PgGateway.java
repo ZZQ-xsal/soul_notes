@@ -24,15 +24,16 @@ import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 
 /**
- * <b>PostgreSQL 探测网关</b> (生产实现).
- * <p>Pre-Launch 阶段无容器无事件循环, 每次操作手工构建独立 Vertx + maxSize=1 小池, 用毕即毁 —
- * 不与运行期 Quarkus 管理的数据源共享任何资源. 响应式 API 经 {@code toCompletionStage} 阻塞等待,
- * 这在 Pre-Launch 上下文是安全且有意的 (主线程阻塞发生在 Quarkus 启动之前).
- * 池构建用 {@link PgBuilder}: {@code PgPool} 工厂在 Vert.x 4.5 起弃用, 零弃用政策下禁用.</p>
+ * PostgreSQL 探测网关 (生产实现).
  *
- * <p>错误码映射: SQLSTATE 28P01 (invalid_password) / 28000 (invalid_authorization_specification) → AUTH_FAILED;
- * 3D000 (invalid_catalog_name) → DB_MISSING; 连接拒绝/超时及其余未映射失败 → UNREACHABLE.</p>
- * @since 2.0
+ * @implNote Pre-Launch 阶段无容器无事件循环, 每次操作手工构建独立 Vertx + maxSize=1 小池, 用毕即毁 —
+ *           不与运行期 Quarkus 管理的数据源共享任何资源. 响应式 API 经 {@code toCompletionStage} 阻塞等待,
+ *           这在 Pre-Launch 上下文是安全且有意的 (主线程阻塞发生在 Quarkus 启动之前).
+ *           池构建用 {@link PgBuilder}: {@code PgPool} 工厂在 Vert.x 4.5 起弃用, 零弃用政策下禁用.
+ *
+ *           <p>错误码映射: SQLSTATE 28P01 (invalid_password) / 28000 (invalid_authorization_specification) → AUTH_FAILED;
+ *           3D000 (invalid_catalog_name) → DB_MISSING; 连接拒绝/超时及其余未映射失败 → UNREACHABLE.</p>
+ * @since 1.1.0
  */
 public final class PgGateway implements IDatabaseGateway
 {
@@ -60,6 +61,14 @@ public final class PgGateway implements IDatabaseGateway
 
     //region IDatabaseGateway
 
+    /**
+     * 对目标执行五态只读探测: 先 {@code SELECT 1} 定基态, 再核对 {@code information_schema} 期望表集.
+     * <p>探测失败按 SQLSTATE 归入五态, 绝不抛出.</p>
+     *
+     * @param target 探测目标
+     * @return 五态结果; SCHEMA_MISSING 时携带缺失表清单
+     * @since 1.1.0
+     */
     @Override public @NotNull ProbeResult probe(@NotNull DbTarget target)
     {
         Objects.requireNonNull(target, "Param \"target\" must not be null!");
@@ -85,6 +94,13 @@ public final class PgGateway implements IDatabaseGateway
         finally { closeVertx(vertx); }
     }
 
+    /**
+     * 经 {@code postgres} 维护库执行 {@code CREATE DATABASE}; 库名经标准双引号转义杜绝 DDL 注入.
+     *
+     * @param target 目标库取自 {@code target.database()}
+     * @throws IllegalStateException 库已存在竞争 (42P04) / 无 CREATEDB 权限 (42501) / 其余建库失败, 携带人类可读原因
+     * @since 1.1.0
+     */
     @SuppressWarnings("SqlSourceToSinkFlow")//! IDE 注入告警为误报 — 库名经 quotedIdentifier 标准双引号转义, 且 CREATE DATABASE 属 DDL 无法参数化.
     @Override public void createDatabase(@NotNull DbTarget target)
     {
@@ -115,9 +131,24 @@ public final class PgGateway implements IDatabaseGateway
         finally { closeVertx(vertx); }
     }
 
+    /**
+     * 单参便利重载: 以空进度消费方委托双参版本.
+     *
+     * @param target 目标数据库
+     * @throws IllegalStateException 单脚本执行失败即中止, 携带脚本名与原因
+     * @since 1.1.0
+     */
     @SuppressWarnings("unused")//! 单参便利委托的进度丢弃端点: 空 lambda 是 no-op 消费方的标准写法, 未使用形参告警不适用.
     @Override public void applySchema(@NotNull DbTarget target) { applySchema(target, script -> {}); }
 
+    /**
+     * 按显式清单顺序执行 {@code db/schema/} 下的建表脚本, 每个脚本成功后回调 {@code scriptProgress}.
+     *
+     * @param target 目标数据库
+     * @param scriptProgress 逐脚本进度回调 (向导逐行回显), 失败脚本不产生回调
+     * @throws IllegalStateException 单脚本失败即中止并携带脚本名 (简单查询协议保证整脚本处于同一隐式事务批)
+     * @since 1.1.0
+     */
     @SuppressWarnings("SqlSourceToSinkFlow")//! 脚本为版本库内嵌资源非外部输入, 注入告警不适用.
     @Override public void applySchema(@NotNull DbTarget target, @NotNull Consumer<String> scriptProgress)
     {
@@ -147,12 +178,14 @@ public final class PgGateway implements IDatabaseGateway
     //region 内部工具
 
     //* 池构建收口: PgPool 静态工厂已弃用 (零弃用政策), PgBuilder 为 Vert.x 4.5+ 官方替代; 显式挂载探测专用 Vertx 实例.
+    /** 池构建收口: PgBuilder 挂载探测专用 Vertx 实例 (PgPool 静态工厂已弃用, 零弃用政策下禁用). */
     private static @NotNull Pool buildPool(@NotNull Vertx vertx, @NotNull PgConnectOptions options)
     {
         return PgBuilder.pool(builder -> builder.using(vertx).connectingTo(options).with(poolOptions()));
     }
 
     //* 建库/套脚本共用探测路径的建连参数: 超时与池规格全链路一致.
+    /** 建连参数: host/port/db + 5s 连接超时, 凭据存在时才设置 (缺失交由 trust/环境默认鉴权). */
     private static @NotNull PgConnectOptions connectOptions(@NotNull DbTarget target)
     {
         final var options = new PgConnectOptions().
@@ -165,11 +198,17 @@ public final class PgGateway implements IDatabaseGateway
         return options;
     }
 
+    /** 探测专用池规格: maxSize=1 (单操作单连接, 用毕即毁). */
     private static @NotNull PoolOptions poolOptions() { return new PoolOptions().setMaxSize(1); }
 
     /**
-     * <span style="color: 95cc6d">阻塞等待探测类查询, 失败按 SQLSTATE 归入五态.</span>
-     * @throws GatewayFailure 携带归入后的状态与原始原因
+     * 阻塞等待探测类查询, 失败按 SQLSTATE 归入五态.
+     *
+     * @param future 待等待的查询 Future
+     * @param <T> 查询结果类型
+     * @return 查询结果
+     * @throws GatewayFailure 携带归入后的状态与原始原因; 中断在恢复中断标记后以 IllegalStateException 呈现
+     * @since 1.1.0
      */
     private static <T> T awaitState(@NotNull Future<T> future)
     {
@@ -195,6 +234,12 @@ public final class PgGateway implements IDatabaseGateway
     }
 
     //* 建库/套脚本的阻塞等待 (结果一律不消费, 故为 void): 失败以 IllegalStateException 呈现并保留原因链, 调用方 (向导) 据此反馈.
+    /**
+     * 建库/套脚本的阻塞等待 (结果一律不消费, 故为 void); 失败以 IllegalStateException 呈现并保留原因链.
+     *
+     * @param future 待等待的查询 Future
+     * @throws IllegalStateException 中断 (恢复中断标记后抛出) / 超时 / 执行失败 (原因为 cause)
+     */
     private static void awaitPlain(@NotNull Future<?> future)
     {
         try { future.toCompletionStage().toCompletableFuture().get(AWAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS); }
@@ -208,6 +253,13 @@ public final class PgGateway implements IDatabaseGateway
     }
 
     //* SQL 标识符安全引用: 引号内唯一需转义的是双引号自身 (标准加倍写法), 杜绝经库名注入 DDL 的可能.
+    /**
+     * SQL 标识符安全引用: 标准双引号包裹 + 内部双引号加倍, 杜绝经库名注入 DDL.
+     *
+     * @param identifier 待引用标识符 (库名)
+     * @return 安全引用后的标识符
+     * @throws IllegalStateException 标识符为空串
+     */
     private static @NotNull String quotedIdentifier(@NotNull String identifier)
     {
         if(identifier.isEmpty())
@@ -215,6 +267,13 @@ public final class PgGateway implements IDatabaseGateway
         return "\"" + identifier.replace("\"", "\"\"") + "\"";
     }
 
+    /**
+     * 读取 classpath schema 脚本为 UTF-8 文本.
+     *
+     * @param name 脚本文件名 (如 {@code 01_users.sql})
+     * @return 脚本全文
+     * @throws IllegalStateException classpath 缺少脚本 (构建资源配置错误) 或读取失败 — 快速失败并指名脚本
+     */
     private static @NotNull String readScript(@NotNull String name)
     {
         try(InputStream in = Thread.currentThread().getContextClassLoader().getResourceAsStream(SCHEMA_DIR + name))
@@ -228,6 +287,11 @@ public final class PgGateway implements IDatabaseGateway
     }
 
     //* 池关闭失败不应掩盖主流程异常/结论 — 探测池为一次性对象, 最坏情形仅是池线程存活至进程退出.
+    /**
+     * 阻塞关闭探测池; 关闭失败有意吞掉 — 一次性池, 失败不改变主流程结论, 上抛反而掩盖原始异常.
+     *
+     * @param pool 待关闭池
+     */
     private static void closeQuietly(@NotNull Pool pool)
     {
         try { pool.close().toCompletionStage().toCompletableFuture().get(AWAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS); }
@@ -239,6 +303,12 @@ public final class PgGateway implements IDatabaseGateway
     }
 
     //* Vertx 非 AutoCloseable, 统一在此收口关闭; 探测线程池为非守护线程, 不关闭会拖住 JVM 退出.
+    /**
+     * 统一收口关闭 Vertx 实例 (非 AutoCloseable); 关闭失败有意吞掉 (理由同 {@link #closeQuietly}).
+     * <p>必须关闭: 探测线程池为非守护线程, 不关闭会拖住 JVM 退出.</p>
+     *
+     * @param vertx 待关闭实例
+     */
     private static void closeVertx(@NotNull Vertx vertx)
     {
         try { vertx.close().toCompletionStage().toCompletableFuture().get(AWAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS); }
@@ -252,6 +322,12 @@ public final class PgGateway implements IDatabaseGateway
     //endregion
 
     //* 探测内部失败的载体: 把 "异常 + 五态归类" 一并传出 try 块, probe 顶层统一转 ProbeResult.
+    /**
+     * 探测内部失败的载体: 把 "异常 + 五态归类" 一并传出 try 块, {@link #probe} 顶层统一转 {@link ProbeResult}.
+     *
+     * @param state 归入的五态结论
+     * @param cause 原始失败原因
+     */
     private static final class GatewayFailure extends RuntimeException
     {
         private final @NotNull ProbeResult.State state;

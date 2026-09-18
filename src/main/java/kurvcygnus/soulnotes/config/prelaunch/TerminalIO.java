@@ -14,37 +14,66 @@ import java.util.ArrayDeque;
 import java.util.List;
 
 /**
- * <b>终端 IO 通道</b>
- * <p>Pre-Launch 阶段 (校验报告/配置向导) 的统一交互出口. 双输出通道分离 UI 与诊断:
- * {@link #writeOut} = stdout (向导清单/横幅等界面渲染, 保持 stdout 可被管道干净消费),
- * {@link #writeErr} = stderr (校验报告/回退提示等诊断输出). 输入侧 {@link #readSecret}
- * 优先 {@code Console.readPassword} (不回显), 无 Console 环境回退 {@link #readLine}.</p>
- * @since 2.0
+ * 终端 IO 通道: Pre-Launch 阶段 (校验报告/配置向导) 的统一交互出口.
+ * <p>双输出通道分离 UI 与诊断: {@link #writeOut} = stdout (向导清单/横幅等界面渲染, 保持 stdout 可被管道干净消费),
+ * {@link #writeErr} = stderr (校验报告/回退提示等诊断输出).</p>
+ *
+ * @implNote 输入侧 {@link #readSecret} 优先 {@code Console.readPassword} (不回显), 无 Console 环境回退 {@link #readLine};
+ *           读取失败一律归一为 null 交调用方决策, 不让启动流程抛异常.
+ * @since 1.1.0
  */
 public interface TerminalIO
 {
     //region 输出通道
 
-    //* UI 渲染通道 (stdout): 向导界面输出专用, 诊断/报告请走 writeErr.
+    /**
+     * UI 渲染通道 (stdout): 向导界面输出专用, 诊断/报告请走 {@link #writeErr}.
+     *
+     * @param text 待写出文本, 原样输出; 换行由调用方携带在文本内
+     * @since 1.1.0
+     */
     void writeOut(@NotNull String text);
 
-    //* 诊断通道 (stderr): 校验报告/取消提示/回退提示等非 UI 输出.
+    /**
+     * 诊断通道 (stderr): 校验报告/取消提示/回退提示等非 UI 输出.
+     *
+     * @param text 待写出文本, 原样输出
+     * @since 1.1.0
+     */
     void writeErr(@NotNull String text);
 
     //endregion
 
     //region 输入
 
-    //* 返回 null 表示输入流不可读或流已关闭, 语义为"用户放弃交互", 由调用方走取消/退出分支.
+    /**
+     * 读取一行明文输入.
+     *
+     * @return 用户输入行 (不含行尾换行); null 表示输入流不可读或已关闭 (EOF), 语义为"用户放弃交互", 由调用方走取消/退出分支
+     * @since 1.1.0
+     */
     @Nullable String readLine();
 
-    //* Console.readPassword (不回显); 无 Console 环境 (管道/IDE/重定向) 回退 readLine 并提示回显风险, null 语义同 readLine.
+    /**
+     * 读取一行密文输入.
+     *
+     * @return 密文字符数组; 有 Console 时经 {@code Console.readPassword} 不回显,
+     *         无 Console 环境 (管道/IDE/重定向) 回退 {@link #readLine} 并先经 stderr 提示回显风险; null 语义同 {@link #readLine}
+     * @since 1.1.0
+     */
     char @Nullable [] readSecret();
 
     //endregion
 
     //region 工厂
 
+    /**
+     * 生产实现: 以 UTF-8 显式包装 std 三流.
+     *
+     * @return 绑定进程标准流的终端通道
+     * @implNote Windows 控制台默认 GBK: out/err 显式以 UTF-8 重建, 与 stdin 侧对称, 避免中文 UI/报告乱码.
+     * @since 1.1.0
+     */
     static @NotNull TerminalIO system()
     {
         final var reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
@@ -84,7 +113,14 @@ public interface TerminalIO
         };
     }
 
-    //* 测试注入用 Fake: 脚本化输入队列, 双通道写入汇入同一 sink 供断言.
+    /**
+     * 测试注入用 Fake: 脚本化输入队列, 双通道写入汇入同一 sink 供断言.
+     *
+     * @param scriptedInputs 预置输入序列, 耗尽后 {@code readLine/readSecret} 返回 null (与 EOF 语义一致)
+     * @param sink 全部写出内容 (out 与 err 不区分) 的收集器
+     * @return 可编程的终端通道
+     * @since 1.1.0
+     */
     static @NotNull TerminalIO fake(@NotNull List<String> scriptedInputs, @NotNull StringBuilder sink)
     {
         final var queue = new ArrayDeque<>(scriptedInputs);
