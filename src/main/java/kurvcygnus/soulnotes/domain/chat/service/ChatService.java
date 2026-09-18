@@ -8,6 +8,7 @@ import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.infrastructure.Infrastructure;
 import io.vertx.mutiny.core.Vertx;
 import jakarta.enterprise.context.ApplicationScoped;
+import kurvcygnus.soulnotes.ai.ClinicalOutputSplitter;
 import kurvcygnus.soulnotes.ai.agent.EmpatheticChatAgent;
 import kurvcygnus.soulnotes.ai.agent.WarningDetectionAgent;
 import kurvcygnus.soulnotes.ai.dto.WarningDetectionResult;
@@ -19,7 +20,8 @@ import kurvcygnus.soulnotes.domain.chat.entity.AiChatSession;
 import kurvcygnus.soulnotes.exception.ErrorCode;
 import kurvcygnus.soulnotes.exception.IBusinessException;
 import kurvcygnus.soulnotes.utils.JsonUtils;
-import kurvcygnus.soulnotes.websocket.AlertWebSocket;
+import kurvcygnus.soulnotes.utils.constants.AiPromptConstants;
+import kurvcygnus.soulnotes.websocket.IAlertNotifier;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -39,11 +41,12 @@ import java.util.UUID;
  *     <li>发送消息 (同步 + SSE 流式)</li>
  *     <li>会话历史管理</li>
  *     <li>预警检测与推送</li>
+ *     <li>结构化输出管线 ("副医生"预埋, Spec §7.5): 契约提示词组装 + soulnotes 块拆流</li>
  * </ul>
  * @since 1.0
  */
 @ApplicationScoped
-@SuppressWarnings("unused")//! AI Agent / AlertWebSocket 为 Quarkus 运行时生成 Bean, IDE 静态分析误报未满足依赖; transformToMulti 返回的 Multi 即流, 非误用.
+@SuppressWarnings("unused")//! AI Agent 为 Quarkus 运行时生成 Bean, IDE 静态分析误报未满足依赖; transformToMulti 返回的 Multi 即流, 非误用.
 public final class ChatService
 {
     private static final Logger LOG = LoggerFactory.getLogger(ChatService.class);
@@ -52,26 +55,31 @@ public final class ChatService
     private final @NotNull EmpatheticChatAgent empatheticChatAgent;
     private final @NotNull WarningDetectionAgent warningDetectionAgent;
     private final @NotNull PromptProvider promptProvider;
-    private final @NotNull AlertWebSocket alertWebSocket;
+    //* 预警渠道 fan-out: CDI 注入全部 IAlertNotifier 实现 (websocket/webhook, Spec §7.2), 渠道可插拔.
+    private final @NotNull List<IAlertNotifier> alertNotifiers;
     private final @NotNull Vertx vertx;
     //* 会话历史最多保留的消息条数, 防止 JSONB 无限增长与 Token 超限.
     private final int maxHistoryMessages;
+    //* 结构化输出契约开关 ("副医生"预埋, Spec §7.5): on 时共情提示词追加契约段, 回复落库前拆流.
+    private final boolean clinicalTagging;
 
     public ChatService(
         @NotNull EmpatheticChatAgent empatheticChatAgent,
         @NotNull WarningDetectionAgent warningDetectionAgent,
         @NotNull PromptProvider promptProvider,
-        @NotNull AlertWebSocket alertWebSocket,
+        @NotNull List<IAlertNotifier> alertNotifiers,
         @NotNull Vertx vertx,
-        @ConfigProperty(name = "chat.history.max-messages", defaultValue = "50") int maxHistoryMessages
+        @ConfigProperty(name = "chat.history.max-messages", defaultValue = "50") int maxHistoryMessages,
+        @ConfigProperty(name = "clinical.tagging", defaultValue = "false") boolean clinicalTagging
     )
     {
         this.empatheticChatAgent = empatheticChatAgent;
         this.warningDetectionAgent = warningDetectionAgent;
         this.promptProvider = promptProvider;
-        this.alertWebSocket = alertWebSocket;
+        this.alertNotifiers = alertNotifiers;
         this.vertx = vertx;
         this.maxHistoryMessages = maxHistoryMessages;
+        this.clinicalTagging = clinicalTagging;
     }
     //endregion
 
@@ -216,7 +224,7 @@ public final class ChatService
     //* 在独立事务中追加并持久化 AI 回复, 同时执行预警检测与推送.
     //! 预警检测 (外部 AI 调用, 秒级耗时) 在事务外先行完成, 结果传入事务内落库,
     //! 避免长时间占用 Hibernate reactive Session (与 streamMessage 不使用 @WithTransaction 的理由一致).
-    //! 非 static: 内部调用实例方法 applyWarning (依赖 alertWebSocket 注入).
+    //! 非 static: 内部调用实例方法 applyWarning (依赖 alertNotifiers 注入).
     private @NotNull Uni<Void> appendAssistantReply(@NotNull UUID sessionId, @NotNull String userContent, @NotNull String reply)
     {
         return detectWarning(userContent).flatMap(detection ->
@@ -248,13 +256,16 @@ public final class ChatService
     }
 
     //* 在 worker 线程池启动 TokenStream, 桥接为 Multi 逐块推送.
+    //! 流式路径裁定 (Spec §7.5): emit 给前端的 token 保持原文, 拆流只作用于落库文本 (经 splitForStore) —
+    //* 契约块是 HTML 注释, 前端 markdown 渲染下天然不可见, 与后端剥离构成双保险; 若缓冲到流结束再拆流,
+    //* 须扣留全部 token, 既破坏逐字渲染体验, 流中断时已扣留内容还会整段丢失, 权衡后不采纳.
     private @NotNull Multi<String> streamAiReply(@NotNull AiChatSession session, @NotNull String content)
     {
         final var history = buildConversationHistory(session);
         return Multi.createFrom().<String>emitter(emitter ->
             {
                 final var fullReply = new StringBuilder();
-                empatheticChatAgent.chat(promptProvider.empatheticChat(), session.userId.toString(), history, content).
+                empatheticChatAgent.chat(buildSystemPrompt(), session.userId.toString(), history, content).
                     onPartialResponse(
                         token ->
                         {
@@ -269,7 +280,7 @@ public final class ChatService
                         //* 回调线程为 langchain4j 流式线程, 无 Vertx 上下文, 直接执行响应式事务会失败;
                         //* 经 executeBlocking 切至 Vertx worker 线程 (与 callAiAndRespond 同一模式) 阻塞等待持久化完成.
                         vertx.executeBlocking(
-                            () -> appendAssistantReply(session.id, content, fullReply.toString()).await().atMost(Duration.ofSeconds(60)),
+                            () -> appendAssistantReply(session.id, content, splitForStore(fullReply.toString())).await().atMost(Duration.ofSeconds(60)),
                             false
                         ).subscribe().with(
                             v -> emitter.complete(),
@@ -293,16 +304,19 @@ public final class ChatService
     private @NotNull Uni<String> callAiAndRespond(@NotNull AiChatSession session, @NotNull String content)
     {
         final var history = buildConversationHistory(session);
-        return vertx.executeBlocking(() -> empatheticChatAgent.chatSync(promptProvider.empatheticChat(), session.userId.toString(), history, content), false).
+        return vertx.executeBlocking(() -> empatheticChatAgent.chatSync(buildSystemPrompt(), session.userId.toString(), history, content), false).
             onItem().transformToUni(
                 reply ->
                 {
-                    session.addMessage("assistant", reply);
+                    //* 拆流在持久化之前 (Spec §7.5): 落库与返回前端均用剥离后正文 (ChatMessageVo 形状不变, 前端零改动),
+                    //* messages JSONB 存剥离后文本, 历史回喂不再携带契约块.
+                    final var visible = splitForStore(reply);
+                    session.addMessage("assistant", visible);
                     session.truncate(maxHistoryMessages);
                     //* 预警检测在 worker 线程池异步执行, 完成后才持久化, 确保 warningTriggered 被一并落库.
                     return detectWarning(content).
                         onItem().invoke(detection -> applyWarning(session, detection)).
-                        flatMap(v -> session.persist().replaceWith(reply));
+                        flatMap(v -> session.persist().replaceWith(visible));
                 }
             ).
             onFailure().recoverWithUni(
@@ -318,6 +332,29 @@ public final class ChatService
             );
     }
 
+    //* 组装共情对话 systemPrompt (Spec §7.5 合并规则): 机构/内置提示词在前, 功能契约段在后,
+    //* 契约段首行声明最高优先级, 兜底机构提示词中"不要输出 JSON"之类指令对输出格式的破坏;
+    //* off 时不追加, 提示词与 token 成本同现状逐字节一致.
+    private @NotNull String buildSystemPrompt()
+    {
+        final var base = promptProvider.empatheticChat();
+        if(!clinicalTagging)
+            return base;
+        return base + "\n\n" + AiPromptConstants.CLINICAL_OUTPUT_CONTRACT;
+    }
+
+    //* 落库前拆流: on 时剥离回复末尾的 soulnotes 结构化块, 防止块在多轮历史间重复累积 (省 token);
+    //* payload 本轮仅 DEBUG 日志可观测, 存储/消费明确延后 (Spec §7.6); off 时原样透传不拆.
+    private @NotNull String splitForStore(@NotNull String reply)
+    {
+        if(!clinicalTagging)
+            return reply;
+        final var result = ClinicalOutputSplitter.split(reply);
+        if(result.payload() != null)
+            LOG.debug("soulnotes 结构化负载: {}", result.payload());
+        return result.text();
+    }
+
     //* 对用户最新消息执行预警等级检测.
     //! WarningDetectionAgent 的 detect 是同步阻塞调用, 直接在事件循环线程调用会触发
     //! BlockingNotAllowedException 被静默吞掉, 导致 warningTriggered 永远为 false —
@@ -331,7 +368,7 @@ public final class ChatService
             onFailure().recoverWithItem(() -> null);
     }
 
-    //* 依据检测结果标记会话预警位, RED 等级立即经 WebSocket 推送热线.
+    //* 依据检测结果标记会话预警位, RED 等级立即经通知渠道逐渠道 fire-and-forget 推送热线 (websocket + webhook, Spec §7.2).
     //! 必须在持久化前调用 (受管 Session), 确保 warningTriggered 随消息一并落库.
     private void applyWarning(@NotNull AiChatSession session, @Nullable WarningDetectionResult detection)
     {
@@ -340,12 +377,14 @@ public final class ChatService
         if("RED".equals(detection.warningLevel()))
         {
             session.warningTriggered = true;
-            //* Uni 是惰性的, 必须订阅才会真正发送推送.
-            alertWebSocket.pushAlert(session.userId, detection.reason()).
-                subscribe().with(
-                    v -> {},
-                    t -> LOG.warn("RED 预警推送执行失败: userId={}, {}", session.userId, t.getMessage())
-                );
+            //* Uni 是惰性的, 必须订阅才真正触发推送; 渠道实现保证失败仅日志 (接口契约),
+            //! 订阅级兜底仅防渠道外的意外实现缺陷, 不允许预警分发拖垮会话主流程.
+            for(final var notifier : alertNotifiers)
+                notifier.notify(session.userId, "RED", detection.reason()).
+                    subscribe().with(
+                        v -> {},
+                        t -> LOG.warn("RED 预警推送执行失败: channel={}, userId={}, {}", notifier.channel(), session.userId, t.getMessage())
+                    );
         }
         else if("YELLOW".equals(detection.warningLevel()))
             session.warningTriggered = true;

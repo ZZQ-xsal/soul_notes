@@ -99,6 +99,40 @@ class PropertyMetaParserTest
         assertTrue(engine > aiAdvanced, "ASR 组必须排在 AI 高级组之后 (向导展示顺序)");
     }
 
+    //* 集成组 (Spec §7.2/§7.3 网络-集成组): Webhook 预警渠道两键必须带标签进入向导, 空 url 即渠道禁用.
+    @Test void parseResourceAlertWebhookGroupTaggedAfterNetwork()
+    {
+        final var items = PropertyMetaParser.parseResource();
+        final var url = indexOfEnv(items, "SOULNOTES_ALERT_WEBHOOK_URL");
+        final var token = indexOfEnv(items, "SOULNOTES_ALERT_WEBHOOK_TOKEN");
+        assertTrue(url >= 0 && token >= 0, "alert.webhook 两键必须全部带标签进入向导");
+
+        assertEquals("集成", items.get(url).group(), "Webhook 两键必须同属集成组");
+        assertEquals(items.get(url).group(), items.get(token).group());
+        assertEquals("", items.get(url).defaultValue(), "Webhook url 默认必须为空 (空 = 渠道禁用)");
+        assertEquals("", items.get(token).defaultValue(), "Webhook token 默认必须为空 (空 = 不带鉴权头)");
+        assertTrue(items.get(url).explain().contains("禁用"), "url 说明必须写明空 = 渠道禁用");
+        assertTrue(items.get(url).explain().contains("hotline"), "url 说明必须写明负载形状");
+        assertTrue(items.get(token).explain().contains("Bearer"), "token 说明必须写明机构侧鉴权方式");
+
+        final var cors = indexOfEnv(items, "SOULNOTES_CORS_ORIGINS");
+        assertTrue(cors >= 0, "网络组必须存在");
+        assertTrue(url > cors, "集成组必须排在网络组之后 (向导展示顺序即文件顺序)");
+    }
+
+    //* issuer 配置化 (Spec §7.3): mp.jwt.verify.issuer 带标签进入向导 (安全组, 与 TokenService 签发同键);
+    //* 品牌名属部署微调, 不加标签, 不得进入向导清单.
+    @Test void parseResourceIssuerTaggedInSecurityGroupButBrandUntagged()
+    {
+        final var items = PropertyMetaParser.parseResource();
+        final var issuer = indexOfEnv(items, "SOULNOTES_JWT_ISSUER");
+        assertTrue(issuer >= 0, "mp.jwt.verify.issuer 必须带标签进入向导");
+        assertEquals("安全", items.get(issuer).group());
+        assertEquals("soul-notes", items.get(issuer).defaultValue(), "issuer 默认值必须为 soul-notes");
+
+        assertTrue(items.stream().noneMatch(i -> "app.brand-name".equals(i.key())), "品牌名属部署微调, 不得进入向导清单");
+    }
+
     private static int indexOfEnv(List<PropertyMetaParser.ConfigItemMeta> items, String env)
     {
         return IntStream.range(0, items.size()).filter(i -> env.equals(items.get(i).envName())).findFirst().orElse(-1);

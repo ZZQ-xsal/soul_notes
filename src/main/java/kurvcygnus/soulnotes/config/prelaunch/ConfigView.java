@@ -4,6 +4,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -35,7 +37,12 @@ public final class ConfigView
         final var file = workDir.resolve("config").resolve("application.properties");
         if(Files.isRegularFile(file))
         {
-            try(InputStream in = Files.newInputStream(file)) { props.load(in); }
+            try(InputStream in = Files.newInputStream(file))
+            {
+                //* UTF-8 与 ConfigWriter 写入及 Quarkus 运行时读取契约对齐: Properties.load(InputStream) 默认
+                //* ISO-8859-1, 会把非 ASCII 显式值 (如品牌名) 读成乱码, 与运行时行为分叉.
+                props.load(new InputStreamReader(in, StandardCharsets.UTF_8));
+            }
             catch(Exception e) { throw new IllegalStateException("读取 " + file + " 失败", e); }//! 文件损坏属用户可修复错误, 明确报错优于静默.
         }
         return new ConfigView(snapshotSysProps(), Map.copyOf(System.getenv()), props);

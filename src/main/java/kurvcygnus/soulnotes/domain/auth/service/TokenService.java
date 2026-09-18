@@ -8,7 +8,6 @@ import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import kurvcygnus.soulnotes.domain.auth.entity.User;
 import kurvcygnus.soulnotes.utils.JsonUtils;
-import kurvcygnus.soulnotes.utils.constants.JwtConstants;
 import kurvcygnus.soulnotes.utils.constants.RedisKeyConstants;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
@@ -42,6 +41,7 @@ public final class TokenService
     //region 注入
     private final @NotNull ReactiveValueCommands<String, String> redisValues;
     private final @NotNull String jwtSecret;
+    private final @NotNull String jwtIssuer;
 
     //* Token TTL (秒), 默认 7 天.
     private final long ttlSeconds;
@@ -50,16 +50,23 @@ public final class TokenService
     public TokenService(
         @NotNull ReactiveRedisDataSource redisDS,
         @ConfigProperty(name = "jwt.secret") @NotNull String jwtSecret,
-        @ConfigProperty(name = "jwt.ttl-seconds", defaultValue = "604800") long ttlSeconds
+        @ConfigProperty(name = "jwt.ttl-seconds", defaultValue = "604800") long ttlSeconds,
+        @ConfigProperty(name = "mp.jwt.verify.issuer", defaultValue = "soul-notes") @NotNull String jwtIssuer
     )
     {
         //! 启动 fail-fast: 未配置或强度不足的密钥直接拒绝启动, 防止生产环境静默使用弱密钥.
         if(jwtSecret.isBlank() || jwtSecret.getBytes(StandardCharsets.UTF_8).length < 32)
             throw new IllegalStateException("jwt.secret 未配置或强度不足: 请通过 SOULNOTES_JWT_SECRET 环境变量提供至少 32 字节的签名密钥");
 
+        //! 签发与验签共用 mp.jwt.verify.issuer 一键 (Spec §7.3): 本字段注入的值即验签方期望值, 同源即同键;
+        //! 空白 issuer 会使签发 (iss="") 与验签 (框架回退默认值) 行为分叉, 与密钥同级 fail-fast.
+        if(jwtIssuer.isBlank())
+            throw new IllegalStateException("mp.jwt.verify.issuer 未配置: 签发与验签必须共用同一 issuer 键");
+
         this.redisValues = redisDS.value(String.class);
         this.jwtSecret  = jwtSecret;
         this.ttlSeconds = ttlSeconds;
+        this.jwtIssuer  = jwtIssuer;
     }
     //endregion
 
@@ -77,7 +84,7 @@ public final class TokenService
 
         //! 不设置 upn: JsonWebToken.getName() 优先返回 upn, 而资源层用 getPrincipal().getName() 解析 userId (sub, UUID 格式),
         //! 若设置 upn=username 会导致 UUID.fromString(username) 抛异常.
-        return Jwt.issuer(JwtConstants.ISSUER).
+        return Jwt.issuer(jwtIssuer).
             subject(user.id.toString()).
             groups(Set.of(user.role.name())).
             claim(org.eclipse.microprofile.jwt.Claims.jti, UUID.randomUUID().toString()).//* 必须设置 jti, 否则黑名单无法与登出时的 key 对齐.

@@ -1,6 +1,7 @@
 package kurvcygnus.soulnotes.config.prelaunch;
 
 import io.smallrye.mutiny.Uni;
+import kurvcygnus.soulnotes.ai.IModelCatalog;
 import kurvcygnus.soulnotes.ai.asr.IAsrRuntimeControl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -8,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -15,6 +17,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -315,6 +318,381 @@ class SetupWizardTest
         assertEquals(SetupWizard.NextAction.CANCELLED, result.action());
         assertEquals(0, control.downloadCalls, "EOF 不得触发下载");
         assertTrue(sink.toString().contains("已取消"), "取消提示必须可见");
+        assertFalse(Files.exists(dir.resolve("config")), "取消不得落盘");
+    }
+
+    //endregion
+
+    //region 数据库交互流 (Task 9)
+
+    //* 与 application.properties 数据库组同构的最小夹具: URL/用户名/密码三项必填 + 一项他组可选 (验证组外条目不触发 DB 流).
+    private static List<PropertyMetaParser.ConfigItemMeta> dbFixture()
+    {
+        return List.of(
+            meta("quarkus.datasource.reactive.url", "SOULNOTES_DB_URL", "postgresql://localhost:5432/soulnotes", "数据库", "数据库连接地址", "", PropertyMetaParser.InputType.URL, "postgresql://", 0, true),
+            meta("quarkus.datasource.username", "SOULNOTES_DB_USER", "", "数据库", "数据库用户名", "", PropertyMetaParser.InputType.TEXT, "", 0, true),
+            meta("quarkus.datasource.password", "SOULNOTES_DB_PASSWORD", "", "数据库", "数据库密码", "", PropertyMetaParser.InputType.SECRET, "", 0, true),
+            meta("other.note", "OTHER_NOTE", "", "其他", "其他项", "", PropertyMetaParser.InputType.TEXT, "", 0, false));
+    }
+
+    //* 最小网关伪造: probe 结果按脚本队列依序返回 (越界钳制到末项), create/apply 动作计数, 失败脚本化.
+    private static final class FakeGateway implements IDatabaseGateway
+    {
+        private final List<ProbeResult> probeScript;
+        private IllegalStateException createFailure;
+        private int probeCalls;
+        private int createCalls;
+        private int applyCalls;
+
+        private FakeGateway(ProbeResult... results) { probeScript = List.of(results); }
+
+        @Override public ProbeResult probe(DbTarget target)
+        {
+            probeCalls++;
+            var idx = probeCalls - 1;
+            if(idx >= probeScript.size()) idx = probeScript.size() - 1;
+            return probeScript.get(idx);
+        }
+
+        @Override public void createDatabase(DbTarget target)
+        {
+            createCalls++;
+            if(createFailure != null) throw createFailure;
+        }
+
+        @Override public void applySchema(DbTarget target) { applyCalls++; }  //* 向导只走带进度的重载, 单参版本仅为接口完备.
+
+        @Override public void applySchema(DbTarget target, Consumer<String> scriptProgress)
+        {
+            applyCalls++;
+            for(final var script : List.of("01_users.sql", "04_platform_schema_version.sql"))
+                scriptProgress.accept(script);
+        }
+    }
+
+    //* probe → OK: 一行 ✔ 回显, 无任何写入动作, 向导照常推进 (Spec §5 TTY 列直通态).
+    @Test void dbProbeOkEchoesReadyAndContinues()
+    {
+        final var gateway = new FakeGateway(new ProbeResult(ProbeResult.State.OK, List.of()));
+        final var sink = new StringBuilder();
+        //* 脚本: 简单模式 → URL → 用户名 → 密码 (三项齐备触发探测 OK) → 摘要确认 → 启动.
+        final var io = TerminalIO.fake(List.of("", "postgresql://db:5432/sn", "db-user", "db-pass", "y", "1"), sink);
+        final var result = new SetupWizard(dir, null, gateway).run(dbFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.LAUNCH, result.action());
+        assertEquals(1, gateway.probeCalls);
+        assertEquals(0, gateway.createCalls);
+        assertEquals(0, gateway.applyCalls);
+        assertTrue(sink.toString().contains("数据库连接就绪"), "probe OK 必须一行 ✔ 回显");
+    }
+
+    //* DB_MISSING: 自动建库 → 重探 OK → ✔, 全程零额外交互 (Spec §5 TTY 列).
+    @Test void dbMissingAutoCreatesThenReprobesReady()
+    {
+        final var gateway = new FakeGateway(
+            new ProbeResult(ProbeResult.State.DB_MISSING, List.of()),
+            new ProbeResult(ProbeResult.State.OK, List.of()));
+        final var sink = new StringBuilder();
+        final var io = TerminalIO.fake(List.of("", "postgresql://db:5432/sn", "db-user", "db-pass", "y", "1"), sink);
+        final var result = new SetupWizard(dir, null, gateway).run(dbFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.LAUNCH, result.action());
+        assertEquals(1, gateway.createCalls, "DB_MISSING 必须恰好自动建库一次");
+        assertEquals(2, gateway.probeCalls, "建库后必须重探确认");
+        final var out = sink.toString();
+        assertTrue(out.contains("自动创建"), "自动建库动作必须可见");
+        assertTrue(out.contains("数据库连接就绪"), "重探 OK 必须回显就绪");
+    }
+
+    //* 建库失败 (无权限/竞争): ✗ 原因就地可见并回到当前项重编辑 — 改值再保存经指纹重触发第二次探测/建库.
+    @Test void dbMissingCreateFailureStaysOnItemForReedit()
+    {
+        final var gateway = new FakeGateway(
+            new ProbeResult(ProbeResult.State.DB_MISSING, List.of()),
+            new ProbeResult(ProbeResult.State.DB_MISSING, List.of()));
+        gateway.createFailure = new IllegalStateException("账号 kurv 无 CREATEDB 权限, 无法自动建库");
+        final var sink = new StringBuilder();
+        //* 脚本: 简单模式 → URL → 用户名 → 密码 (建库失败 ✗) → 密码项重编辑换值 (再次失败 ✗) → EOF 取消.
+        final var io = TerminalIO.fake(List.of("", "postgresql://db:5432/sn", "db-user", "db-pass", "db-pass2"), sink);
+        final var result = new SetupWizard(dir, null, gateway).run(dbFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.CANCELLED, result.action());
+        assertEquals(2, gateway.createCalls, "失败必须回到编辑态而非中断向导, 改值保存后再次触发");
+        assertEquals(2, gateway.probeCalls);
+        final var out = sink.toString();
+        assertTrue(out.contains("自动建库失败"), "建库失败必须红字可见");
+        assertTrue(out.contains("无 CREATEDB 权限"), "失败原因必须携带");
+        assertEquals(2, countOccurrences(out, "自动建库失败"), "两次保存各触发一次探测/建库");
+    }
+
+    //* AUTH_FAILED: ✗ 即时报错 + 回重编辑; 改对密码后重探 OK, 无建库/建表动作.
+    @Test void authFailedReturnsToEditingThenRecovers()
+    {
+        final var gateway = new FakeGateway(
+            new ProbeResult(ProbeResult.State.AUTH_FAILED, List.of()),
+            new ProbeResult(ProbeResult.State.OK, List.of()));
+        final var sink = new StringBuilder();
+        //* 脚本: 简单模式 → URL → 用户名 → 错密码 (AUTH ✗) → 密码项重编辑输对 → 摘要确认 → 退出.
+        final var io = TerminalIO.fake(List.of("", "postgresql://db:5432/sn", "db-user", "wrong-pass", "right-pass", "y", "2"), sink);
+        final var result = new SetupWizard(dir, null, gateway).run(dbFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.EXIT, result.action());
+        assertEquals(2, gateway.probeCalls, "改值后必须重新探测");
+        assertEquals(0, gateway.createCalls);
+        assertEquals(0, gateway.applyCalls);
+        assertTrue(sink.toString().contains("账号或密码被拒绝"), "AUTH_FAILED 必须即时报错");
+        assertEquals("right-pass", result.values().get("SOULNOTES_DB_PASSWORD"), "重编辑后的值必须生效");
+    }
+
+    //* UNREACHABLE: ✗ 即时报错 + 回重编辑, 不做任何写入动作; 重编辑符处 EOF 走向导取消路径.
+    @Test void unreachableReportsErrorAndReturnsToEditing()
+    {
+        final var gateway = new FakeGateway(new ProbeResult(ProbeResult.State.UNREACHABLE, List.of()));
+        final var sink = new StringBuilder();
+        final var io = TerminalIO.fake(List.of("", "postgresql://db:5432/sn", "db-user", "db-pass"), sink);
+        final var result = new SetupWizard(dir, null, gateway).run(dbFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.CANCELLED, result.action());
+        assertEquals(0, gateway.createCalls);
+        assertTrue(sink.toString().contains("数据库不可达"), "UNREACHABLE 必须即时报错");
+    }
+
+    //* SCHEMA_MISSING + y (回车默认): 缺表清单可见, 逐脚本一行回显, 重探 OK 后 ✔.
+    @Test void schemaMissingConfirmedAppliesScriptsAndProbesOk()
+    {
+        final var gateway = new FakeGateway(
+            new ProbeResult(ProbeResult.State.SCHEMA_MISSING, List.of("users", "mood_diaries")),
+            new ProbeResult(ProbeResult.State.OK, List.of()));
+        final var sink = new StringBuilder();
+        //* 脚本: 简单模式 → URL → 用户名 → 密码 (SCHEMA_MISSING) → 询问符回车 = y → 摘要确认 → 启动.
+        final var io = TerminalIO.fake(List.of("", "postgresql://db:5432/sn", "db-user", "db-pass", "", "y", "1"), sink);
+        final var result = new SetupWizard(dir, null, gateway).run(dbFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.LAUNCH, result.action());
+        assertEquals(1, gateway.applyCalls);
+        assertEquals(2, gateway.probeCalls, "建表后必须重探确认");
+        final var out = sink.toString();
+        assertTrue(out.contains("users, mood_diaries"), "缺表清单必须可见");
+        assertTrue(out.contains("初始化数据库结构"), "必须现场询问");
+        assertTrue(out.contains("01_users.sql"), "applySchema 必须逐脚本一行回显");
+        assertTrue(out.contains("数据库连接就绪"), "重探 OK 必须回显就绪");
+    }
+
+    //* SCHEMA_MISSING + n: 只给灰色后果提示并继续向导, 不执行任何写脚本.
+    @Test void schemaMissingDeclinedSkipsInitAndContinues()
+    {
+        final var gateway = new FakeGateway(new ProbeResult(ProbeResult.State.SCHEMA_MISSING, List.of("users")));
+        final var sink = new StringBuilder();
+        final var io = TerminalIO.fake(List.of("", "postgresql://db:5432/sn", "db-user", "db-pass", "n", "y", "2"), sink);
+        final var result = new SetupWizard(dir, null, gateway).run(dbFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.EXIT, result.action(), "拒绝初始化不得中断向导");
+        assertEquals(0, gateway.applyCalls);
+        assertTrue(sink.toString().contains("启动校验将拒绝启动"), "n 后必须提示 LAUNCH 前 BLOCK 后果");
+    }
+
+    //* 询问符处 EOF 沿用向导取消路径: CANCELLED 且不执行建表.
+    @Test void schemaPromptEofCancelsWizard()
+    {
+        final var gateway = new FakeGateway(new ProbeResult(ProbeResult.State.SCHEMA_MISSING, List.of("users")));
+        final var sink = new StringBuilder();
+        final var io = TerminalIO.fake(List.of("", "postgresql://db:5432/sn", "db-user", "db-pass"), sink);
+        final var result = new SetupWizard(dir, null, gateway).run(dbFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.CANCELLED, result.action());
+        assertEquals(0, gateway.applyCalls, "EOF 不得触发建表");
+        assertTrue(sink.toString().contains("初始化数据库结构"));
+    }
+
+    //* 重触发设计 (三项值指纹): 同值重存 (摘要否决回编辑后逐项回车保留) 不重探 — 避免重复探测噪音.
+    @Test void sameValueResaveDoesNotReprobe()
+    {
+        final var gateway = new FakeGateway(new ProbeResult(ProbeResult.State.OK, List.of()));
+        final var sink = new StringBuilder();
+        //* 脚本: 简单模式 → 三项填写 (probe#1 OK) → 摘要否决回编辑 → 命令态回车展开 URL → 回车依次保留三项 (指纹未变) → 摘要确认 → 退出.
+        final var io = TerminalIO.fake(List.of("", "postgresql://db:5432/sn", "db-user", "db-pass", "n", "", "", "", "", "y", "2"), sink);
+        final var result = new SetupWizard(dir, null, gateway).run(dbFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.EXIT, result.action());
+        assertEquals(1, gateway.probeCalls, "同值重存不得重复探测");
+        assertEquals(1, countOccurrences(sink.toString(), "数据库连接就绪"));
+    }
+
+    //endregion
+
+    //region AI 模型拉取步 (Task 10)
+
+    //* 与 application.properties AI 接入组同构的最小夹具: endpoint/model/key 三项必填 + 一项他组可选 (验证组外条目不触发拉取);
+    //* properties 中 model 项位于 key 之前, 触发点在 key 保存时 — 选择结果直接覆写 values 中已填的 model 值.
+    private static List<PropertyMetaParser.ConfigItemMeta> aiFixture()
+    {
+        return List.of(
+            meta("ai.openai.endpoint", "SOULNOTES_AI_ENDPOINT", "https://api.openai.com/v1", "AI 接入", "AI 接口地址", "", PropertyMetaParser.InputType.URL, "https://|http://", 0, true),
+            meta("ai.openai.model-name", "SOULNOTES_AI_MODEL", "gpt-4o-mini", "AI 接入", "模型名称", "", PropertyMetaParser.InputType.TEXT, "", 0, true),
+            meta("ai.openai.api-key", "SOULNOTES_AI_API_KEY", "placeholder", "AI 接入", "API 密钥", "", PropertyMetaParser.InputType.SECRET, "", 0, true),
+            meta("other.note", "OTHER_NOTE", "", "其他", "其他项", "", PropertyMetaParser.InputType.TEXT, "", 0, false));
+    }
+
+    //* 脚本化单次 fetch 结果: ok 与 error 二选一 (error 非 null 时 fetch 抛出), 测试源无 JetBrains 注解, 可空性以本注释为准.
+    private record ScriptedResult(IModelCatalog.CatalogResult ok, Exception error) {}
+
+    private static ScriptedResult ok(IModelCatalog.CatalogResult result) { return new ScriptedResult(result, null); }
+
+    private static ScriptedResult unauthorized() { return new ScriptedResult(null, new IModelCatalog.UnauthorizedException("HTTP 401: API 密钥被服务端拒绝")); }
+
+    private static ScriptedResult failure(IOException cause) { return new ScriptedResult(null, cause); }
+
+    private static IModelCatalog.ModelInfo model(String id, String context, String reasoning)
+    {
+        return new IModelCatalog.ModelInfo(id, context, reasoning);
+    }
+
+    //* 最小端口伪造: 结果按脚本队列依序返回 (越界钳制到末项), 记录最近一次调用参数供触发条件断言.
+    private static final class FakeCatalog implements IModelCatalog
+    {
+        private final List<ScriptedResult> script;
+        private int calls;
+        private String lastEndpoint;
+        private String lastApiKey;
+        private Duration lastTimeout;
+
+        private FakeCatalog(ScriptedResult... results) { script = List.of(results); }
+
+        @Override public CatalogResult fetch(String endpoint, String apiKey, Duration timeout) throws UnauthorizedException, IOException
+        {
+            calls++;
+            lastEndpoint = endpoint;
+            lastApiKey = apiKey;
+            lastTimeout = timeout;
+            final var step = script.get(Math.min(calls - 1, script.size() - 1));
+            if(step.error() instanceof UnauthorizedException u) throw u;
+            if(step.error() instanceof IOException io) throw io;
+            return step.ok();
+        }
+    }
+
+    //* 成功链: key 保存触发拉取 → 回显探测 URL + 元数据列表行 → 非法序号重问 → 选中项覆写 values 中的 model 与 endpoint (规范化形).
+    @Test void aiFetchSuccessSelectionOverridesManualAndNormalizesEndpoint() throws Exception
+    {
+        final var catalog = new FakeCatalog(ok(new IModelCatalog.CatalogResult(
+            List.of(model("m-a", "128000", "✓"), model("m-b", "-", "-")), "https://gate.example.com/v1")));
+        final var sink = new StringBuilder();
+        //* 脚本: 简单模式 → endpoint → model 先手动填占位 → key (触发拉取) → 序号 9 越界 → abc 非法 → 0 越界 → 选 1 → 摘要确认 → 退出.
+        final var io = TerminalIO.fake(List.of(
+            "", "https://gate.example.com", "manual-typed", "sk-1", "9", "abc", "0", "1", "y", "2"), sink);
+        final var result = new SetupWizard(dir, null, null, catalog).run(aiFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.EXIT, result.action());
+        assertEquals(1, catalog.calls);
+        assertEquals("https://gate.example.com", catalog.lastEndpoint, "必须以用户原始输入触发拉取 (启发式在 fetch 内部)");
+        assertEquals("sk-1", catalog.lastApiKey);
+        assertEquals(Duration.ofSeconds(10), catalog.lastTimeout, "拉取超时须为 Spec §6 钉死的 10s");
+        assertEquals("m-a", result.values().get("SOULNOTES_AI_MODEL"), "选中项必须覆写先前手动填入的 model");
+        assertEquals("https://gate.example.com/v1", result.values().get("SOULNOTES_AI_ENDPOINT"), "拉取成功后 endpoint 必须存规范形 (Spec §6 fetch 与存储分离)");
+        final var out = sink.toString();
+        assertTrue(out.contains("探测模型列表: https://gate.example.com/v1/models"), "必须回显最终请求 URL");
+        assertTrue(out.contains("1. m-a [上下文: 128000] [思考: ✓]"), "列表行格式必须为 序号. 模型ID [上下文: n] [思考: ✓]");
+        assertTrue(out.contains("2. m-b [上下文: -] [思考: -]"));
+        assertEquals(2, countOccurrences(out, "序号超出范围"), "越界序号必须重问");
+        assertEquals(1, countOccurrences(out, "无效输入"), "非数字序号必须重问");
+        assertTrue(out.contains("模型已选定: m-a"), "选定结果必须可见回显");
+        assertTrue(Files.readString(dir.resolve(".env")).contains("SOULNOTES_AI_ENDPOINT=https://gate.example.com/v1"), "落盘值必须是规范化 endpoint");
+    }
+
+    //* 401/403 → ✗ 密钥无效, 停在当前项重编辑; 换正确 key 后经指纹重触发, 第二次拉取选定成功.
+    @Test void aiFetchUnauthorizedReeditsKeyThenRecovers()
+    {
+        final var catalog = new FakeCatalog(unauthorized(), ok(new IModelCatalog.CatalogResult(
+            List.of(model("m-a", "-", "-"), model("m-b", "8192", "✗")), "https://gate.example.com/v1")));
+        final var sink = new StringBuilder();
+        //* 脚本: 简单模式 → endpoint (已带 /v1) → model 占位 → 错 key (401 ✗ 回重编辑) → 对 key → 选 2 → 摘要确认 → 退出.
+        final var io = TerminalIO.fake(List.of(
+            "", "https://gate.example.com/v1", "placeholder-m", "bad-key", "good-key", "2", "y", "2"), sink);
+        final var result = new SetupWizard(dir, null, null, catalog).run(aiFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.EXIT, result.action());
+        assertEquals(2, catalog.calls, "401 后换 key 重存必须重新拉取");
+        assertEquals("m-b", result.values().get("SOULNOTES_AI_MODEL"));
+        assertEquals("good-key", result.values().get("SOULNOTES_AI_API_KEY"));
+        assertEquals("https://gate.example.com/v1", result.values().get("SOULNOTES_AI_ENDPOINT"), "已带 /v1 的输入规范化后不变");
+        assertTrue(sink.toString().contains("密钥无效"), "401/403 必须以密钥无效红字可见");
+    }
+
+    //* 网络失败 → ⚠ 携带原因 + 手动输入 model 兜底; endpoint 保持用户原样 (未经探测证实, 不做规范化).
+    @Test void aiFetchNetworkFailureFallsBackToManualModelInput()
+    {
+        final var catalog = new FakeCatalog(failure(new IOException("连接被拒绝")));
+        final var sink = new StringBuilder();
+        //* 脚本: 简单模式 → endpoint → model 占位 → key (拉取失败) → 手动输入模型名 → 摘要确认 → 启动.
+        final var io = TerminalIO.fake(List.of(
+            "", "https://gate.example.com", "old-model", "sk-1", "my-manual-model", "y", "1"), sink);
+        final var result = new SetupWizard(dir, null, null, catalog).run(aiFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.LAUNCH, result.action(), "网络失败必须继续主流程而非中断向导");
+        assertEquals("my-manual-model", result.values().get("SOULNOTES_AI_MODEL"), "手动输入的模型名必须生效");
+        assertEquals("https://gate.example.com", result.values().get("SOULNOTES_AI_ENDPOINT"), "未探测成功不得擅自规范化 endpoint");
+        final var out = sink.toString();
+        assertTrue(out.contains("无法获取模型列表"), "网络失败必须 ⚠ 可见");
+        assertTrue(out.contains("连接被拒绝"), "失败原因必须携带");
+    }
+
+    //* 空列表与网络失败同兜底: ⚠ 提示后手动输入.
+    @Test void aiFetchEmptyListFallsBackToManualModelInput()
+    {
+        final var catalog = new FakeCatalog(ok(new IModelCatalog.CatalogResult(List.of(), "https://gate.example.com/v1")));
+        final var sink = new StringBuilder();
+        final var io = TerminalIO.fake(List.of(
+            "", "https://gate.example.com", "old-model", "sk-1", "manual-fallback", "y", "2"), sink);
+        final var result = new SetupWizard(dir, null, null, catalog).run(aiFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.EXIT, result.action());
+        assertEquals("manual-fallback", result.values().get("SOULNOTES_AI_MODEL"));
+        assertTrue(sink.toString().contains("模型列表为空"));
+    }
+
+    //* 重触发设计 (endpoint+key 值指纹): 拉取成功后同值重存各 AI 条目不得重复拉取.
+    @Test void aiSameValueResaveDoesNotRefetch()
+    {
+        final var catalog = new FakeCatalog(ok(new IModelCatalog.CatalogResult(
+            List.of(model("m-a", "-", "-")), "https://gate.example.com/v1")));
+        final var sink = new StringBuilder();
+        //* 脚本: 简单模式 → 三项填写 (拉取 + 选 1) → 摘要否决回编辑 → 命令态回车展开首项 → 回车依次保留三项 (指纹未变) → 摘要确认 → 退出.
+        final var io = TerminalIO.fake(List.of(
+            "", "https://gate.example.com", "manual-typed", "sk-1", "1", "n", "", "", "", "", "", "2"), sink);
+        final var result = new SetupWizard(dir, null, null, catalog).run(aiFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.EXIT, result.action());
+        assertEquals(1, catalog.calls, "同值重存不得重复拉取 (指纹以规范化后 endpoint 参与计算)");
+        assertEquals("m-a", result.values().get("SOULNOTES_AI_MODEL"));
+    }
+
+    //* 他组条目保存不得触发 AI 拉取 (组门禁), 即便 endpoint+key 已齐备; 全面模式下 key 保存选完后自动展开他组项.
+    @Test void aiFlowNotTriggeredByOtherGroupItems()
+    {
+        final var catalog = new FakeCatalog(ok(new IModelCatalog.CatalogResult(
+            List.of(model("m-a", "-", "-")), "https://gate.example.com/v1")));
+        final var sink = new StringBuilder();
+        //* 脚本: 全面模式 → endpoint → model → key (触发一次拉取) → 选 1 → 自动展开他组项填 x (不得再触发) → 摘要确认 → 退出.
+        final var io = TerminalIO.fake(List.of(
+            "2", "https://gate.example.com", "m", "sk-1", "1", "x", "", "2"), sink);
+        final var result = new SetupWizard(dir, null, null, catalog).run(aiFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.EXIT, result.action());
+        assertEquals(1, catalog.calls, "非 AI 组条目保存不得触发拉取");
+    }
+
+    //* 选择符处 EOF 沿用向导取消路径: CANCELLED 且不落盘.
+    @Test void aiSelectionPromptEofCancelsWizard()
+    {
+        final var catalog = new FakeCatalog(ok(new IModelCatalog.CatalogResult(
+            List.of(model("m-a", "-", "-")), "https://gate.example.com/v1")));
+        final var sink = new StringBuilder();
+        final var io = TerminalIO.fake(List.of("", "https://gate.example.com", "m", "sk-1"), sink);
+        final var result = new SetupWizard(dir, null, null, catalog).run(aiFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.CANCELLED, result.action());
+        assertTrue(result.values().isEmpty());
+        assertTrue(sink.toString().contains("请选择模型序号"), "EOF 前必须已进入模型选择符");
         assertFalse(Files.exists(dir.resolve("config")), "取消不得落盘");
     }
 

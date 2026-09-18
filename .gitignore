@@ -49,7 +49,8 @@ voice_uploads/
 docs/superpowers/
 
 #* Setup 向导输出 (本地实例配置, 不入库).
-config/
+#* 锚定仓库根: 未锚定的 config/ 会连 src/**/config/ 源码包一起忽略, 新增源文件被静默排除出提交.
+/config/
 .env
 
 #* ZCode CLI 运行时目录 (Task 3 遗留, 不属项目源码).

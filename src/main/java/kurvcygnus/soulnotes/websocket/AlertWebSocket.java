@@ -8,7 +8,6 @@ import io.smallrye.mutiny.Uni;
 import jakarta.inject.Inject;
 import kurvcygnus.soulnotes.config.RedisStartupConfig;
 import kurvcygnus.soulnotes.utils.JsonUtils;
-import kurvcygnus.soulnotes.utils.constants.ConfigDefaults;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -106,22 +105,12 @@ public class AlertWebSocket
 
     //region 热线解析
     /**
-     * <span style="color: 95cc6d">从 Redis 或配置中解析热线号码.</span>
-     * <p>Redis 存储格式: "{名称}|{主号码}|{备用号码}", 返回主号码.</p>
+     * <span style="color: 95cc6d">从 Redis 或配置中解析热线主号码.</span>
+     * <p>//* 解析逻辑收编至 {@link IAlertNotifier#primaryHotlineOf}, 与 Webhook 渠道共享同一来源, 防止两处漂移.</p>
      */
     private @NotNull Uni<String> resolveHotline()
     {
-        return redisConfig.getHotline().map(raw ->
-            {
-                if(!raw.isBlank())
-                {
-                    final var parts = raw.split("\\|");
-                    if(parts.length >= 2 && !parts[1].isBlank())
-                        return parts[1];
-                }
-                return ConfigDefaults.HOTLINE_PRIMARY; //* 离线安全网: 兜底热线必须与配置默认值同源, 不可再写字面量.
-            }
-        );
+        return redisConfig.getHotline().map(IAlertNotifier::primaryHotlineOf);
     }
 
     //endregion

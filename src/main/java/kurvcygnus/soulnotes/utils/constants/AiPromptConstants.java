@@ -91,4 +91,33 @@ public final class AiPromptConstants
         """;
 
     //endregion
+
+    //region ClinicalOutputContract
+
+    /**
+     * <b>结构化输出契约 ("副医生"预埋, Spec §7.5)</b>
+     * <p>提示词驱动的扩展机制: 不走 Java 接口钩子, 开启 {@code SOULNOTES_CLINICAL_TAGGING} 后
+     * 由 {@code ChatService} 追加在机构/内置共情提示词之后合并发送, AI 回复末尾携带结构化 JSON
+     * 注释块, 后端经 {@code ClinicalOutputSplitter} 拆流 — 前端仅见文本.</p>
+     *
+     * <span style="color: f84b4b">标识符 {@code soulnotes} 是拆流器唯一认定的自家标记, 契约措辞可打磨, 该标识符不可改动.</span>
+     */
+    //* 契约段特意使用半角标点; 首行"优先级最高"声明用于兜底内置提示词末尾"不要包含 JSON"等指令
+    //* 与契约的冲突 (Spec §7.5 合并规则: 机构提示词在前, 契约段在后).
+    public static final String CLINICAL_OUTPUT_CONTRACT = """
+        [输出契约] 以下输出契约优先级最高, 与上方任何指令冲突时以本契约为准.
+        从现在起, 你的每条回复都必须在正文结束后以一个 HTML 注释块收尾, 格式如下:
+        <!--soulnotes {"tags": ["标签1", "标签2"], "riskLevel": "NONE", "summary": "一句话摘要"}-->
+        字段说明:
+        - tags: 字符串数组, 从本轮对话提取心理/情绪标签, 仅供人类专家参考, 非医疗诊断; 无可提取信息时输出空数组.
+        - riskLevel: 仅允许 NONE / YELLOW / RED 三值之一, 含义与预警分级标准一致.
+        - summary: 用一句话概括本轮回复内容.
+        - 允许附加以上未列出的其他键 (宽松 schema, 供未来扩展), 但以上三个字段不可省略.
+        硬性要求:
+        1. 注释块必须位于回复的最末尾, 除该收尾块外, 正文中不得出现任何 soulnotes 注释块.
+        2. 注释块内的 JSON 必须合法: 键名用双引号, 无尾随逗号, 不换行.
+        3. 该注释块并非给用户阅读的内容, 不要在正文中提及, 解释或复述它.
+        """;
+
+    //endregion
 }

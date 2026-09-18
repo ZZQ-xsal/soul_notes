@@ -9,7 +9,7 @@ import java.util.List;
  * <p>sealed: 新任务 (如 DB 探活) 需显式修订 permits — 有意的扩展门槛 (Spec §6).</p>
  * @since 2.0
  */
-public sealed interface IPreLaunchTask permits ConfigValidationTask
+public sealed interface IPreLaunchTask permits ConfigValidationTask, DbValidationTask
 {
     enum Level { BLOCK, WARN }
     record Issue(@NotNull Level level, @NotNull String subject, @NotNull String message) {}

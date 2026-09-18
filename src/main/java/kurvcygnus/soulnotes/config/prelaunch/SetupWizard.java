@@ -1,5 +1,6 @@
 package kurvcygnus.soulnotes.config.prelaunch;
 
+import kurvcygnus.soulnotes.ai.IModelCatalog;
 import kurvcygnus.soulnotes.ai.asr.IAsrRuntimeControl;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -8,6 +9,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -24,6 +26,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 摘要确认 → 双文件落盘 → 完成屏 (启动/退出). 仅显式值进入结果与落盘, 未动项保持内置默认.</p>
  * <p>//* ASR 运行时交互 (Spec §4.5): 保存 {@code asr.engine} / {@code asr.runtime.dir} 条目后触发一次
  * 就绪检查, 未就绪现场询问是否立即下载 (进度行内回显); 控制端口经构造注入, null = 禁用该交互.</p>
+ * <p>//* 数据库交互流 (Spec §5 TTY 列): 数据库组三项 (URL/用户名/密码) 全部保存且值指纹变化时触发一次性
+ * probe → 五态分流 (直通 ✔ / 即时 ✗ 回重编辑 / 自动建库 / 询问建表); 网关经构造注入, null = 禁用该流.</p>
+ * <p>//* AI 模型拉取步 (Spec §6): AI 接入组 endpoint+key 保存且值指纹变化时触发一次性模型列表拉取
+ * (探测 URL 回显 → 元数据列表 → 序号选择), 401/403 回重编辑密钥, 网络失败/空列表退化为手动输入;
+ * 拉取成功后 endpoint 存规范形 (fetch 与存储分离), 目录端口经构造注入, null = 禁用该流.</p>
  * <p>交互妥协记录 (审计): Windows conhost 无 raw mode 且零依赖约束禁用 JLine, 方向键全屏导航不可行,
  * 降级为 "序号跳转 + Enter 顺序遍历"; Esc 键在行缓冲输入下不可检测, 展开态以字面量 {@code esc} 充当放弃;
  * 展开块渲染于清单底部而非条目行内 (行缓冲输入无法在已输出行之间插入交互块); 重绘采用滚动重印而非
@@ -65,24 +72,62 @@ public final class SetupWizard
     private static final @NotNull Set<String> ASR_TRIGGER_ENVS =
         Set.of("SOULNOTES_ASR_ENGINE", "SOULNOTES_ASR_RUNTIME_DIR");
 
+    //* DB 交互流触发键 (Spec §5 TTY 列): 数据库组三项 envName; 组名与元数据单一来源 (application.properties @group) 对齐.
+    private static final @NotNull String DB_GROUP = "数据库";
+    private static final @NotNull String DB_URL_ENV = "SOULNOTES_DB_URL";
+    private static final @NotNull String DB_USER_ENV = "SOULNOTES_DB_USER";
+    private static final @NotNull String DB_PASSWORD_ENV = "SOULNOTES_DB_PASSWORD";
+
+    //* AI 模型拉取步触发键 (Spec §6, Task 10): AI 接入组的 endpoint 与 api-key 两项; model 项同组但仅作为选择结果落点,
+    //* 不参与触发 — 手动改模型名不应引发网络探测. 组名与元数据单一来源 (application.properties @group) 对齐.
+    private static final @NotNull String AI_GROUP = "AI 接入";
+    private static final @NotNull String AI_ENDPOINT_ENV = "SOULNOTES_AI_ENDPOINT";
+    private static final @NotNull String AI_API_KEY_ENV = "SOULNOTES_AI_API_KEY";
+    private static final @NotNull String AI_MODEL_ENV = "SOULNOTES_AI_MODEL";
+
+    //* 模型列表拉取超时 (Spec §6 钉死 10s): 拉取是向导内的同步交互, 过长等待会让人误以为向导挂死.
+    private static final @NotNull Duration AI_FETCH_TIMEOUT = Duration.ofSeconds(10);
+
     private final @NotNull Path workDir;
     private final @Nullable IAsrRuntimeControl asrControl;
+    private final @Nullable IDatabaseGateway dbGateway;
+    private final @Nullable IModelCatalog modelCatalog;
 
-    public SetupWizard() { this(Path.of(""), null); }
+    public SetupWizard() { this(Path.of(""), null, null); }
 
-    //* workDir 注入点: 生产走进程工作目录, 测试注入 @TempDir 以断言落盘行为; 无 ASR 交互的重载兼容既有调用方.
-    public SetupWizard(@NotNull Path workDir) { this(workDir, null); }
+    //* workDir 注入点: 生产走进程工作目录, 测试注入 @TempDir 以断言落盘行为; 无交互端口的重载兼容既有调用方.
+    public SetupWizard(@NotNull Path workDir) { this(workDir, null, null); }
+
+    public SetupWizard(@NotNull Path workDir, @Nullable IAsrRuntimeControl asrControl) { this(workDir, asrControl, null); }
 
     /**
      * <span style="color: 95cc6d">完整构造入口.</span>
      * @param workDir    落盘工作目录
      * @param asrControl ASR 运行时控制端口 (null = 禁用未就绪询问/下载交互; Pre-Launch 于 CDI 前运行, 只能纯构造注入)
+     * @param dbGateway  数据库探测/修复网关 (null = 禁用数据库交互流; 仅生产 Entrance 注入 {@link PgGateway} 或测试注入 fake)
      */
-    public SetupWizard(@NotNull Path workDir, @Nullable IAsrRuntimeControl asrControl)
+    public SetupWizard(@NotNull Path workDir, @Nullable IAsrRuntimeControl asrControl, @Nullable IDatabaseGateway dbGateway)
+    { this(workDir, asrControl, dbGateway, null); }
+
+    /**
+     * <span style="color: 95cc6d">完整构造入口.</span>
+     * @param workDir      落盘工作目录
+     * @param asrControl   ASR 运行时控制端口 (null = 禁用未就绪询问/下载交互; Pre-Launch 于 CDI 前运行, 只能纯构造注入)
+     * @param dbGateway    数据库探测/修复网关 (null = 禁用数据库交互流; 仅生产 Entrance 注入 {@link PgGateway} 或测试注入 fake)
+     * @param modelCatalog 模型目录拉取端口 (null = 禁用 AI 模型拉取步; 生产 Entrance 注入 {@link kurvcygnus.soulnotes.ai.HttpModelCatalog} 或测试注入 fake)
+     */
+    public SetupWizard(
+        @NotNull Path workDir,
+        @Nullable IAsrRuntimeControl asrControl,
+        @Nullable IDatabaseGateway dbGateway,
+        @Nullable IModelCatalog modelCatalog
+    )
     {
         Objects.requireNonNull(workDir, "Param \"workDir\" must not be null!");
         this.workDir = workDir;
         this.asrControl = asrControl;
+        this.dbGateway = dbGateway;
+        this.modelCatalog = modelCatalog;
     }
 
     //endregion
@@ -114,6 +159,8 @@ public final class SetupWizard
         boolean editing = !visible.isEmpty();
         Integer expanded = editing ? 0 : null;  //* null = 折叠命令态; 非空 = 展开态下标 (顺序遍历从首项起).
         int next = 0;                           //* Enter 顺序遍历的光标.
+        @Nullable String dbProbeKey = null;     //* DB 交互流重触发凭据: 最近一次探测的三项值指纹, null = 本会话尚未探测过.
+        @Nullable String aiFetchKey = null;     //* AI 拉取步重触发凭据: 最近一次拉取的 endpoint+key 值指纹, null = 本会话尚未拉取过.
         while(true)
         {
             if(editing)
@@ -128,6 +175,18 @@ public final class SetupWizard
                         {
                             //* ASR 条目保存后触发运行时就绪检查 (Spec §4.5): EOF 于询问符处沿用向导取消路径.
                             if(!offerAsrRuntimeIfNotReady(visible.get(expanded), io)) return cancelled(io);
+                            //* 数据库组三项齐备且值指纹变化时触发 DB 探测/修复流 (Spec §5 TTY 列): EOF 于询问符处同走取消路径.
+                            final var step = runDbFlowIfTriggered(visible.get(expanded), values, dbProbeKey, io);
+                            if(step.outcome() == DbFlowOutcome.CANCEL) return cancelled(io);
+                            if(step.fingerprint() != null) dbProbeKey = step.fingerprint();
+                            if(step.outcome() == DbFlowOutcome.REEDIT)
+                                continue;  //* 就地失败: 不推进光标 — 循环回到顶部重绘清单并重新展开当前项 (向导既有编辑态语义).
+                            //* AI 组 endpoint+key 齐备且值指纹变化时触发模型拉取/选择步 (Spec §6): EOF 于列表/输入符处同走取消路径.
+                            final var aiStep = runAiFlowIfTriggered(visible.get(expanded), values, aiFetchKey, io);
+                            if(aiStep.outcome() == AiFlowOutcome.CANCEL) return cancelled(io);
+                            if(aiStep.fingerprint() != null) aiFetchKey = aiStep.fingerprint();
+                            if(aiStep.outcome() == AiFlowOutcome.REEDIT)
+                                continue;  //* 密钥被拒: 停在当前项重编辑, 改值保存后经指纹重触发.
                             next = expanded + 1;
                             if(next >= visible.size()) { expanded = null; editing = false; }  //* 末项已存 → 直达摘要.
                             else expanded = next;                                             //* 保存即顺序推进到下一项.
@@ -275,16 +334,21 @@ public final class SetupWizard
                 return Math.min(next, size - 1);
             if(t.equalsIgnoreCase("q"))
                 return CMD_FINISH;
-            //* 限长 9 位: 先挡超长数字串, 再 parse, 杜绝 parseInt 溢出异常.
-            if(t.matches("[0-9]{1,9}"))
-            {
-                final var idx = Integer.parseInt(t) - 1;
-                if(idx >= 0 && idx < size) return idx;
-                io.writeOut(bad("✗ 序号超出范围 (1-" + size + ")") + "\n");
-                continue;
-            }
-            io.writeOut(bad("✗ 无效输入: 序号 (1-" + size + ") / Enter 顺序遍历 / q 完成") + "\n");
+            final var idx = parseIndex(t, size);
+            if(idx != null) return idx;
+            io.writeOut(bad(t.matches("[0-9]{1,9}")
+                ? "✗ 序号超出范围 (1-" + size + ")"
+                : "✗ 无效输入: 序号 (1-" + size + ") / Enter 顺序遍历 / q 完成") + "\n");
         }
+    }
+
+    //* 序号解析 (readCommand 与模型选择共用): 限长 9 位先挡超长数字串再 parse, 杜绝 parseInt 溢出异常; 合法返回 0-based 下标, 否则 null.
+    private static @Nullable Integer parseIndex(@NotNull String t, int size)
+    {
+        if(!t.matches("[0-9]{1,9}"))
+            return null;
+        final var idx = Integer.parseInt(t) - 1;
+        return idx >= 0 && idx < size ? idx : null;
     }
 
     //endregion
@@ -367,6 +431,254 @@ public final class SetupWizard
         while(current.getCause() != null && current.getCause() != current)
             current = current.getCause();
         return current;
+    }
+
+    //endregion
+
+    //region 数据库交互流 (Spec §5 TTY 列, Task 9)
+
+    //* DB 流结局: CONTINUE = 推进清单; REEDIT = 就地失败, 停在当前项重编辑; CANCEL = 询问符处 EOF, 沿用向导取消路径.
+    private enum DbFlowOutcome { CONTINUE, REEDIT, CANCEL }
+
+    //* DB 流单步产物: fingerprint = 本次实际探测的三项值指纹 (null = 未触发, 调用方不得覆盖已存指纹);
+    //* 重触发判定取 "三项值指纹" 而非 "每会话一次" — 两者实现复杂度相当, 指纹版免去改值后必须重启向导重跑的可用性坑,
+    //* 且天然覆盖同值重存静默跳过 (与 ASR 就绪检查的静默语义对齐).
+    private record DbFlowStep(@Nullable String fingerprint, @NotNull DbFlowOutcome outcome)
+    {
+        static final @NotNull DbFlowStep SKIPPED = new DbFlowStep(null, DbFlowOutcome.CONTINUE);
+    }
+
+    /**
+     * <span style="color: 95cc6d">数据库组条目保存后的探测/修复流入口.</span>
+     * <p>触发条件: 条目属数据库组, 三项 (URL/用户名/密码) 均已有值, 且三项值指纹不同于上次探测.
+     * 未触发一律静默放行 — 反复探测只会淹没清单主流程 (与 ASR 就绪检查同语义).</p>
+     */
+    private @NotNull DbFlowStep runDbFlowIfTriggered(
+        @NotNull PropertyMetaParser.ConfigItemMeta meta,
+        @NotNull Map<String, String> values,
+        @Nullable String lastFingerprint,
+        @NotNull TerminalIO io
+    )
+    {
+        final @Nullable IDatabaseGateway gateway = dbGateway;
+        if(gateway == null || !DB_GROUP.equals(meta.group()))
+            return DbFlowStep.SKIPPED;
+        final var url = values.get(DB_URL_ENV);
+        final var user = values.get(DB_USER_ENV);
+        final var password = values.get(DB_PASSWORD_ENV);
+        if(url == null || user == null || password == null)
+            return DbFlowStep.SKIPPED;  //* 三项未齐 (组内前序项尚未保存): 不探测.
+        final var fingerprint = url + "\n" + user + "\n" + password;
+        if(fingerprint.equals(lastFingerprint))
+            return DbFlowStep.SKIPPED;  //* 同值重存: 静默跳过, 不重复探测.
+        final DbTarget target;
+        try { target = DbTarget.parse(url, user, password); }
+        catch(IllegalStateException e)
+        {
+            //! URL 级校验 (scheme/host/端口) 已由 FieldValidator 在展开态拦截, 此处仅防御 userinfo 等深解析失败.
+            io.writeOut(bad("✗ 数据库地址无法解析: " + e.getMessage()) + "\n");
+            return new DbFlowStep(fingerprint, DbFlowOutcome.REEDIT);
+        }
+        return new DbFlowStep(fingerprint, runDbFlow(gateway, target, io));
+    }
+
+    //* 五态分流主流程: probe → OK 直通 / SCHEMA_MISSING 询问建表 / 其余即时 ✗; DB_MISSING 先自动建库再重探.
+    private static @NotNull DbFlowOutcome runDbFlow(@NotNull IDatabaseGateway gateway, @NotNull DbTarget target, @NotNull TerminalIO io)
+    {
+        var probe = gateway.probe(target);
+        if(probe.state() == ProbeResult.State.DB_MISSING)
+        {
+            io.writeOut(dim("目标数据库 " + target.database() + " 不存在, 尝试自动创建...") + "\n");
+            try { gateway.createDatabase(target); }
+            catch(IllegalStateException e)
+            {
+                io.writeOut(bad("✗ 自动建库失败: " + rootCause(e).getMessage()) + "\n");
+                return DbFlowOutcome.REEDIT;  //* 无权限/竞争等: 保持在 DB 项展开态, 用户改值后经指纹重触发.
+            }
+            probe = gateway.probe(target);  //* 建库成功必须重探确认 (Spec §5: 重探 ✔).
+        }
+        return switch(probe.state())
+        {
+            case OK ->
+            {
+                io.writeOut(ok("✔ 数据库连接就绪") + "\n");
+                yield DbFlowOutcome.CONTINUE;
+            }
+            case SCHEMA_MISSING -> confirmSchema(gateway, target, probe.missingTables(), io);
+            case UNREACHABLE ->
+            {
+                io.writeOut(bad("✗ 数据库不可达 (连接被拒绝或超时), 请确认 PostgreSQL 实例已运行且 host:port 正确") + "\n");
+                yield DbFlowOutcome.REEDIT;
+            }
+            case AUTH_FAILED ->
+            {
+                io.writeOut(bad("✗ 数据库账号或密码被拒绝, 请重新输入用户名/密码") + "\n");
+                yield DbFlowOutcome.REEDIT;
+            }
+            case DB_MISSING ->
+            {
+                //! 建库已报告成功但重探仍缺库: 只可能是并发竞争或服务端异常, 原地报错让用户重试.
+                io.writeOut(bad("✗ 数据库创建后仍不存在 (可能并发竞争), 请重试") + "\n");
+                yield DbFlowOutcome.REEDIT;
+            }
+        };
+    }
+
+    //* SCHEMA_MISSING 分支: 缺表清单 + [Y/n] 询问; y → 逐脚本建表 (进度一行一条) → 重探确认; n → 灰字提示后果并继续向导
+    //* (拒绝不阻断: LAUNCH 前的 DbValidationTask 会以 BLOCK 拒绝启动, 后果链路完整).
+    private static @NotNull DbFlowOutcome confirmSchema(
+        @NotNull IDatabaseGateway gateway, @NotNull DbTarget target,
+        @NotNull List<String> missingTables, @NotNull TerminalIO io
+    )
+    {
+        io.writeOut(dim("缺少数据表: " + String.join(", ", missingTables)) + "\n");
+        while(true)
+        {
+            io.writeOut("初始化数据库结构? [Y/n] ");
+            final var raw = io.readLine();
+            if(raw == null) return DbFlowOutcome.CANCEL;  //* EOF 沿用向导取消路径.
+            final var t = raw.strip();
+            if(t.isEmpty() || t.equalsIgnoreCase("y")) break;
+            if(t.equalsIgnoreCase("n"))
+            {
+                io.writeOut(dim("已跳过: 启动校验将拒绝启动 (可稍后 --setup 重跑)") + "\n");
+                return DbFlowOutcome.CONTINUE;
+            }
+            io.writeOut(bad("✗ 无效输入, 请输入 Y 或 n") + "\n");
+        }
+        try { gateway.applySchema(target, script -> io.writeOut(dim("  执行 schema 脚本: " + script) + "\n")); }
+        catch(IllegalStateException e)
+        {
+            io.writeOut(bad("✗ 数据库结构初始化失败: " + rootCause(e).getMessage()) + "\n");
+            return DbFlowOutcome.REEDIT;
+        }
+        if(gateway.probe(target).state() != ProbeResult.State.OK)
+        {
+            //! 脚本执行完毕但重探仍未全绿: 脚本与期望表集漂移 (构建期缺陷), 原地报错交由用户查看服务端日志.
+            io.writeOut(bad("✗ 初始化脚本执行完毕但校验仍未通过, 请检查数据库日志") + "\n");
+            return DbFlowOutcome.REEDIT;
+        }
+        io.writeOut(ok("✔ 数据库连接就绪") + "\n");
+        return DbFlowOutcome.CONTINUE;
+    }
+
+    //endregion
+
+    //region AI 模型拉取步 (Spec §6, Task 10)
+
+    //* AI 流结局: CONTINUE = 推进清单; REEDIT = 401/403 密钥被拒, 停在当前项重编辑; CANCEL = 选择/输入符处 EOF, 沿用向导取消路径.
+    private enum AiFlowOutcome { CONTINUE, REEDIT, CANCEL }
+
+    //* AI 流单步产物: fingerprint = 本次触发判定的值指纹 (null = 未触发/已取消, 调用方不得覆盖已存指纹).
+    //* 成功路径以 "规范化后 endpoint + key" 入指纹而非触发时原值: 规范化会改写 values 中的 endpoint,
+    //* 若以原值入指纹, 重存 key 会被误判为值变化而重复拉取; 失败路径原值入指纹, 同值重存静默跳过 (与 DB 流同语义).
+    private record AiFlowStep(@Nullable String fingerprint, @NotNull AiFlowOutcome outcome)
+    {
+        static final @NotNull AiFlowStep SKIPPED = new AiFlowStep(null, AiFlowOutcome.CONTINUE);
+    }
+
+    /**
+     * <span style="color: 95cc6d">AI 组条目保存后的模型拉取/选择流入口.</span>
+     * <p>触发条件: 条目属 AI 接入组, endpoint 与 api-key 均已有值, 且二者值指纹不同于上次拉取.
+     * properties 中 model 项位于 api-key 之前, 触发点在 key 保存时 — 选择结果直接覆写 values 中已填的
+     * model 值 (清单行随重绘显示为已配置), 用户无需再手动输入模型. 未触发一律静默放行 (与 DB 流同语义).</p>
+     */
+    private @NotNull AiFlowStep runAiFlowIfTriggered(
+        @NotNull PropertyMetaParser.ConfigItemMeta meta,
+        @NotNull Map<String, String> values,
+        @Nullable String lastFingerprint,
+        @NotNull TerminalIO io
+    )
+    {
+        final @Nullable IModelCatalog catalog = modelCatalog;
+        if(catalog == null || !AI_GROUP.equals(meta.group()))
+            return AiFlowStep.SKIPPED;
+        final var endpoint = values.get(AI_ENDPOINT_ENV);
+        final var apiKey = values.get(AI_API_KEY_ENV);
+        if(endpoint == null || apiKey == null)
+            return AiFlowStep.SKIPPED;  //* 两项未齐 (组内前序项尚未保存): 不拉取.
+        final var fingerprint = endpoint + "\n" + apiKey;
+        if(fingerprint.equals(lastFingerprint))
+            return AiFlowStep.SKIPPED;  //* 同值重存: 静默跳过, 不重复探测.
+        //* 回显最终请求 URL (Spec §6): 与 fetch 共用同一启发式 (单一来源), 用户可预判探测落点.
+        io.writeOut(dim("探测模型列表: " + IModelCatalog.modelsUrl(endpoint) + " ...") + "\n");
+        final IModelCatalog.CatalogResult result;
+        try { result = catalog.fetch(endpoint, apiKey, AI_FETCH_TIMEOUT); }
+        catch(IModelCatalog.UnauthorizedException e)
+        {
+            io.writeOut(bad("✗ 密钥无效 (服务端拒绝鉴权), 请重新输入接口地址与 API 密钥") + "\n");
+            return new AiFlowStep(fingerprint, AiFlowOutcome.REEDIT);
+        }
+        catch(IOException e)
+        {
+            io.writeOut(emph("⚠ 无法获取模型列表 (" + rootCause(e).getMessage() + "), 请手动输入模型名称") + "\n");
+            return new AiFlowStep(fingerprint, manualModelInput(values, io));
+        }
+        if(result.models().isEmpty())
+        {
+            io.writeOut(emph("⚠ 服务端返回的模型列表为空, 请手动输入模型名称") + "\n");
+            return new AiFlowStep(fingerprint, manualModelInput(values, io));
+        }
+        renderModelList(result.models(), io);
+        final var picked = readModelIndex(result.models().size(), io);
+        if(picked < 0)
+            return AiFlowStep.SKIPPED;  //* 选择符处 EOF: 向导随即取消, 指纹不再有意义.
+        final var chosen = result.models().get(picked);
+        values.put(AI_MODEL_ENV, chosen.id());
+        //* fetch 与存储分离 (Spec §6): endpoint 存探测成功的规范形 (langchain4j base-url 形态),
+        //* 避免 "拉取成功但 chat 调用 404" 的路径不一致; 摘要屏自然呈现规范化后的值.
+        values.put(AI_ENDPOINT_ENV, result.normalizedEndpoint());
+        io.writeOut(ok("✔ 模型已选定: " + chosen.id() + " (接口地址已规范化为 " + result.normalizedEndpoint() + ")") + "\n");
+        return new AiFlowStep(result.normalizedEndpoint() + "\n" + apiKey, AiFlowOutcome.CONTINUE);
+    }
+
+    //* 元数据列表行 (Spec §6): "序号. 模型ID [上下文: n|-] [思考: ✓|✗|-]"; 保持整行无着色, 行内容本身即断言面.
+    private static void renderModelList(@NotNull List<IModelCatalog.ModelInfo> models, @NotNull TerminalIO io)
+    {
+        io.writeOut(dim("可用模型 (" + models.size() + " 个):") + "\n");
+        for(int i = 0; i < models.size(); i++)
+        {
+            final var m = models.get(i);
+            io.writeOut("  " + (i + 1) + ". " + m.id() + " [上下文: " + m.context() + "] [思考: " + m.reasoning() + "]\n");
+        }
+    }
+
+    //* 返回选中下标 (0-based); -1 = EOF 取消; 越界/非数字原地红字重问 (序号解析与折叠命令态共用 [[SetupWizard#parseIndex]]).
+    private static int readModelIndex(int size, @NotNull TerminalIO io)
+    {
+        while(true)
+        {
+            io.writeOut("请选择模型序号 [1-" + size + "]: ");
+            final var raw = io.readLine();
+            if(raw == null)
+                return -1;
+            final var t = raw.strip();
+            final var idx = parseIndex(t, size);
+            if(idx != null) return idx;
+            io.writeOut(bad(t.matches("[0-9]{1,9}")
+                ? "✗ 序号超出范围 (1-" + size + ")"
+                : "✗ 无效输入, 请输入 1-" + size + " 的序号") + "\n");
+        }
+    }
+
+    //* 网络失败/空列表的手动兜底: 仅写 model, endpoint 保持用户原样 (未经探测证实, 不做规范化); EOF 沿取消路径.
+    private static @NotNull AiFlowOutcome manualModelInput(@NotNull Map<String, String> values, @NotNull TerminalIO io)
+    {
+        while(true)
+        {
+            io.writeOut("请输入模型名称: ");
+            final var raw = io.readLine();
+            if(raw == null)
+                return AiFlowOutcome.CANCEL;
+            final var t = raw.strip();
+            if(t.isEmpty())
+            {
+                io.writeOut(bad("✗ 模型名称不能为空") + "\n");
+                continue;
+            }
+            values.put(AI_MODEL_ENV, t);
+            return AiFlowOutcome.CONTINUE;
+        }
     }
 
     //endregion
