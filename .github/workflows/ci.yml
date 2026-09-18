@@ -49,10 +49,15 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      # service 容器的 postgres 是空库: 先应用与向导 applySchema 同源的初始化脚本,
-      # 全链路用例 (users/ai_chat_sessions/mood_diaries) 才有表可用; \i 引用按仓库根相对路径解析.
+      # service 容器的 postgres 是空库: 依次执行程序化权威源 db/schema/ 全部 4 脚本 (含 platform_schema_version
+      # 版本表), 与 Pre-Launch 探测的期望表集 (PgGateway#EXPECTED_TABLES) 一致; 缺版本表会使探测判 SCHEMA_MISSING.
+      # 文件名序号保证执行次序; ON_ERROR_STOP=1 任一脚本失败即整体失败 (run 默认 bash -e).
       - name: Init database schema
-        run: PGPASSWORD=CHANGE_ME_DB_PASSWORD psql -h localhost -U kurv -d soulnotes -v ON_ERROR_STOP=1 -f init_schema.sql
+        run: |
+          set -e
+          for f in src/main/resources/db/schema/*.sql; do
+            PGPASSWORD=CHANGE_ME_DB_PASSWORD psql -h localhost -U kurv -d soulnotes -v ON_ERROR_STOP=1 -f "$f"
+          done
 
       - name: Run unit tests
         run: ./gradlew :test --console=plain
