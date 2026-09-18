@@ -55,4 +55,7 @@ config/
 #* ZCode CLI 运行时目录 (Task 3 遗留, 不属项目源码).
 .zcode/
 
+#* ASR Spike 工作区 (libvosk.dll/模型/测试音频等二进制资产, 结论已固化为 notes, 不入库).
+spike/
+
 DEV.md

@@ -1,5 +1,6 @@
 package kurvcygnus.soulnotes.config.prelaunch;
 
+import kurvcygnus.soulnotes.ai.asr.IAsrRuntimeControl;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -15,15 +16,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * <b>Pre-Launch 配置向导</b> (Spec §7.0-7.2).
  * <p>pnpm 风格折叠清单的交互实现: 模式选择 (简单 = 仅必填 / 全面 = 全部) → 逐项编辑 (就地校验) →
  * 摘要确认 → 双文件落盘 → 完成屏 (启动/退出). 仅显式值进入结果与落盘, 未动项保持内置默认.</p>
+ * <p>//* ASR 运行时交互 (Spec §4.5): 保存 {@code asr.engine} / {@code asr.runtime.dir} 条目后触发一次
+ * 就绪检查, 未就绪现场询问是否立即下载 (进度行内回显); 控制端口经构造注入, null = 禁用该交互.</p>
  * <p>交互妥协记录 (审计): Windows conhost 无 raw mode 且零依赖约束禁用 JLine, 方向键全屏导航不可行,
  * 降级为 "序号跳转 + Enter 顺序遍历"; Esc 键在行缓冲输入下不可检测, 展开态以字面量 {@code esc} 充当放弃;
  * 展开块渲染于清单底部而非条目行内 (行缓冲输入无法在已输出行之间插入交互块); 重绘采用滚动重印而非
- * {@link TerminalRenderer#eraseAbove(int)} 原地抹除 — 30 项清单超出 conhost 视口时光标上移被钳制在屏顶, 行号推算不可靠.</p>
+ * {@link TerminalRenderer#eraseAbove(int)} 原地抹除 — 30 项清单超出 conhost 视口时光标上移被钳制在屏顶, 行号推算不可靠
+ * (例外: 下载进度为单行自刷新块, 适用 eraseAbove 原地重写).</p>
  * @since 2.0
  */
 public final class SetupWizard
@@ -56,15 +61,28 @@ public final class SetupWizard
     private static final int CMD_FINISH = -1;
     private static final @NotNull SecureRandom RANDOM = new SecureRandom();
 
+    //* ASR 运行时交互触发键: 保存任一条目后触发一次 ready() 检查 (asr.lib.url 仅改下载源, 不触发).
+    private static final @NotNull Set<String> ASR_TRIGGER_ENVS =
+        Set.of("SOULNOTES_ASR_ENGINE", "SOULNOTES_ASR_RUNTIME_DIR");
+
     private final @NotNull Path workDir;
+    private final @Nullable IAsrRuntimeControl asrControl;
 
-    public SetupWizard() { this(Path.of("")); }
+    public SetupWizard() { this(Path.of(""), null); }
 
-    //* workDir 注入点: 生产走进程工作目录, 测试注入 @TempDir 以断言落盘行为.
-    public SetupWizard(@NotNull Path workDir)
+    //* workDir 注入点: 生产走进程工作目录, 测试注入 @TempDir 以断言落盘行为; 无 ASR 交互的重载兼容既有调用方.
+    public SetupWizard(@NotNull Path workDir) { this(workDir, null); }
+
+    /**
+     * <span style="color: 95cc6d">完整构造入口.</span>
+     * @param workDir    落盘工作目录
+     * @param asrControl ASR 运行时控制端口 (null = 禁用未就绪询问/下载交互; Pre-Launch 于 CDI 前运行, 只能纯构造注入)
+     */
+    public SetupWizard(@NotNull Path workDir, @Nullable IAsrRuntimeControl asrControl)
     {
         Objects.requireNonNull(workDir, "Param \"workDir\" must not be null!");
         this.workDir = workDir;
+        this.asrControl = asrControl;
     }
 
     //endregion
@@ -108,6 +126,8 @@ public final class SetupWizard
                         case CANCEL -> { return cancelled(io); }
                         case SAVE ->
                         {
+                            //* ASR 条目保存后触发运行时就绪检查 (Spec §4.5): EOF 于询问符处沿用向导取消路径.
+                            if(!offerAsrRuntimeIfNotReady(visible.get(expanded), io)) return cancelled(io);
                             next = expanded + 1;
                             if(next >= visible.size()) { expanded = null; editing = false; }  //* 末项已存 → 直达摘要.
                             else expanded = next;                                             //* 保存即顺序推进到下一项.
@@ -265,6 +285,88 @@ public final class SetupWizard
             }
             io.writeOut(bad("✗ 无效输入: 序号 (1-" + size + ") / Enter 顺序遍历 / q 完成") + "\n");
         }
+    }
+
+    //endregion
+
+    //region ASR 运行时交互 (Spec §4.5)
+
+    /**
+     * <span style="color: 95ccfd">ASR 条目保存后的就绪检查与就地下载询问.</span>
+     * <p>//* 就绪静默跳过 — 反复提示会淹没清单主流程; 就绪判定为纯文件检查, 即刻返回.</p>
+     * @return false = 询问符处 EOF (沿用向导取消路径), 调用方立即收场
+     */
+    private boolean offerAsrRuntimeIfNotReady(@NotNull PropertyMetaParser.ConfigItemMeta meta, @NotNull TerminalIO io)
+    {
+        if(asrControl == null || !ASR_TRIGGER_ENVS.contains(meta.envName()) || asrControl.ready())
+            return true;
+        io.writeOut(dim("ASR 运行时未就绪 (缺少本地模型或动态库, 语音转写暂不可用)") + "\n");
+        while(true)
+        {
+            io.writeOut("运行时未就绪, 是否立即下载? [Y/n] ");
+            final var raw = io.readLine();
+            if(raw == null) return false;
+            final var t = raw.strip();
+            if(t.isEmpty() || t.equalsIgnoreCase("y"))
+            {
+                downloadRuntime(io);
+                return true;
+            }
+            if(t.equalsIgnoreCase("n"))
+            {
+                io.writeOut(dim("已跳过, 可稍后手动放置或重试") + "\n");
+                return true;
+            }
+            io.writeOut(bad("✗ 无效输入, 请输入 Y 或 n") + "\n");
+        }
+    }
+
+    //* 阻塞等待下载 (Pre-Launch 无事件循环, await 是唯一消费方式); 失败不中断向导, 就地给灰色提示后继续主流程.
+    private void downloadRuntime(@NotNull TerminalIO io)
+    {
+        final @Nullable IAsrRuntimeControl control = asrControl;
+        if(control == null)
+            return;  //! 不可达防御: 下载入口只会由 offerAsrRuntimeIfNotReady 在端口非 null 时进入.
+        final var printed = new AtomicBoolean(false);  //* 首帧直接输出, 后续帧先抹上一行再重写.
+        try
+        {
+            control.ensureDownloaded((received, total) -> renderProgress(io, printed, received, total)).
+                await().indefinitely();
+            io.writeOut(ok("✔ ASR 运行时就绪") + "\n");
+        }
+        catch(Exception e)
+        {
+            //* Mutiny await 对受检异常会包一层, 统一解到根因再做类型分支.
+            final var cause = rootCause(e);
+            if(cause instanceof IllegalStateException concurrent && isAlreadyDownloading(concurrent))
+                io.writeOut(dim("已有下载在进行, 请等待其完成") + "\n");
+            else
+                io.writeOut(dim("下载失败 (" + cause.getMessage() + "), 可稍后手动放置或重试") + "\n");
+        }
+    }
+
+    //* AsrRuntimeManager 并发互斥的拒绝性失败 (第二路直接失败不排队), 以消息片段识别而非裸类型 —
+    //* IllegalStateException 亦被 "布局异常" 路径复用, 两者提示语义不同.
+    private static boolean isAlreadyDownloading(@NotNull IllegalStateException e)
+    { return e.getMessage() != null && e.getMessage().contains("下载任务进行中"); }
+
+    //* 进度行内回显 (TerminalRenderer 既有 eraseAbove 约定的唯一例外场景, 见类 javadoc): 单行自刷新.
+    //* total 未知 (Content-Length 缺失, -1) 时无百分比可算, 退化为已接收 MB 数.
+    private static void renderProgress(@NotNull TerminalIO io, @NotNull AtomicBoolean printed, int received, int total)
+    {
+        final var line = total > 0
+            ? "  下载中 " + (int) Math.min(received * 100L / total, 100) + "%"
+            : "  已接收 " + received / (1024 * 1024) + "MB";
+        io.writeOut((printed.get() ? TerminalRenderer.eraseAbove(1) : "") + line + "\n");
+        printed.set(true);
+    }
+
+    private static @NotNull Throwable rootCause(@NotNull Throwable throwable)
+    {
+        var current = throwable;
+        while(current.getCause() != null && current.getCause() != current)
+            current = current.getCause();
+        return current;
     }
 
     //endregion

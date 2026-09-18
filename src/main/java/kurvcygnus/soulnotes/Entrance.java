@@ -2,6 +2,7 @@ package kurvcygnus.soulnotes;
 
 import io.quarkus.runtime.Quarkus;
 import io.quarkus.runtime.annotations.QuarkusMain;
+import kurvcygnus.soulnotes.ai.asr.AsrRuntimeManager;
 import kurvcygnus.soulnotes.config.prelaunch.ConfigValidationTask;
 import kurvcygnus.soulnotes.config.prelaunch.ConfigView;
 import kurvcygnus.soulnotes.config.prelaunch.IPreLaunchTask;
@@ -11,6 +12,7 @@ import kurvcygnus.soulnotes.config.prelaunch.SetupWizard;
 import kurvcygnus.soulnotes.config.prelaunch.TerminalIO;
 import org.jetbrains.annotations.NotNull;
 
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 
@@ -66,8 +68,8 @@ import java.util.List;
         }
 
         final var view = ConfigView.load();
-        final var result = new ConfigValidationTask().run(new PreLaunchContext(view, items, profile));
-        switch(decide(result.hasBlocks(), view.tty(), false))
+        final var result = new ConfigValidationTask(asrControl(view, items)::ready).run(new PreLaunchContext(view, items, profile));
+        switch(decide(result.hasBlocks(), ConfigView.tty(), false))
         {
             case PROCEED ->
             {
@@ -114,20 +116,42 @@ import java.util.List;
     //* LAUNCH 前以全新视图重跑校验任务, 无 BLOCK 方可放行 (向导修复路径的二次校验, Spec §6.2).
     private static void runWizardAndMaybeLaunch(@NotNull List<PropertyMetaParser.ConfigItemMeta> items, @NotNull String profile, @NotNull String[] args, @NotNull TerminalIO io)
     {
-        final var result = new SetupWizard().run(items, ConfigView.load(), io);
+        final var view = ConfigView.load();
+        final var result = new SetupWizard(Path.of(""), asrControl(view, items)).run(items, view, io);
         if(result.action() == SetupWizard.NextAction.CANCELLED)
             System.exit(1);  //! 取消提示已由向导写往 stderr; Spec §6.2 规定向导中途取消 → 退出码 1, 区别于下方用户主动退出的正常返回.
         if(result.action() == SetupWizard.NextAction.FAILED)
             System.exit(1);  //! 写盘失败提示已由向导写往 stderr; 评审轮次 2: 异常收场与取消同为退出码 1, 不得与用户主动退出 (退出码 0) 混同.
         if(result.action() == SetupWizard.NextAction.EXIT) return;  //* 用户主动退出: 正常返回, 不进入 Quarkus.
         final var freshView = ConfigView.load();
-        final var validation = new ConfigValidationTask().run(new PreLaunchContext(freshView, items, profile));
+        final var validation = new ConfigValidationTask(asrControl(freshView, items)::ready).run(new PreLaunchContext(freshView, items, profile));
         if(validation.hasBlocks())
         {
             io.writeErr(formatReport(validation.issues()));
             System.exit(1);
         }
         Quarkus.run(args);
+    }
+
+    //* Pre-Launch 全程处于 CDI 启动之前, AsrRuntimeManager 只能纯构造装配 (ready() 为纯文件检查, 不触网);
+    //* 运行时目录与 lib JAR 地址均经向导元数据 + 配置视图解析, 与校验/向导同源 (单一来源 application.properties 的
+    //* ${ENV:default}), 不复制内置默认字面量; lib URL 经 resolveLibUrl 归一空值, 保证自定义 JAR 源 (如 arm 构建) 生效.
+    //* 注意: 向导落盘后 LAUNCH 前以 freshView 重建实例仅使校验/就绪判定读到新目录, 向导会话内已下载到旧目录的文件不会迁移.
+    static @NotNull AsrRuntimeManager asrControl(@NotNull ConfigView view, @NotNull List<PropertyMetaParser.ConfigItemMeta> items)
+    {
+        final var runtimeDir = metaValue(view, items, "asr.runtime.dir");
+        final var libUrl = AsrRuntimeManager.resolveLibUrl(metaValue(view, items, "asr.lib.url"));
+        return new AsrRuntimeManager(Path.of(runtimeDir), AsrRuntimeManager.DEFAULT_MODEL_URL, libUrl);
+    }
+
+    //* 向导条目值解析 (显式值 > 内置默认): 元数据为键/环境名/默认值的单一来源, 这里不做任何复制.
+    private static @NotNull String metaValue(@NotNull ConfigView view, @NotNull List<PropertyMetaParser.ConfigItemMeta> items, @NotNull String key)
+    {
+        final var meta = items.stream().
+            filter(item -> key.equals(item.key())).
+            findFirst().
+            orElseThrow(() -> new IllegalStateException("application.properties 缺少 " + key + " 向导条目"));
+        return view.resolved(meta.key(), meta.envName(), meta.defaultValue());
     }
 
     private static void printBanner()

@@ -1,15 +1,20 @@
 package kurvcygnus.soulnotes.config.prelaunch;
 
+import io.smallrye.mutiny.Uni;
+import kurvcygnus.soulnotes.ai.asr.IAsrRuntimeControl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.function.BiConsumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -186,4 +191,132 @@ class SetupWizardTest
         assertEquals("postgresql://prefilled:5432/x", result.values().get("TEST_A_URL"), "已配置项回车即保留, 无需重新输入");
         assertTrue(sink.toString().contains("postgresql://prefilled:5432/x"), "预填值须以当前值提示可见");
     }
+
+    //region ASR 运行时交互 (Task 6)
+
+    //* 与真实 asr.engine / asr.runtime.dir 标签项同构的最小夹具 (两个可选 TEXT 项, 触发键即 envName).
+    private static List<PropertyMetaParser.ConfigItemMeta> asrFixture()
+    {
+        return List.of(
+            meta("asr.engine", "SOULNOTES_ASR_ENGINE", "vosk", "ASR", "ASR 引擎", "当前仅 vosk 可选.", PropertyMetaParser.InputType.TEXT, "", 0, false),
+            meta("asr.runtime.dir", "SOULNOTES_ASR_RUNTIME_DIR", "asr-model", "ASR", "ASR 运行时目录", "lib/ 放动态库, model/ 放模型.", PropertyMetaParser.InputType.TEXT, "", 0, false));
+    }
+
+    //* 最小端口伪造: 就绪态/下载结果/进度帧全部脚本化, 进度在调用线程同步回调 (无并发干扰).
+    private static final class FakeAsrControl implements IAsrRuntimeControl
+    {
+        private boolean ready;
+        private IOException downloadFailure;
+        private boolean alreadyDownloading;
+        private int downloadCalls;
+        private final List<int[]> progressFrames = new ArrayList<>();
+
+        @Override public boolean ready() { return ready; }
+
+        @Override public Uni<Void> ensureDownloaded(BiConsumer<Integer, Integer> progress)
+        {
+            downloadCalls++;
+            if(alreadyDownloading)
+                return Uni.createFrom().failure(new IllegalStateException("已有 ASR 运行时下载任务进行中, 请等待其完成"));
+            if(downloadFailure != null)
+                return Uni.createFrom().failure(downloadFailure);
+            for(final int[] frame : progressFrames)
+                progress.accept(frame[0], frame[1]);
+            ready = true;  //* 成功语义: 下载完成后运行时就绪
+            return Uni.createFrom().voidItem();
+        }
+    }
+
+    private static int countOccurrences(String haystack, String needle)
+    {
+        int count = 0;
+        for(int idx = haystack.indexOf(needle); idx >= 0; idx = haystack.indexOf(needle, idx + needle.length()))
+            count++;
+        return count;
+    }
+
+    //* 拒绝路径: 未就绪询问 [Y/n], 选 n 只给灰色提示并继续主流程, 不得触发下载.
+    @Test void asrNotReadyDeclinedDownloadContinues()
+    {
+        final var control = new FakeAsrControl();
+        final var sink = new StringBuilder();
+        //* 脚本: 全面模式 → 引擎项留空保存 → [Y/n] 选 n → 目录项留空保存 → 再选 n → 摘要确认 → 退出.
+        final var io = TerminalIO.fake(List.of("2", "", "n", "", "n", "y", "2"), sink);
+        final var result = new SetupWizard(dir, control).run(asrFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.EXIT, result.action(), "拒绝下载必须继续主流程而非中断");
+        assertEquals(0, control.downloadCalls, "拒绝路径不得触发下载");
+        final var out = sink.toString();
+        assertTrue(out.contains("是否立即下载"), "运行时未就绪必须现场询问");
+        assertEquals(2, countOccurrences(out, "是否立即下载"), "两个 ASR 条目保存后各触发一次就绪检查");
+        assertTrue(out.contains("可稍后手动放置或重试"), "拒绝后必须给出灰色提示");
+    }
+
+    //* 成功路径: 下载进度行内回显百分比, 完成给就绪提示; 就绪后第二项保存不再重复询问.
+    @Test void asrDownloadSuccessShowsProgressAndReadyHint()
+    {
+        final var control = new FakeAsrControl();
+        control.progressFrames.addAll(List.of(new int[] {0, 100}, new int[] {40, 100}, new int[] {100, 100}));
+        final var sink = new StringBuilder();
+        //* 脚本: 全面模式 → 引擎项留空保存 → [Y/n] 回车默认 Y → 目录项留空保存 (已就绪, 无询问) → 摘要确认 → 启动.
+        final var io = TerminalIO.fake(List.of("2", "", "", "", "y", "1"), sink);
+        final var result = new SetupWizard(dir, control).run(asrFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.LAUNCH, result.action());
+        assertEquals(1, control.downloadCalls);
+        final var out = sink.toString();
+        assertTrue(out.contains("下载中"), "下载进度必须行内回显");
+        assertTrue(out.contains("%"), "进度回显必须含百分比字符");
+        assertTrue(out.contains("就绪"), "下载成功必须给出就绪提示");
+        assertEquals(1, countOccurrences(out, "是否立即下载"), "下载成功后第二项保存不得重复询问");
+    }
+
+    //* 并发保护: ensureDownloaded 第二路拒绝性失败只显示 "已有下载在进行", 主流程继续.
+    @Test void asrConcurrentDownloadShowsInProgressHint()
+    {
+        final var control = new FakeAsrControl();
+        control.alreadyDownloading = true;
+        final var sink = new StringBuilder();
+        //* 脚本: 全面模式 → 引擎项留空保存 → [Y/n] 选 y (并发拒绝) → 目录项留空保存 → 选 n → 摘要确认 → 退出.
+        final var io = TerminalIO.fake(List.of("2", "", "y", "", "n", "y", "2"), sink);
+        final var result = new SetupWizard(dir, control).run(asrFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.EXIT, result.action(), "并发拒绝不得中断向导");
+        final var out = sink.toString();
+        assertTrue(out.contains("已有下载在进行"), "并发第二路必须显示进行中提示");
+        assertFalse(out.contains("✔ ASR 运行时就绪"), "并发拒绝不得误报就绪");
+    }
+
+    //* 下载失败: 给出灰色重试提示后主流程继续, 不抛异常不中断.
+    @Test void asrDownloadFailureShowsRetryHintAndContinues()
+    {
+        final var control = new FakeAsrControl();
+        control.downloadFailure = new IOException("网络中断");
+        final var sink = new StringBuilder();
+        //* 脚本: 全面模式 → 引擎项留空保存 → [Y/n] 选 y (失败) → 目录项留空保存 → 选 n → 摘要确认 → 退出.
+        final var io = TerminalIO.fake(List.of("2", "", "y", "", "n", "y", "2"), sink);
+        final var result = new SetupWizard(dir, control).run(asrFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.EXIT, result.action(), "下载失败必须继续主流程");
+        final var out = sink.toString();
+        assertTrue(out.contains("网络中断"), "失败原因必须可见");
+        assertTrue(out.contains("可稍后手动放置或重试"), "失败必须给出灰色重试提示");
+    }
+
+    //* 提示符处 EOF 沿用向导取消路径: CANCELLED 且不落盘.
+    @Test void asrPromptEofCancelsWizard()
+    {
+        final var control = new FakeAsrControl();
+        final var sink = new StringBuilder();
+        //* 脚本: 全面模式 → 引擎项留空保存 → [Y/n] 处 EOF (队列耗尽).
+        final var io = TerminalIO.fake(List.of("2", ""), sink);
+        final var result = new SetupWizard(dir, control).run(asrFixture(), ConfigView.loadIn(dir), io);
+
+        assertEquals(SetupWizard.NextAction.CANCELLED, result.action());
+        assertEquals(0, control.downloadCalls, "EOF 不得触发下载");
+        assertTrue(sink.toString().contains("已取消"), "取消提示必须可见");
+        assertFalse(Files.exists(dir.resolve("config")), "取消不得落盘");
+    }
+
+    //endregion
 }

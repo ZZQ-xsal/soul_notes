@@ -2,20 +2,19 @@ package kurvcygnus.soulnotes.domain.voice.resource;
 
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.infrastructure.Infrastructure;
-import jakarta.annotation.security.PermitAll;
+import io.smallrye.mutiny.unchecked.Unchecked;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
-import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import kurvcygnus.soulnotes.domain.voice.dto.AsrCallbackRequest;
+import kurvcygnus.soulnotes.ai.asr.AsrResult;
+import kurvcygnus.soulnotes.ai.asr.IAsrEngine;
 import kurvcygnus.soulnotes.domain.voice.dto.VoiceUploadResponse;
-import kurvcygnus.soulnotes.domain.voice.service.AsrTranscriptionService;
 import kurvcygnus.soulnotes.domain.voice.service.VoiceStorageService;
 import kurvcygnus.soulnotes.dto.ApiResponse;
 import kurvcygnus.soulnotes.exception.ErrorCode;
@@ -23,25 +22,28 @@ import kurvcygnus.soulnotes.exception.IBusinessException;
 import kurvcygnus.soulnotes.utils.PrintUtils;
 import kurvcygnus.soulnotes.utils.constants.ApiEndpointConstants;
 import kurvcygnus.soulnotes.utils.enums.UserRole;
+import kurvcygnus.soulnotes.utils.enums.VoiceStatus;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.resteasy.reactive.RestForm;
 import org.jboss.resteasy.reactive.multipart.FileUpload;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.Optional;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
  * <b>语音处理 REST 资源</b>
  * <ul>
- *     <li>{@code POST /api/v1/voice/upload} — 上传语音文件</li>
+ *     <li>{@code POST /api/v1/voice/upload} — 上传语音文件并同步本地转录 (响应直接携带 transcribedText)</li>
  *     <li>{@code GET  /api/v1/voice/files/{fileId}} — 获取已存储的语音文件</li>
- *     <li>{@code POST /api/v1/voice/asr-callback} — 接收 ASR 转录回调 (外部服务, 免认证)</li>
  * </ul>
+ * <p>//* 同步转录链路: 大小校验 → RIFF/WAVE 头校验 → 存储 → 引擎转录 → 响应. 转录失败不回 5xx,
+ * 而是 status=FAILED + message 透传原因 (离线安全网: 文字链路与应急热线兜底不因语音失败而崩溃).</p>
  * @since 1.0
  */
 @Path(ApiEndpointConstants.VOICE_BASE)
@@ -50,35 +52,41 @@ public final class VoiceResource
 {
     private static final Logger LOG = LoggerFactory.getLogger(VoiceResource.class);
 
-    @Inject VoiceStorageService voiceStorageService;
-    @Inject AsrTranscriptionService asrTranscriptionService;
-
-    //* 上传大小上限 (字节), 配置缺失时回退默认值, 保证默认行为可用.
-    @ConfigProperty(name = "voice.storage.max-size", defaultValue = "10485760")
-    //! 基元类型不可为空, @NotNull 无法作用于 long, 故不标注 (brief 原样代码会触发编译警告).
-    long maxSize;
-
-    //* ASR 回调密钥, 与文档保持一致; 未配置时 Optional 为空, 原型阶段放行.
-    //! 不能使用非 Optional String + 空串默认值: SmallRye 将空串视为 null, 非 Optional 注入点会抛 SRCFG00040 导致启动失败.
-    @ConfigProperty(name = "asr.callback.api-key")
-    @NotNull Optional<String> asrCallbackApiKey;
+    private final @NotNull VoiceStorageService voiceStorageService;
+    private final @NotNull IAsrEngine asrEngine;
+    private final long maxSize;
 
     /**
-     * <span style="color: 95cc6d">上传语音文件.</span>
-     * <p>接收 multipart 文件, 存储后触发 ASR 转录 (异步).</p>
-     * <p>文件 I/O 整体移交 worker 线程池, 避免阻塞事件循环.</p>
+     * <span style="color: 95cc6d">CDI 构造入口 (构造注入, 便于以 fake 引擎做单元测试).</span>
+     * @param voiceStorageService 语音存储服务
+     * @param asrEngine           本地 ASR 引擎 (SOULNOTES_ASR_ENGINE 选择, 可插拔)
+     * @param maxSize             上传大小上限 (字节)
+     */
+    @Inject
+    public VoiceResource(
+        @NotNull VoiceStorageService voiceStorageService,
+        @NotNull IAsrEngine asrEngine,
+        @ConfigProperty(name = "voice.storage.max-size", defaultValue = "10485760") long maxSize
+    )
+    {
+        this.voiceStorageService = Objects.requireNonNull(voiceStorageService, "Param \"voiceStorageService\" must not be null!");
+        this.asrEngine = Objects.requireNonNull(asrEngine, "Param \"asrEngine\" must not be null!");
+        this.maxSize = maxSize;
+    }
+
+    /**
+     * <span style="color: 95cc6d">上传语音文件并同步转录.</span>
+     * <p>文件 I/O 与转录调度整体移交 worker 线程池, 避免阻塞事件循环.</p>
      *
-     * @param file 上传的语音文件
-     * @return 上传响应
+     * @param file 上传的语音文件 (16kHz 单声道 PCM16 WAV, 由前端 Web Audio 产出)
+     * @return 上传响应 (含转录文本或失败原因)
      */
     @POST @Path("/upload")
     @Consumes(MediaType.MULTIPART_FORM_DATA)
-    //! item supplier 实际在 runSubscriptionOn(worker) 后的 worker 线程执行, 非事件循环.
-    @SuppressWarnings("BlockingMethodInNonBlockingContext")
     public @NotNull Uni<ApiResponse<VoiceUploadResponse>> upload(@RestForm("file") @NotNull FileUpload file)
     {
         final var fileName = file.fileName();
-        final var path     = file.uploadedFile();
+        final var tempPath = file.uploadedFile();
 
         //! 事件循环上仅做数值比较, 不涉及 I/O, 不会阻塞; 超限提前拒绝, 避免无谓的落盘与转录消耗.
         if(file.size() > maxSize)
@@ -91,23 +99,22 @@ public final class VoiceResource
                 ).asException()
             );
 
-        //! uploadedFile() returns a Path to the temp file; 延迟到 worker 池再打开, 避免事件循环做文件 I/O.
-        return Uni.createFrom().item(() ->
-                {
-                    try { return voiceStorageService.store(fileName, java.nio.file.Files.newInputStream(path)); }
-                    catch(IOException e) { throw new RuntimeException("无法读取上传文件", e); }
-                }
-            ).
-            flatMap(u -> u).
-            runSubscriptionOn(Infrastructure.getDefaultWorkerPool()).
-            onItem().invoke(resp ->
-                asrTranscriptionService.dispatchTranscription(resp.fileId(), resp.audioUrl()).
-                    subscribe().with(
-                        v -> {},
-                        f -> LOG.warn("ASR 转录分发失败: {}", f.getMessage())
-                    )
-            ).
-            map(ApiResponse::success);
+        return Uni.createFrom().item(
+                Unchecked.supplier(() ->
+                    {
+                        //! 存储前先做 RIFF/WAVE 头校验: 非 WAV 在落盘前即拒绝, 避免垃圾文件占用存储.
+                        try
+                        {
+                            assertWavHeader(tempPath);
+                            return Files.newInputStream(tempPath);
+                        }
+                        catch(IOException e) { throw new RuntimeException("无法读取上传文件", e); }
+                    }
+                )).
+            flatMap(input -> voiceStorageService.store(fileName, input)).
+            flatMap(stored -> asrEngine.transcribe(stored.path()).map(result -> toResponse(stored, result))).
+            map(ApiResponse::success).
+            runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
     }
 
     /**
@@ -132,34 +139,39 @@ public final class VoiceResource
         );
     }
 
-    /**
-     * <span style="color: 95cc6d">接收 ASR 服务回调.</span>
-     * <p>外部 ASR 服务在完成转录后调用此接口推送结果.</p>
-     * <p>当前仅记录日志, 后续可扩展为自动创建 Diary.</p>
-     *
-     * @param apiKey ASR 回调密钥 (X-API-Key 请求头, 可省略)
-     * @param req    ASR 回调请求体
-     * @return 空响应
-     */
-    //? ASR 回调由外部服务发起, 生产环境应使用 API Key 或 IP 白名单鉴权, 故此处使用 @PermitAll 免认证.
-    @POST @Path("/asr-callback") @PermitAll
-    public @NotNull Uni<ApiResponse<Void>> handleAsrCallback(
-        //! X-API-Key 为自定义请求头, 不在 IDE 内置标头表中, 该弱警告仅能通过 IDE 本地自定义标头设置消除, 无法用 @SuppressWarnings 抑制, 属预期的协议设计.
-        @HeaderParam("X-API-Key") @Nullable String apiKey,
-        @NotNull AsrCallbackRequest req
-    )
+    //region 辅助方法
+
+    //* 最小 RIFF/WAVE 头校验 (前 12 字节), 与引擎侧解析器同源; 仅支持 16kHz 单声道 PCM16 (前端 Web Audio 产出约束).
+    //! java.nio.file.Path 以全限定名书写: 与 jakarta.ws.rs.Path (JAX-RS 注解) 简名冲突, 后者在本文件注解中出现频次更高.
+    private static void assertWavHeader(@NotNull java.nio.file.Path file) throws IOException
     {
-        //! 配置了回调密钥时必须校验, 防止未授权调用刷接口; 未配置 (Optional 为空) 仅限原型阶段放行 (与文档一致).
-        if(asrCallbackApiKey.filter(k -> !k.isBlank()).isPresent() && !asrCallbackApiKey.orElse("").equals(apiKey))
-            return Uni.createFrom().failure(
-                IBusinessException.of(
-                    ErrorCode.AUTH_UNAUTHORIZED,
-                    "ASR 回调密钥无效",
-                    SecurityException::new,
-                    "VOICE_ASR_CALLBACK_UNAUTHORIZED"
-                ).asException()
-            );
-        return asrTranscriptionService.handleResult(req.fileId(), req.transcribedText(), req.status()).
-            map(v -> ApiResponse.success());
+        try(var in = Files.newInputStream(file))
+        {
+            final var header = in.readNBytes(12);
+            final var isWav = header.length == 12
+                && "RIFF".equals(new String(header, 0, 4, StandardCharsets.US_ASCII))
+                && "WAVE".equals(new String(header, 8, 4, StandardCharsets.US_ASCII));
+            if(!isWav)
+                throw IBusinessException.of(
+                    ErrorCode.BAD_REQUEST,
+                    "语音格式不支持: 仅接受 16kHz 单声道 PCM16 编码的 WAV 文件 (前端需经 Web Audio 编码后上传)",
+                    IllegalArgumentException::new,
+                    "VOICE_FORMAT_UNSUPPORTED"
+                ).asException();
+        }
     }
+
+    //* 转录结果映射: error 非空 → FAILED + message (HTTP 200, 离线安全网); 否则 TRANSCRIBED + 文本 (静音空串属合法成功).
+    private static @NotNull VoiceUploadResponse toResponse(@NotNull VoiceStorageService.StoredVoice stored, @NotNull AsrResult result)
+    {
+        final var audioUrl = "/api/v1/voice/files/" + stored.fileId();
+        if(result.error() != null)
+        {
+            LOG.warn("语音转录失败: fileId={}, reason={}", stored.fileId(), result.error());
+            return new VoiceUploadResponse(audioUrl, stored.fileId(), VoiceStatus.FAILED, null, result.error());
+        }
+        return new VoiceUploadResponse(audioUrl, stored.fileId(), VoiceStatus.TRANSCRIBED, Objects.requireNonNullElse(result.text(), ""), null);
+    }
+
+    //endregion
 }

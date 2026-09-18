@@ -3,6 +3,7 @@ package kurvcygnus.soulnotes.config.prelaunch;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -72,5 +73,34 @@ class PropertyMetaParserTest
         assertTrue(items.size() >= 20, "真实文件至少 20 个向导条目, 实际: " + items.size());
         assertTrue(items.stream().anyMatch(i -> "SOULNOTES_DB_URL".equals(i.envName())));
         assertTrue(items.stream().allMatch(i -> i.envName() != null));
+    }
+
+    //* ASR 组 (Spec §4.5): 三项必须为带标签向导条目且位于 AI 高级组之后 (向导展示顺序即文件顺序).
+    @Test void parseResourceAsrGroupTaggedAndPlacedAfterAiAdvanced()
+    {
+        final var items = PropertyMetaParser.parseResource();
+        final var engine = indexOfEnv(items, "SOULNOTES_ASR_ENGINE");
+        final var runtimeDir = indexOfEnv(items, "SOULNOTES_ASR_RUNTIME_DIR");
+        final var libUrl = indexOfEnv(items, "SOULNOTES_ASR_LIB_URL");
+        assertTrue(engine >= 0 && runtimeDir >= 0 && libUrl >= 0, "asr.engine/asr.runtime.dir/asr.lib.url 必须全部带标签进入向导");
+
+        assertEquals(items.get(engine).group(), items.get(runtimeDir).group());
+        assertEquals(items.get(runtimeDir).group(), items.get(libUrl).group());
+        assertEquals("ASR", items.get(engine).group(), "三个 ASR 项必须同属 ASR 组");
+        assertEquals("vosk", items.get(engine).defaultValue(), "asr.engine 默认引擎为 vosk");
+        assertEquals("asr-model", items.get(runtimeDir).defaultValue(), "asr.runtime.dir 默认目录");
+        assertEquals("", items.get(libUrl).defaultValue(), "asr.lib.url 默认值必须为空 (留空使用内置阿里云镜像)");
+        assertTrue(items.get(libUrl).explain().contains("阿里云"), "lib.url 说明必须写明默认来源");
+
+        final var aiAdvanced = IntStream.range(0, items.size()).
+            filter(i -> "AI 高级".equals(items.get(i).group())).
+            max().orElse(-1);
+        assertTrue(aiAdvanced >= 0, "AI 高级组必须存在");
+        assertTrue(engine > aiAdvanced, "ASR 组必须排在 AI 高级组之后 (向导展示顺序)");
+    }
+
+    private static int indexOfEnv(List<PropertyMetaParser.ConfigItemMeta> items, String env)
+    {
+        return IntStream.range(0, items.size()).filter(i -> env.equals(items.get(i).envName())).findFirst().orElse(-1);
     }
 }

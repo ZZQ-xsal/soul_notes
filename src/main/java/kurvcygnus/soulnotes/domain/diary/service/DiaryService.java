@@ -7,7 +7,6 @@ import kurvcygnus.soulnotes.domain.diary.dto.DiaryCreateRequest;
 import kurvcygnus.soulnotes.domain.diary.dto.DiaryListQuery;
 import kurvcygnus.soulnotes.domain.diary.dto.DiaryResponse;
 import kurvcygnus.soulnotes.domain.diary.entity.MoodDiary;
-import kurvcygnus.soulnotes.domain.voice.dto.VoiceUploadResponse;
 import kurvcygnus.soulnotes.domain.voice.service.VoiceStorageService;
 import kurvcygnus.soulnotes.exception.ErrorCode;
 import kurvcygnus.soulnotes.exception.IBusinessException;
@@ -81,7 +80,7 @@ public final class  DiaryService
                 {
                     diary.audioUrl = audioUrl;
                     return diary.persistAndFlush().
-                        flatMap(v -> analyzeAndDetect(diary)).
+                        flatMap(_ -> analyzeAndDetect(diary)).
                         map(DiaryResponse::fromEntity);
                 }
             );
@@ -196,7 +195,7 @@ public final class  DiaryService
             return voiceStorageService.store(
                 "diary-" + UUID.randomUUID() + ".m4a",
                 new ByteArrayInputStream(bytes)
-            ).map(VoiceUploadResponse::audioUrl);
+            ).map(stored -> VoiceStorageService.audioUrlOf(stored.fileId()));
         }
         catch(IllegalArgumentException e)
         {

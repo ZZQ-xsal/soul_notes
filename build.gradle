@@ -45,8 +45,9 @@ group = 'kurvcygnus.soulnotes'
 version = '1.0.0'
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    //* JDK 25 迁移: 构建/运行/CI/Docker 基镜像已全链路同步至 25, 工具链直接由 JAVA_HOME 指定, 无需 toolchain API.
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
 }
 
 compileJava {
@@ -56,4 +57,10 @@ compileJava {
 
 compileTestJava {
     options.encoding = 'UTF-8'
+}
+
+test {
+    //* FFM 直连 libvosk: JDK 24+ 对受限 native 调用默认发告警, 显式放行以保零告警输出.
+    //* CI 无动态库时真机用例经 assumeTrue 自动跳过, 此标志无害.
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
 }

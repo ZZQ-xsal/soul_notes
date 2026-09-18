@@ -15,7 +15,7 @@ Soul Notes 是一个面向大学生的多模态 AI 心理轻干预系统后端, 
 
 | 领域             | 技术                                                                  |
 |------------------|-----------------------------------------------------------------------|
-| 运行时           | Java 21 (GraalVM), Quarkus 3.36                                       |
+| 运行时           | Java 25 (GraalVM), Quarkus 3.36                                       |
 | 持久化           | Hibernate Reactive + Panache, PostgreSQL (quarkus-reactive-pg-client) |
 | 缓存/限流/黑名单 | Redis (quarkus-redis-client)                                          |
 | 实时通信         | quarkus-websockets-next (WS) + SSE                                    |
@@ -28,7 +28,7 @@ Soul Notes 是一个面向大学生的多模态 AI 心理轻干预系统后端, 
 
 ### 前置要求
 
-- JDK 21
+- JDK 25
 - PostgreSQL 16
 - Redis 7
 - (可选) Docker / docker-compose: 用于一键启动基础服务或完整编排
@@ -81,7 +81,7 @@ chmod +x gradlew      # 非 Windows 用户; Windows 请使用 gradlew.bat
 docker build -f src/main/docker/Dockerfile.jvm -t soulnotes-backend .
 ```
 
-`Dockerfile.jvm` 基于 UBI 9 的 OpenJDK 21 运行时基座, 分层复制 `build/quarkus-app` 产物.
+`Dockerfile.jvm` 基于 UBI 9 的 OpenJDK 25 运行时基座, 分层复制 `build/quarkus-app` 产物.
 
 ### 5.3 docker-compose
 
@@ -158,7 +158,6 @@ docker build -f src/main/docker/Dockerfile.native -t soulnotes-backend-native .
 | `SOULNOTES_RATE_LIMIT_LOGIN`          | 登录限流上限 (次/分钟)                                 | `10`                                      |
 | `SOULNOTES_VOICE_DIR`                 | 语音文件存储目录, 容器部署建议挂载 PVC                 | `voice_uploads`                           |
 | `SOULNOTES_VOICE_MAX_BYTES`           | 语音单文件大小上限 (字节)                              | `10485760`                                |
-| `SOULNOTES_ASR_CALLBACK_KEY`          | ASR 回调密钥, 配置后强制校验 `X-API-Key` 请求头 (prod 必配; 为空仅警告) | 空                       |
 | `SOULNOTES_WEATHER_STORM`             | 风暴阈值 (焦虑或负向均值 >= 阈值)                      | `0.8`                                     |
 | `SOULNOTES_WEATHER_RAINY`             | 雨天阈值 (负向均值 >= 阈值)                            | `0.6`                                     |
 | `SOULNOTES_WEATHER_OVERCAST`          | 阴天阈值 (负向均值 >= 阈值)                            | `0.4`                                     |
@@ -202,12 +201,12 @@ java -jar build/quarkus-app/quarkus-run.jar --setup
 - AI 服务端点 scheme: 必须以 `https://` 或 `http://` 开头
 - prod 必配项缺席: `SOULNOTES_DB_USER` / `SOULNOTES_DB_PASSWORD` / `SOULNOTES_JWT_SECRET` (dev 由 `application-dev.properties` 放宽)
 - JWT 密钥长度 >= 32 字节: 显式弱值不分 profile 一律 BLOCK
+- AI 密钥未配置 (为空或为占位符 placeholder): 请经 Setup 向导或环境变量提供 (不分 profile, 无 dev 放宽)
 - 情绪天气阈值: 每项处于 [0,1] 且 `storm > rainy > overcast` 严格递减 (否则雨天/阴天分支不可达)
 
 **WARN 规则 (仅警告, 不阻断)**:
 
-- AI 密钥为占位符或空: LLM 功能将以降级回复运行
-- ASR 回调密钥为空: `/voice/asr-callback` 不校验 `X-API-Key`
+- ASR 运行时未就绪 (缺本地模型或动态库): 语音转写暂不可用, 可经 Setup 向导下载或手动放置
 - prod 使用默认 CORS 白名单: 请按部署环境收紧
 - dev 使用内置默认/弱 JWT 密钥: 勿用于生产环境
 

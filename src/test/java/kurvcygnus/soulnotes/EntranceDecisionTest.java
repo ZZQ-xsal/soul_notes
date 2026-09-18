@@ -1,8 +1,14 @@
 package kurvcygnus.soulnotes;
 
+import kurvcygnus.soulnotes.ai.asr.AsrRuntimeManager;
+import kurvcygnus.soulnotes.config.prelaunch.ConfigView;
 import kurvcygnus.soulnotes.config.prelaunch.IPreLaunchTask;
+import kurvcygnus.soulnotes.config.prelaunch.PropertyMetaParser;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -45,6 +51,31 @@ class EntranceDecisionTest
     }
 
     @Test void emptyIssuesYieldEmptyReport() { assertEquals("", Entrance.formatReport(List.of())); }
+
+    //endregion
+
+    //region asrControl: Pre-Launch ASR 控制装配 (配置值解析)
+
+    //* 工作目录/环境/系统属性中的显式 asr.lib.url 必须进入装配 (条目语义: 自定义 JAR 源, 如含 arm 构建的版本),
+    //* 这是 "用户配置自定义 URL 却仍静默下载内置默认" 的回归钉.
+    @Test void asrControlResolvesExplicitLibUrlFromWorkdirConfig(@TempDir Path dir) throws Exception
+    {
+        Files.createDirectories(dir.resolve("config"));
+        Files.writeString(dir.resolve("config/application.properties"), """
+            asr.runtime.dir = asr-model
+            asr.lib.url = https://example.invalid/vosk-arm.jar
+            """);
+        final var control = Entrance.asrControl(ConfigView.loadIn(dir), PropertyMetaParser.parseResource());
+
+        assertEquals("https://example.invalid/vosk-arm.jar", control.libJarUrl());
+    }
+
+    @Test void asrControlFallsBackToDefaultLibUrlWhenUnset(@TempDir Path dir)
+    {
+        final var control = Entrance.asrControl(ConfigView.loadIn(dir), PropertyMetaParser.parseResource());
+
+        assertEquals(AsrRuntimeManager.DEFAULT_LIB_JAR_URL, control.libJarUrl());
+    }
 
     //endregion
 }
