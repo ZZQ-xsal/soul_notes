@@ -37,7 +37,7 @@ public final class JsonUtils
     public static @NotNull String toJson(@NotNull Object obj)
     {
         try { return requireMapper().writeValueAsString(obj); }
-        catch(JsonProcessingException e) { throw new RuntimeException("JSON 序列化失败: " + obj.getClass().getName(), e); }
+        catch(JsonProcessingException e) { throw new RuntimeException(PrintUtils.quickFormat("JSON 序列化失败: {}", obj.getClass().getName()), e); }
     }
 
     /**
@@ -46,7 +46,7 @@ public final class JsonUtils
     public static <T> @NotNull T parseJson(@NotNull String json, @NotNull Class<T> type)
     {
         try { return requireMapper().readValue(json, type); }
-        catch(JsonProcessingException e) { throw new RuntimeException("JSON 反序列化失败: " + type.getName(), e); }
+        catch(JsonProcessingException e) { throw new RuntimeException(PrintUtils.quickFormat("JSON 反序列化失败: {}", type.getName()), e); }
     }
 
     /**
@@ -55,7 +55,7 @@ public final class JsonUtils
     public static <T> @NotNull T parseJson(@NotNull String json, @NotNull TypeReference<T> typeRef)
     {
         try { return requireMapper().readValue(json, typeRef); }
-        catch(JsonProcessingException e) { throw new RuntimeException("JSON 反序列化失败: " + typeRef.getType(), e); }
+        catch(JsonProcessingException e) { throw new RuntimeException(PrintUtils.quickFormat("JSON 反序列化失败: {}", typeRef.getType()), e); }
     }
 
     //endregion

@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * <b>{@link IAlertNotifier#primaryHotlineOf} 单元测试</b>
  * <p>热线主号码解析是 WS 与 Webhook 双渠道的单一来源, 兜底分支直指离线安全网常量
- * (Spec §7.2 同源要求), 逐分支钉死防漂移.</p>
+ *, 逐分支钉死防漂移.</p>
  * @since 2.0
  */
 class IAlertNotifierTest

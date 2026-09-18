@@ -47,7 +47,7 @@ class FieldValidatorTest
 
     @Test void blankFailsRequired_only()
     {
-        //* 空值语义由 required 规则与默认值回退承载 (Spec §6.1), 本类只查格式 — 故 blank 不在此报错, 由 ConfigValidationTask 上报"必填项未配置".
+        //* 空值语义由 required 规则与默认值回退承载, 本类只查格式 — 故 blank 不在此报错, 由 ConfigValidationTask 上报"必填项未配置".
         assertTrue(FieldValidator.validate(meta(PropertyMetaParser.InputType.TEXT, "", 0), "").isEmpty());
     }
 }

@@ -51,5 +51,8 @@ class ConfigViewTest
     }
 
     @Test void detectProfileDefaultsToProd()
-    { assertEquals("prod", ConfigView.detectProfile(Map.of(), Map.of())); assertEquals("dev", ConfigView.detectProfile(Map.of("quarkus.profile", "dev"), Map.of())); }
+    {
+        assertEquals("prod", ConfigView.detectProfile(Map.of(), Map.of()));
+        assertEquals("dev", ConfigView.detectProfile(Map.of("quarkus.profile", "dev"), Map.of()));
+    }
 }

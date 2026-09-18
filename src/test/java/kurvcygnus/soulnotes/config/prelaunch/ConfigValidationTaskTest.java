@@ -83,7 +83,7 @@ class ConfigValidationTaskTest
         assertTrue(issues.stream().anyMatch(i -> i.message().contains("[0,1]")));
     }
 
-    //* sunny 基于正向均值, 不参与 storm > rainy > overcast 次序比较, 但 Spec §6.1 规定四项阈值均 ∈ [0,1] — 越界同样 BLOCK.
+    //* sunny 基于正向均值, 不参与 storm > rainy > overcast 次序比较, 但四项阈值均 ∈ [0,1] — 越界同样 BLOCK.
     @Test void sunnyThresholdRangeChecked()
     {
         final var ctx = new PreLaunchContext(view(Map.of("SOULNOTES_WEATHER_SUNNY", "1.5")), List.of(STORM, RAINY, SUNNY), "prod");

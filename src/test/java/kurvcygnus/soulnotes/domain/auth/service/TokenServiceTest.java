@@ -101,7 +101,7 @@ class TokenServiceTest
     }
     //endregion
 
-    //region issuer 一致性: 签发键与验签键必须同源 (Spec §7.3)
+    //region issuer 一致性: 签发键与验签键必须同源
 
     //* 单元测试用的最小安全密钥: 满足构造器 32 字节 fail-fast 阈值即可.
     private static final String TEST_SECRET = "unit-test-secret-0123456789abcdef-0123456789abcdef";

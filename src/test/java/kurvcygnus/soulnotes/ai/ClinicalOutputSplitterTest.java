@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * <b>{@link ClinicalOutputSplitter} soulnotes 注释块拆流单元测试</b>
- * <p>Spec §7.5: 契约开启时 AI 回复末尾携带 {@code <!--soulnotes {...}-->} 结构化块, 拆流器宽容匹配
+ * <p>契约开启时 AI 回复末尾携带 {@code <!--soulnotes {...}-->} 结构化块, 拆流器宽容匹配
  * 格式变体并取最后一个块; JSON 解析失败或无块时整条回复原样透传 (优雅降级, 剥离是主机制,
  * 注释在 markdown 渲染下不可见仅是兜底, 两者缺一不可).</p>
  * @since 2.0

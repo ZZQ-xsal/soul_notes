@@ -10,11 +10,12 @@ import java.nio.file.Path;
  * <p>语音 -> 文本 管道的引擎侧契约. 引擎实现必须是可插拔的:
  * 上层服务只依赖本接口, 具体引擎 (当前为 {@link VoskAsrEngine} 对应的 vosk) 由配置选择.</p>
  *
- * <p>//* 语音先转文本再进 LLM 管道 (Voice -> Text -> LLM -> Sentiment), 本接口即 "Voice -> Text" 一环.
+ * <p>语音先转文本再进 LLM 管道 (Voice -> Text -> LLM -> Sentiment), 本接口即 "Voice -> Text" 一环.
  * 引擎失败不抛异常, 一律装进 {@link AsrResult#error()} 走降级分支 (Offline Safety Net 红线:
  * 本地兜底热线逻辑不得依赖 ASR 成功).</p>
  * @since 1.0
  */
+@SuppressWarnings("NullableProblems")//! Mock实现都位于测试模块下; 测试模块无法使用 JetBrains Annotations.
 public interface IAsrEngine
 {
     /**

@@ -1,5 +1,6 @@
 package kurvcygnus.soulnotes.config.prelaunch;
 
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -7,9 +8,9 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * <b>Pre-Launch 数据库真校验任务</b> (Spec §5, 非 TTY 段).
+ * <b>Pre-Launch 数据库真校验任务</b> (非 TTY 段).
  * <p>只探测 + 报告 (零写入): UNREACHABLE/AUTH_FAILED/DB_MISSING/SCHEMA_MISSING 均为 BLOCK —
- * 拒绝启动优于运行期 500. createDatabase/applySchema 仅由 TTY 向导路径 (Task 9) 调用.
+ * 拒绝启动优于运行期 500. createDatabase/applySchema 仅由 TTY 向导路径调用.
  * ConfigValidationTask 存在 DB 相关 BLOCK (URL/凭据缺失) 时探测无意义, 本任务静默跳过让配置层先报.</p>
  * @since 2.0
  */
@@ -55,7 +56,7 @@ public final class DbValidationTask implements IPreLaunchTask
         final DbTarget target;
         try { target = DbTarget.parse(url, user, password); }
         catch(IllegalStateException e)
-            { return block("数据库地址结构非法, 无法解析: " + e.getMessage()); }
+            { return block(PrintUtils.quickFormat("数据库地址结构非法, 无法解析: {}", e.getMessage())); }
 
         final var probe = gateway.probe(target);
         return switch(probe.state())
@@ -64,8 +65,9 @@ public final class DbValidationTask implements IPreLaunchTask
             case UNREACHABLE -> block("数据库不可达 (连接被拒绝或超时), 请确认 PostgreSQL 实例已运行且 host:port / 防火墙配置正确");
             case AUTH_FAILED -> block("数据库账号或密码被拒绝, 请检查 SOULNOTES_DB_USER / SOULNOTES_DB_PASSWORD");
             case DB_MISSING -> block("目标数据库不存在, 可经配置向导自动创建 (或手动执行 CREATE DATABASE)");
-            case SCHEMA_MISSING -> block("数据库 schema 未就绪 (期望表缺失), 可经配置向导执行初始化脚本: %s".
-                formatted(String.join(", ", probe.missingTables())));
+            case SCHEMA_MISSING -> block(PrintUtils.quickFormat(
+                "数据库 schema 未就绪 (期望表缺失), 可经配置向导执行初始化脚本: {}",
+                String.join(", ", probe.missingTables())));
         };
     }
 

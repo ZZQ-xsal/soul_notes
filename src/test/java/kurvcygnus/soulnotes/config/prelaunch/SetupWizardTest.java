@@ -127,6 +127,9 @@ class SetupWizardTest
         assertEquals(SetupWizard.NextAction.FAILED, result.action());
         assertTrue(result.values().isEmpty(), "FAILED 即未持久化, 必须返回空表 (对齐 \"非空 values ⟺ 已落盘\" 不变量)");
         assertTrue(sink.toString().contains("配置写入失败"), "写盘失败必须红字可见");
+        //* 防回归: SLF4J 尾参 Throwable 被抽取不参与 {} 填充, 误传 e 本身会只剩字面 "{}".
+        //* 此路径实际抛 FileAlreadyExistsException (其 toString 不含 "IOException"), 故断言消息片段 (文件路径) 必须透出.
+        assertTrue(sink.toString().contains(dir.resolve("config").toString()), "失败输出必须携带异常详情 (toString 含路径), 不得只剩字面 {}");
         assertFalse(Files.exists(dir.resolve(".env")), "失败早于任何文件写出, 不得产生半写产物");
     }
 
@@ -195,7 +198,7 @@ class SetupWizardTest
         assertTrue(sink.toString().contains("postgresql://prefilled:5432/x"), "预填值须以当前值提示可见");
     }
 
-    //region ASR 运行时交互 (Task 6)
+    //region ASR 运行时交互
 
     //* 与真实 asr.engine / asr.runtime.dir 标签项同构的最小夹具 (两个可选 TEXT 项, 触发键即 envName).
     private static List<PropertyMetaParser.ConfigItemMeta> asrFixture()
@@ -323,7 +326,7 @@ class SetupWizardTest
 
     //endregion
 
-    //region 数据库交互流 (Task 9)
+    //region 数据库交互流
 
     //* 与 application.properties 数据库组同构的最小夹具: URL/用户名/密码三项必填 + 一项他组可选 (验证组外条目不触发 DB 流).
     private static List<PropertyMetaParser.ConfigItemMeta> dbFixture()
@@ -370,7 +373,7 @@ class SetupWizardTest
         }
     }
 
-    //* probe → OK: 一行 ✔ 回显, 无任何写入动作, 向导照常推进 (Spec §5 TTY 列直通态).
+    //* probe → OK: 一行 ✔ 回显, 无任何写入动作, 向导照常推进.
     @Test void dbProbeOkEchoesReadyAndContinues()
     {
         final var gateway = new FakeGateway(new ProbeResult(ProbeResult.State.OK, List.of()));
@@ -386,7 +389,7 @@ class SetupWizardTest
         assertTrue(sink.toString().contains("数据库连接就绪"), "probe OK 必须一行 ✔ 回显");
     }
 
-    //* DB_MISSING: 自动建库 → 重探 OK → ✔, 全程零额外交互 (Spec §5 TTY 列).
+    //* DB_MISSING: 自动建库 → 重探 OK → ✔, 全程零额外交互.
     @Test void dbMissingAutoCreatesThenReprobesReady()
     {
         final var gateway = new FakeGateway(
@@ -520,7 +523,7 @@ class SetupWizardTest
 
     //endregion
 
-    //region AI 模型拉取步 (Task 10)
+    //region AI 模型拉取步
 
     //* 与 application.properties AI 接入组同构的最小夹具: endpoint/model/key 三项必填 + 一项他组可选 (验证组外条目不触发拉取);
     //* properties 中 model 项位于 key 之前, 触发点在 key 保存时 — 选择结果直接覆写 values 中已填的 model 值.
@@ -586,9 +589,9 @@ class SetupWizardTest
         assertEquals(1, catalog.calls);
         assertEquals("https://gate.example.com", catalog.lastEndpoint, "必须以用户原始输入触发拉取 (启发式在 fetch 内部)");
         assertEquals("sk-1", catalog.lastApiKey);
-        assertEquals(Duration.ofSeconds(10), catalog.lastTimeout, "拉取超时须为 Spec §6 钉死的 10s");
+        assertEquals(Duration.ofSeconds(10), catalog.lastTimeout, "拉取超时须为 钉死的 10s");
         assertEquals("m-a", result.values().get("SOULNOTES_AI_MODEL"), "选中项必须覆写先前手动填入的 model");
-        assertEquals("https://gate.example.com/v1", result.values().get("SOULNOTES_AI_ENDPOINT"), "拉取成功后 endpoint 必须存规范形 (Spec §6 fetch 与存储分离)");
+        assertEquals("https://gate.example.com/v1", result.values().get("SOULNOTES_AI_ENDPOINT"), "拉取成功后 endpoint 必须存规范形 (fetch 与存储分离)");
         final var out = sink.toString();
         assertTrue(out.contains("探测模型列表: https://gate.example.com/v1/models"), "必须回显最终请求 URL");
         assertTrue(out.contains("1. m-a [上下文: 128000] [思考: ✓]"), "列表行格式必须为 序号. 模型ID [上下文: n] [思考: ✓]");

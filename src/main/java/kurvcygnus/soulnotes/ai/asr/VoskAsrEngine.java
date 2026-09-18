@@ -8,6 +8,7 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import kurvcygnus.soulnotes.utils.JsonUtils;
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -30,15 +31,15 @@ import java.util.Objects;
  * <p>语音 -> 文本 管道的本地实现: 经 {@link AsrRuntimeManager} 取 libvosk 动态库与模型目录,
  * 每请求新建/销毁 Recognizer 完成整段 WAV 转录.</p>
  *
- * <p>//* 生命周期契约: 模型进程内单例 (加载昂贵, 双重检查锁), Recognizer 非线程安全故每请求新建;
+ * <p>生命周期契约: 模型进程内单例 (加载昂贵, 双重检查锁), Recognizer 非线程安全故每请求新建;
  * 阻塞 FFM 调用全部经 worker 池执行; 任何失败不抛异常, 一律装进 {@link AsrResult#error()} 走降级分支
  * (Offline Safety Net: 本地兜底热线逻辑不得依赖 ASR 成功).</p>
  *
- * <p>//* 运行时布局与就绪判定以 {@link AsrRuntimeManager} 为单一权威 (lib/ 三态平台探测 + model/
+ * <p>运行时布局与就绪判定以 {@link AsrRuntimeManager} 为单一权威 (lib/ 三态平台探测 + model/
  * 含 am/ 或 conf/ 标志目录即完整), 引擎只消费其 ready/modelDir/nativeLib 视图, 不自带第二份布局逻辑;
  * 运行时缺失时由向导 (AsrRuntimeManager#ensureDownloaded) 补齐, 引擎侧仅给出未就绪文案.</p>
  *
- * <p>//* {@code @Startup} 急切实例化: ArC 客户端代理默认惰性创建 Bean, 若无此注解,
+ * <p>{@code @Startup} 急切实例化: ArC 客户端代理默认惰性创建 Bean, 若无此注解,
  * 引擎名配置错误会被推迟到首次 transcribe 才以 CreationException 暴露, 不满足
  * "SOULNOTES_ASR_ENGINE 配错 -> 启动期失败" 的快败契约.</p>
  * @since 1.0
@@ -49,10 +50,10 @@ public final class VoskAsrEngine implements IAsrEngine
 {
     private static final Logger LOG = LoggerFactory.getLogger(VoskAsrEngine.class);
 
-    //* 与前端语音管道约定的采样率 (16kHz 单声道 PCM16), 亦是 Spike 全链路验证所用参数.
+    //* 与前端语音管道约定的采样率 (16kHz 单声道 PCM16).
     private static final float SAMPLE_RATE = 16000.0f;
 
-    //* 每次喂 8000 字节 = 0.25s (PCM16), 与 websocket 推流节奏同构 (Spike notes §6).
+    //* 每次喂 8000 字节 = 0.25s (PCM16), 与 websocket 推流节奏同构.
     private static final int CHUNK_BYTES = 8000;
 
     private static final String ENGINE_NAME = "vosk";
@@ -60,7 +61,7 @@ public final class VoskAsrEngine implements IAsrEngine
 
     //region 状态
 
-    //* 运行时布局权威: 就绪态与模型/动态库路径的唯一来源 (Task 5 起引擎不再自带解析).
+    //* 运行时布局权威: 就绪态与模型/动态库路径的唯一来源, 引擎不再自带解析.
     private final @NotNull AsrRuntimeManager runtime;
     private final @Nullable VoskFFM injectedFfm; //* 测试注入的 fake; 生产为 null, 走懒加载
     private final @NotNull Object modelLock = new Object();
@@ -79,18 +80,20 @@ public final class VoskAsrEngine implements IAsrEngine
     @Inject
     public VoskAsrEngine(
         @ConfigProperty(name = "asr.engine", defaultValue = "vosk") @NotNull String engineName,
-        @NotNull AsrRuntimeManager runtime)
-    { this(engineName, runtime, null); }
+        @NotNull AsrRuntimeManager runtime
+    ) { this(engineName, runtime, null); }
 
     /**
      * <span style="color: 95cc6d">测试构造入口 (与既有引擎测试签名兼容).</span>
-     * <p>//* 以给定运行时目录内嵌一个 manager 实例, 保持测试无需感知 manager 装配.</p>
+     * <p>以给定运行时目录内嵌一个 manager 实例, 保持测试无需感知 manager 装配.</p>
      */
     VoskAsrEngine(@NotNull Path runtimeDir, @NotNull String engineName, @Nullable VoskFFM ffm)
     {
-        this(engineName,
+        this(
+            engineName,
             new AsrRuntimeManager(runtimeDir, AsrRuntimeManager.DEFAULT_MODEL_URL, AsrRuntimeManager.DEFAULT_LIB_JAR_URL),
-            ffm);
+            ffm
+        );
     }
 
     private VoskAsrEngine(@NotNull String engineName, @NotNull AsrRuntimeManager runtime, @Nullable VoskFFM ffm)
@@ -98,7 +101,7 @@ public final class VoskAsrEngine implements IAsrEngine
         Objects.requireNonNull(engineName, "Param \"engineName\" must not be null!");
         Objects.requireNonNull(runtime, "Param \"runtime\" must not be null!");
         if(!ENGINE_NAME.equals(engineName))
-            throw new IllegalStateException("不支持的 ASR 引擎: \"" + engineName + "\" (当前仅支持 vosk)");
+            throw new IllegalStateException(PrintUtils.quickFormat("不支持的 ASR 引擎: \"{}\" (当前仅支持 vosk)", engineName));
         this.runtime = runtime;
         this.injectedFfm = ffm;
     }
@@ -114,15 +117,16 @@ public final class VoskAsrEngine implements IAsrEngine
         Objects.requireNonNull(wavFile, "Param \"wavFile\" must not be null!");
         //* 就绪探测 (Files.list) 与文件存在性检查同属阻塞 IO, 一并放进 worker 池;
         //* 订阅者线程只做参数校验, 不做任何文件系统访问.
-        return Uni.createFrom().item(() ->
-            {
-                if(!Files.isRegularFile(wavFile))
-                    return AsrResult.ofError("音频文件不存在: " + wavFile);
-                if(!runtime.ready())
-                    return AsrResult.ofError(NOT_READY_MESSAGE + " (runtimeDir=" + runtime.runtimeDir() + ")");
-                return doTranscribe(wavFile);
-            })
-            .runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
+        return Uni.createFrom().item(
+            () ->
+                {
+                    if(!Files.isRegularFile(wavFile))
+                        return AsrResult.ofError(PrintUtils.quickFormat("音频文件不存在: {}", wavFile));
+                    if(!runtime.ready())
+                        return AsrResult.ofError(PrintUtils.quickFormat("{} (runtimeDir={})", NOT_READY_MESSAGE, runtime.runtimeDir()));
+                    return doTranscribe(wavFile);
+                }
+            ).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
     }
 
     //endregion
@@ -162,7 +166,7 @@ public final class VoskAsrEngine implements IAsrEngine
             {
                 final var recognizer = ffm.recognizerNew(model, SAMPLE_RATE);
                 if(recognizer.address() == 0)
-                    return AsrResult.ofError("Vosk recognizer 创建失败 (NULL, sample_rate=" + SAMPLE_RATE + ")");
+                    return AsrResult.ofError(PrintUtils.quickFormat("Vosk recognizer 创建失败 (NULL, sample_rate={})", SAMPLE_RATE));
 
                 try
                 {
@@ -171,7 +175,7 @@ public final class VoskAsrEngine implements IAsrEngine
                     {
                         final var chunkLength = Math.min(CHUNK_BYTES, pcm.length - offset);
                         if(!ffm.acceptWaveform(recognizer, pcmSegment.asSlice(offset, chunkLength), chunkLength))
-                            return AsrResult.ofError("Vosk 处理音频块失败 (offset=" + offset + ", vosk_api.h 返回 -1)");
+                            return AsrResult.ofError(PrintUtils.quickFormat("Vosk 处理音频块失败 (offset={}, vosk_api.h 返回 -1)", offset));
                     }
                     return AsrResult.ofText(extractText(ffm.finalResult(recognizer)));
                 }
@@ -185,7 +189,7 @@ public final class VoskAsrEngine implements IAsrEngine
         catch(Throwable throwable)
         {
             LOG.warn("ASR 识别失败: file={}, reason={}", wavFile, throwable.getMessage());
-            return AsrResult.ofError("ASR 识别失败: " + throwable.getMessage());
+            return AsrResult.ofError(PrintUtils.quickFormat("ASR 识别失败: {}", throwable.getMessage()));
         }
     }
 
@@ -194,7 +198,7 @@ public final class VoskAsrEngine implements IAsrEngine
     {
         if(resultJson == null || resultJson.isBlank())
             throw new IllegalStateException("Vosk final_result 为空");
-        final var payload = JsonUtils.parseJson(resultJson, new TypeReference<Map<String, String>>() { });
+        final var payload = JsonUtils.parseJson(resultJson, new TypeReference<Map<String, String>>() {});
         //* text 缺失/null 按空文本处理: 静音是合法成功形态, 与失败走不同分支.
         return Objects.requireNonNullElse(payload.get("text"), "");
     }
@@ -239,7 +243,7 @@ public final class VoskAsrEngine implements IAsrEngine
                 final var modelDir = runtime.modelDir();
                 final var opened = ffm.modelOpen(modelDir.toString());
                 if(opened.address() == 0)
-                    throw new IllegalStateException("Vosk 模型打开失败 (NULL): " + modelDir);
+                    throw new IllegalStateException(PrintUtils.quickFormat("Vosk 模型打开失败 (NULL): {}", modelDir));
                 model = opened;
                 LOG.info("Vosk 模型已加载 (进程内单例): {}", modelDir);
             }
@@ -265,39 +269,40 @@ public final class VoskAsrEngine implements IAsrEngine
 
     //region WAV 解析
 
-    //* 最小 RIFF 遍历: 定位 data chunk 取原始 PCM16 载荷, 不依赖 javax.sound 的格式转换行为 (与 Spike 同源).
+    //* 最小 RIFF 遍历: 定位 data chunk 取原始 PCM16 载荷, 不依赖 javax.sound 的格式转换行为.
     //* 包内可见: VoskFFMTest 真机用例复用同一解析器, 避免测试副本持有第二份可死循环的解析逻辑.
     static byte[] readWavPcm(@NotNull Path wavFile) throws IOException
     {
         final var all = Files.readAllBytes(wavFile);
-        if(all.length < 12
-            || !"RIFF".equals(new String(all, 0, 4, StandardCharsets.US_ASCII))
-            || !"WAVE".equals(new String(all, 8, 4, StandardCharsets.US_ASCII)))
-            throw new IOException("非 RIFF/WAVE 文件: " + wavFile);
+        if(
+            all.length < 12 ||
+            !"RIFF".equals(new String(all, 0, 4, StandardCharsets.US_ASCII)) ||
+            !"WAVE".equals(new String(all, 8, 4, StandardCharsets.US_ASCII))
+        ) throw new IOException(PrintUtils.quickFormat("非 RIFF/WAVE 文件: {}", wavFile));
 
         int offset = 12;
         while(offset + 8 <= all.length)
         {
             final var chunkId = new String(all, offset, 4, StandardCharsets.US_ASCII);
-            final var chunkSize = (all[offset + 4] & 0xFF)
-                | (all[offset + 5] & 0xFF) << 8
-                | (all[offset + 6] & 0xFF) << 16
-                | (all[offset + 7] & 0xFF) << 24;
+            final var chunkSize = (all[offset + 4] & 0xFF) |
+                                  (all[offset + 5] & 0xFF) << 8 |
+                                  (all[offset + 6] & 0xFF) << 16 |
+                                  (all[offset + 7] & 0xFF) << 24;
             //! 对抗性输入防护: 原始 int 可为负, 负长度叠加 2 字节对齐补 1 可令 offset 增量为 0,
             //! while 永不前进 -> worker 线程死循环空转, Uni 永不完成 (transcribe 无超时), 故立即拒绝.
             if(chunkSize < 0)
-                throw new IOException("WAV chunk 长度非法 (" + chunkSize + "): " + wavFile);
+                throw new IOException(PrintUtils.quickFormat("WAV chunk 长度非法 ({}): {}", chunkSize, wavFile));
             if("data".equals(chunkId))
             {
                 final var payloadStart = offset + 8;
                 final var payloadEnd = Math.min(payloadStart + chunkSize, all.length); //* chunkSize 已保证非负
                 if(payloadEnd <= payloadStart)
-                    throw new IOException("WAV data chunk 为空: " + wavFile);
+                    throw new IOException(PrintUtils.quickFormat("WAV data chunk 为空: {}", wavFile));
                 return Arrays.copyOfRange(all, payloadStart, payloadEnd);
             }
             offset += 8 + chunkSize + (chunkSize & 1); //* RIFF chunk 按 2 字节对齐, 奇数长度补 1.
         }
-        throw new IOException("WAV 中未找到 data chunk: " + wavFile);
+        throw new IOException(PrintUtils.quickFormat("WAV 中未找到 data chunk: {}", wavFile));
     }
 
     //endregion

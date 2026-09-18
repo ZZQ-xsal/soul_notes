@@ -1,6 +1,7 @@
 package kurvcygnus.soulnotes.config.prelaunch;
 
 import kurvcygnus.soulnotes.ai.asr.AsrRuntimeManager;
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -11,14 +12,14 @@ import java.util.Objects;
 import java.util.function.BooleanSupplier;
 
 /**
- * <b>配置校验任务</b> (Spec §6.1 规则矩阵).
+ * <b>配置校验任务</b> (规则矩阵).
  * <p>单字段规则由 {@link FieldValidator} 承载; 必配规则 prod 严格 / dev 放宽 (dev 有内置默认);
  * AI 密钥为空或占位哨兵 placeholder 不分 profile 一律 BLOCK (用户裁决: AI 为应用必配项, 无 dev 放宽);
  * 弱 JWT 按规则矩阵分派: 显式弱值不分 profile 一律 BLOCK (格式级), 仅 dev 的内置默认弱密钥降为 WARN 提醒;
  * 天气阈值域与次序为跨字段规则, 依据 EmotionWeatherService#mapWeather 分支可达性: storm &gt; rainy &gt; overcast 严格递减,
  * sunny 仅校验 [0,1] 域不参与次序.</p>
  *
- * <p>//* Pre-Launch 阶段运行于 CDI 容器启动之前 (Entrance#main 纯构造装配), 无法经容器注入
+ * <p>Pre-Launch 阶段运行于 CDI 容器启动之前 (Entrance#main 纯构造装配), 无法经容器注入
  * {@link AsrRuntimeManager}, ASR 就绪判定经 {@code BooleanSupplier} 端口传入 (生产传其 ready() 方法引用).</p>
  * @since 2.0
  */
@@ -66,7 +67,7 @@ public final class ConfigValidationTask implements IPreLaunchTask
     //region 跨字段与警告规则
 
     //* 跨字段: 阈值 ∈ [0,1] 且 storm > rainy > overcast (严格递减, 否则 RAINY/OVERCAST 分支不可达);
-    //* sunny 基于正向均值, 仅受 [0,1] 区间约束 (Spec §6.1 四项同规), 不进入次序比较.
+    //* sunny 基于正向均值, 与其余三项阈值同受 [0,1] 区间约束, 不进入次序比较.
     private static void validateWeather(@NotNull PreLaunchContext ctx, @NotNull Map<String, PropertyMetaParser.ConfigItemMeta> byEnv, @NotNull List<Issue> issues)
     {
         final var storm = threshold(ctx, byEnv, "SOULNOTES_WEATHER_STORM", issues);
@@ -75,7 +76,7 @@ public final class ConfigValidationTask implements IPreLaunchTask
         threshold(ctx, byEnv, "SOULNOTES_WEATHER_SUNNY", issues);
         if(storm == null || rainy == null || overcast == null) return;
         if(!(storm > rainy && rainy > overcast))
-            issues.add(new Issue(Level.BLOCK, "weather.threshold", "阈值次序必须 storm > rainy > overcast (当前 " + storm + "/" + rainy + "/" + overcast + ")"));
+            issues.add(new Issue(Level.BLOCK, "weather.threshold", PrintUtils.quickFormat("阈值次序必须 storm > rainy > overcast (当前 {}/{}/{})", storm, rainy, overcast)));
     }
 
     private static Double threshold(@NotNull PreLaunchContext ctx, @NotNull Map<String, PropertyMetaParser.ConfigItemMeta> byEnv, @NotNull String env, @NotNull List<Issue> issues)
@@ -85,13 +86,13 @@ public final class ConfigValidationTask implements IPreLaunchTask
         try
         {
             final var v = Double.parseDouble(ctx.view().resolved(item.key(), env, item.defaultValue()));
-            if(v < 0 || v > 1) issues.add(new Issue(Level.BLOCK, env, "阈值必须处于 [0,1], 当前 " + v));
+            if(v < 0 || v > 1) issues.add(new Issue(Level.BLOCK, env, PrintUtils.quickFormat("阈值必须处于 [0,1], 当前 {}", v)));
             return v;
         }
         catch(NumberFormatException e) { return null; }//! 非法数字已由 FieldValidator 报 BLOCK, 这里吞掉二次异常并跳过次序检查 (首个错误已上报).
     }
 
-    //* 用户裁决 (Spec §3, 上轮被取消本轮落地): AI 为应用必配项, 占位哨兵 placeholder 不得视为已配置 —
+    //* 用户裁决: AI 为应用必配项, 占位哨兵 placeholder 不得视为已配置 —
     //* 不分 profile 一律 BLOCK: 有 TTY 时 Entrance#decide 自动引导 Setup 向导补配, 无 TTY (CI/管道) 直接拒绝启动.
     private static void validateAiKey(@NotNull PreLaunchContext ctx, @NotNull List<Issue> issues)
     {

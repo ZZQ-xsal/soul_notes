@@ -8,11 +8,11 @@ import java.util.UUID;
 
 /**
  * <b>RED 预警通知渠道端口</b>
- * <p>通知渠道可插拔 (Spec §7.2): WebSocket 渠道面向在线前端, Webhook 渠道面向机构服务端, 互为冗余;
+ * <p>通知渠道可插拔: WebSocket 渠道面向在线前端, Webhook 渠道面向机构服务端, 互为冗余;
  * 未来短信/IM 渠道同构接入. 消费方 ({@code ChatService#applyWarning}) 注入
  * {@code List<IAlertNotifier>} 逐渠道 fire-and-forget, 依赖端口而非具体渠道.</p>
  *
- * <p>//* 不做 sealed: 渠道替身需在跨包测试源伪造 (sealed permits 无法覆盖 test 源集),
+ * <p>不做 sealed: 渠道替身需在跨包测试源伪造 (sealed permits 无法覆盖 test 源集),
  * 与 {@code IModelCatalog} 同一定位, 允许可替换实现.</p>
  * @since 2.0
  */
@@ -30,7 +30,7 @@ public interface IAlertNotifier
     /**
      * <span style="color: f84b4b">向目标用户推送 RED 预警.</span>
      * <p>热线号码等渠道资源由实现内部解析 (与 WS 推送同源, 见 {@link #primaryHotlineOf}).</p>
-     * <p>//! 失败仅记 WARN 日志, 绝不向调用方抛出 — 本方法是主预警链路的安全边界,
+     * <p>失败仅记 WARN 日志, 绝不向调用方抛出 — 本方法是主预警链路的安全边界,
      * 任何渠道故障 (网络/配置/热线解析) 都不允许影响会话主流程; 返回的 {@link Uni}
      * 必须失败安全 (内部已兜底, 恒成功完成).</p>
      *
@@ -50,7 +50,7 @@ public interface IAlertNotifier
      * <p>Redis 存储格式 {@code "{名称}|{主号码}|{备用号码}"}; 原始串空白/缺段/主号码段空白时
      * 回退 {@link ConfigDefaults#HOTLINE_PRIMARY}
      * (离线安全网: 兜底热线必须与配置默认值同源, 不可再写字面量).</p>
-     * <p>//* 静态置于端口而非实现: WS 与 Webhook 渠道必须推送同一主号码 (Spec §7.2 同源),
+     * <p>静态置于端口而非实现: WS 与 Webhook 渠道必须推送同一主号码,
      * 共用此解析避免两处漂移.</p>
      *
      * @param raw 热线原始串

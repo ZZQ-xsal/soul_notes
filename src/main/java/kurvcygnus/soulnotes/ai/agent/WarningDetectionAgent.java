@@ -16,7 +16,7 @@ import kurvcygnus.soulnotes.ai.dto.WarningDetectionResult;
 @RegisterAiService
 public interface WarningDetectionAgent
 {
-    //* {@code @V("systemPrompt")} 可在 {@code @SystemMessage} 模板内解析: 提示词配置化 (ai.prompt.*, Spec §4) 的接线点,
+    //* {@code @V("systemPrompt")} 可在 {@code @SystemMessage} 模板内解析: 提示词配置化 (ai.prompt.*) 的接线点,
     //* 内置默认人设由 PromptProvider 回退保证, Agent 侧不再硬编码常量.
     @SystemMessage("{{systemPrompt}}")
     @UserMessage("{{content}}")

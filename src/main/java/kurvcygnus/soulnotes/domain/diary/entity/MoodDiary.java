@@ -3,6 +3,8 @@ package kurvcygnus.soulnotes.domain.diary.entity;
 import io.quarkus.hibernate.reactive.panache.PanacheEntityBase;
 import io.quarkus.hibernate.reactive.panache.PanacheQuery;
 import jakarta.persistence.*;
+import kurvcygnus.soulnotes.config.ReactiveJsonStringJdbcType;
+import org.hibernate.annotations.JdbcType;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Instant;
@@ -35,6 +37,9 @@ public final class MoodDiary extends PanacheEntityBase
     @Column(name = "audio_url")
     public String audioUrl;
 
+    //* 显式字符串型 JSONB 映射: 新写入落为真 JSON (jsonb_typeof = object), 而非把 JSON 文本再包一层的字符串标量双重编码形态.
+    //* 存量字符串标量行读出仍是可被 JsonUtils 解析的 JSON 文本, 迁移安全, 不做数据回填.
+    @JdbcType(ReactiveJsonStringJdbcType.class)
     @Column(name = "analysis_result", columnDefinition = "JSONB")
     public String analysisResult;
 

@@ -14,6 +14,7 @@ import kurvcygnus.soulnotes.config.prelaunch.PropertyMetaParser;
 import kurvcygnus.soulnotes.config.prelaunch.PgGateway;
 import kurvcygnus.soulnotes.config.prelaunch.SetupWizard;
 import kurvcygnus.soulnotes.config.prelaunch.TerminalIO;
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.nio.file.Path;
@@ -24,9 +25,14 @@ import java.util.Objects;
 
 @QuarkusMain public final class Entrance
 {
-    enum Action { PROCEED, OFFER_WIZARD, REPORT_EXIT }
+    enum Action
+    {
+        PROCEED,
+        OFFER_WIZARD,
+        REPORT_EXIT
+    }
 
-    //* 决策矩阵 (Spec §6.2): setup 短路 > 无 BLOCK 放行 > 有 BLOCK 看 TTY (交互进向导, 非交互报错退出).
+    //* 决策矩阵: setup 短路 > 无 BLOCK 放行 > 有 BLOCK 看 TTY (交互进向导, 非交互报错退出).
     static @NotNull Action decide(boolean hasBlocks, boolean tty, boolean setupRequested)
     {
         if(setupRequested)
@@ -56,7 +62,7 @@ import java.util.Objects;
         for(final var issue: issues)
         {
             if(issue.level() != level) continue;
-            sb.append(icon).append(" [").append(issue.subject()).append("] ").append(issue.message()).append('\n');
+            sb.append(PrintUtils.quickFormat("{} [{}] {}\n", icon, issue.subject(), issue.message()));
         }
     }
 
@@ -79,7 +85,7 @@ import java.util.Objects;
         {
             case PROCEED ->
             {
-                //* 仅警告流程 (Spec §6): 无 BLOCK 但存在 ⚠ 时, 必须先打印警告清单再继续启动, 不能静默放行.
+                //* 仅警告流程: 无 BLOCK 但存在 ⚠ 时, 必须先打印警告清单再继续启动, 不能静默放行.
                 if(!issues.isEmpty()) io.writeErr(formatReport(issues));
                 Quarkus.run(args);
             }
@@ -119,7 +125,7 @@ import java.util.Objects;
         { return Entrance.class.getClassLoader().getResource("io/quarkus/deployment/dev/IsolatedDevModeMain.class") != null; }
 
     //* 向导落盘的是工作目录 config/application.properties, 必须重新 load 才能读到刚写入的显式值;
-    //* LAUNCH 前以全新视图重跑配置 + DB 双任务, 无 BLOCK 方可放行 (向导修复路径的二次校验, Spec §6.2);
+    //* LAUNCH 前以全新视图重跑配置 + DB 双任务, 无 BLOCK 方可放行 (向导修复路径的二次校验);
     //* PgGateway 无状态 (每次操作独立 Vertx 小池, 用毕即毁), 向导 DB 流与本次重校验共享同一实例.
     private static void runWizardAndMaybeLaunch(@NotNull List<PropertyMetaParser.ConfigItemMeta> items, @NotNull String profile, @NotNull String[] args, @NotNull TerminalIO io)
     {
@@ -128,7 +134,7 @@ import java.util.Objects;
         //* HttpModelCatalog 无状态 (静态 HttpClient 复用), Pre-Launch 先于 CDI 启动, 与 ASR/DB 端口同样纯构造注入.
         final var result = new SetupWizard(Path.of(""), asrControl(view, items), gateway, new HttpModelCatalog()).run(items, view, io);
         if(result.action() == SetupWizard.NextAction.CANCELLED)
-            System.exit(1);  //! 取消提示已由向导写往 stderr; Spec §6.2 规定向导中途取消 → 退出码 1, 区别于下方用户主动退出的正常返回.
+            System.exit(1);  //! 取消提示已由向导写往 stderr; 向导中途取消以退出码 1 收场, 区别于下方用户主动退出的正常返回.
         if(result.action() == SetupWizard.NextAction.FAILED)
             System.exit(1);  //! 写盘失败提示已由向导写往 stderr; 评审轮次 2: 异常收场与取消同为退出码 1, 不得与用户主动退出 (退出码 0) 混同.
         if(result.action() == SetupWizard.NextAction.EXIT) return;  //* 用户主动退出: 正常返回, 不进入 Quarkus.
@@ -181,7 +187,7 @@ import java.util.Objects;
         final var meta = items.stream().
             filter(item -> key.equals(item.key())).
             findFirst().
-            orElseThrow(() -> new IllegalStateException("application.properties 缺少 " + key + " 向导条目"));
+            orElseThrow(() -> new IllegalStateException(PrintUtils.quickFormat("application.properties 缺少 {} 向导条目", key)));
         return view.resolved(meta.key(), meta.envName(), meta.defaultValue());
     }
 
@@ -197,7 +203,7 @@ import java.util.Objects;
     static @NotNull String banner(@NotNull String brandName)
     {
         Objects.requireNonNull(brandName, "Param \"brandName\" must not be null!");
-        return brandName + "\n" + BANNER_ART + "Start Initializing...\n";
+        return PrintUtils.quickFormat("{}\n{}Start Initializing...\n", brandName, BANNER_ART);
     }
 
     //* 品牌行纯装饰: 工作目录配置损坏时静默回退默认值, 不得阻断横幅与后续 fail-fast 报告.
@@ -207,7 +213,7 @@ import java.util.Objects;
         catch(Exception e) { return "Soul Notes"; }
     }
 
-    //* 品牌名解析与 Pre-Launch 校验同源 (Spec §7.3): 系统属性 > 环境变量 (SOULNOTES_BRAND_NAME) > 工作目录 config 文件,
+    //* 品牌名解析与 Pre-Launch 校验同源: 系统属性 > 环境变量 (SOULNOTES_BRAND_NAME) > 工作目录 config 文件,
     //* 全部未命中回退内置默认; 注意此默认值与 application.properties 的 ${SOULNOTES_BRAND_NAME:Soul Notes} 保持一致
     //* (品牌名不进向导, PropertyMetaParser 元数据不可用, 两处默认值只能人工同步).
     static @NotNull String resolveBrandName(@NotNull ConfigView view)

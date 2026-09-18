@@ -32,7 +32,7 @@ class HttpModelCatalogTest
 
     /**
      * <b>回环模型目录服务器</b>
-     * <p>//* 任意路径均伺服同一状态码 + 响应体, 请求路径与 Authorization 头逐次记录供启发式/Bearer 断言;
+     * <p>任意路径均伺服同一状态码 + 响应体, 请求路径与 Authorization 头逐次记录供启发式/Bearer 断言;
      * hold 非 null 时 handler 先挂住再响应 (读超时用例), close 时放行以免线程滞留.</p>
      */
     private static final class CatalogServer implements AutoCloseable
@@ -96,7 +96,7 @@ class HttpModelCatalogTest
 
     //region URL 启发式与规范化
 
-    //* endpoint 不以 /v1 结尾 → 探测 {endpoint}/v1/models, normalized = base + /v1; 无扩展字段映射为 "-" (Spec §6).
+    //* endpoint 不以 /v1 结尾 → 探测 {endpoint}/v1/models, normalized = base + /v1; 无扩展字段映射为 "-".
     @Test void endpointWithoutV1ProbesAtV1ModelsAndNormalizes() throws Exception
     {
         try(var server = new CatalogServer(200, "{\"object\":\"list\",\"data\":[{\"id\":\"gpt-x\"},{\"id\":\"deepseek-v3\"}]}", null))

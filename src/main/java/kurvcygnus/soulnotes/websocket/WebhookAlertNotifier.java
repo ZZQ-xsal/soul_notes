@@ -16,15 +16,16 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
  * <b>RED 预警 Webhook 渠道</b>
- * <p>面向机构服务端 (Spec §7.2): RED 预警时 POST JSON 负载 {@code {type, userId, level, reason, hotline}}
+ * <p>面向机构服务端: RED 预警时 POST JSON 负载 {@code {type, userId, level, reason, hotline}}
  * 至配置地址, 与 WebSocket 在线推送互为冗余. {@code SOULNOTES_ALERT_WEBHOOK_URL} 空 = 渠道禁用;
  * {@code SOULNOTES_ALERT_WEBHOOK_TOKEN} 非空 = 请求携带 {@code Authorization: Bearer <token>}.</p>
- * <p>//! fire-and-forget 安全边界: 超时 3s, 网络失败/非 2xx/JSON 序列化/热线解析失败一律仅记 WARN 日志,
+ * <p>fire-and-forget 安全边界: 超时 3s, 网络失败/非 2xx/JSON 序列化/热线解析失败一律仅记 WARN 日志,
  * 绝不抛出 — 机构侧服务不可用不允许影响主预警链路.</p>
  * @since 2.0
  */
@@ -38,7 +39,7 @@ public final class WebhookAlertNotifier implements IAlertNotifier
         connectTimeout(Duration.ofSeconds(3)).
         build();
 
-    //* 请求级 3s 超时 (Spec §7.2 钉死): Webhook 面向机构服务端, 绝不允许长时间挂起主预警链路.
+    //* 请求级 3s 超时: Webhook 面向机构服务端, 绝不允许长时间挂起主预警链路.
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(3);
 
     //region 注入
@@ -50,14 +51,16 @@ public final class WebhookAlertNotifier implements IAlertNotifier
     private final @NotNull Supplier<Uni<String>> hotlineSource;
 
     //* CDI 构造: 热线经 RedisStartupConfig.getHotline() 解析, 与 WS 推送同源.
+    //* Optional 接住 "定义但为空" 的键 (properties 侧 ${ENV:} 空默认): plain String 注入遇空值会被
+    //! 内置 Converter 判为 null, 启动即 ConfigurationException; Optional 语义等价于空串 = 渠道禁用.
     @Inject
     public WebhookAlertNotifier(
-        @ConfigProperty(name = "alert.webhook.url") @NotNull String webhookUrl,
-        @ConfigProperty(name = "alert.webhook.token") @NotNull String webhookToken,
+        @ConfigProperty(name = "alert.webhook.url") @NotNull Optional<String> webhookUrl,
+        @ConfigProperty(name = "alert.webhook.token") @NotNull Optional<String> webhookToken,
         @NotNull RedisStartupConfig redisConfig
     )
     {
-        this(webhookUrl, webhookToken, REQUEST_TIMEOUT, redisConfig::getHotline);
+        this(webhookUrl.orElse(""), webhookToken.orElse(""), REQUEST_TIMEOUT, redisConfig::getHotline);
     }
 
     //* 测试缝: 直供热线源与请求超时, 避开 CDI 与 Redis 依赖.
@@ -95,7 +98,7 @@ public final class WebhookAlertNotifier implements IAlertNotifier
             onFailure().recoverWithUni(() -> Uni.createFrom().voidItem());
     }
 
-    //* 组装 Spec §7.2 负载并以 POST 提交; 非 2xx 仅 WARN (负载已被接收端拒绝, 无重试语义 — 与 WS 推送静默跳过同级).
+    //* 组装预警负载并以 POST 提交; 非 2xx 仅 WARN (负载已被接收端拒绝, 无重试语义 — 与 WS 推送静默跳过同级).
     private @NotNull Uni<Void> dispatch(@NotNull UUID userId, @NotNull String level, @NotNull String reason, @NotNull String hotline)
     {
         final var payload = new LinkedHashMap<String, String>();
@@ -105,7 +108,7 @@ public final class WebhookAlertNotifier implements IAlertNotifier
         payload.put("reason", reason);
         payload.put("hotline", IAlertNotifier.primaryHotlineOf(hotline));  //* 主号码解析与 WS 推送同源 (单一来源).
 
-        //* token 非空才带鉴权头: 空头与缺失头语义不同, 不得发送空 Bearer (机构侧鉴权约定, Spec §7.2).
+        //* token 非空才带鉴权头: 空头与缺失头语义不同, 不得发送空 Bearer (机构侧鉴权约定).
         final var builder = HttpRequest.newBuilder(URI.create(webhookUrl)).
             timeout(requestTimeout).
             header("Content-Type", "application/json");

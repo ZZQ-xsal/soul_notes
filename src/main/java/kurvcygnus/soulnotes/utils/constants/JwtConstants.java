@@ -10,7 +10,7 @@ import org.jetbrains.annotations.NotNull;
  *     <li>{@link #AUTH_HEADER} — 请求头名称</li>
  *     <li>{@link #CHALLENGE_REALM} — 认证质询 Realm</li>
  * </ul>
- * <p>issuer 曾于此以常量 {@code ISSUER = "soul-notes"} 提供, 现已配置化 (Spec §7.3): 签发与
+ * <p>issuer 曾于此以常量 {@code ISSUER = "soul-notes"} 提供, 现已配置化: 签发与
  * {@code mp.jwt.verify.issuer} 验签必须同键, 经 {@code SOULNOTES_JWT_ISSUER} 环境变量注入, 固化常量会导致
  * 更换 issuer 时双源漂移, 故退役.</p>
  * @since 1.0

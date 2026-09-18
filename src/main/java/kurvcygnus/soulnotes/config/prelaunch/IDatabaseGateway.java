@@ -5,7 +5,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.function.Consumer;
 
 /**
- * <b>数据库探测/修复网关</b> (Spec §5 可测性收敛点).
+ * <b>数据库探测/修复网关</b> (可测性收敛点).
  * <p>探测动作收敛于本接口: 生产实现 {@link PgGateway}, 任务逻辑单测用 fake 驱动五态.
  * 签名为同步阻塞式 — Pre-Launch 阶段运行于 CDI 启动之前, 无事件循环可挂靠, 阻塞是安全且有意的.</p>
  * @since 2.0
@@ -36,7 +36,7 @@ public interface IDatabaseGateway
 
     /**
      * <span style="color: 95cc6d">带逐脚本进度的建表重载: {@code scriptProgress} 按执行序接收每个脚本名 (向导逐行回显用).</span>
-     * <p>//* 默认实现委托单参版本并忽略进度 — 既有实现 (测试 fake) 无需感知进度语义;
+     * <p>默认实现委托单参版本并忽略进度 — 既有实现 (测试 fake) 无需感知进度语义;
      * 生产 {@link PgGateway} 覆写本方法提供真实逐脚本回调.</p>
      * @param target 目标数据库
      * @param scriptProgress 按执行序接收脚本名 (如 {@code 01_users.sql})

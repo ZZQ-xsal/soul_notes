@@ -3,7 +3,9 @@ package kurvcygnus.soulnotes.domain.chat.entity;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import kurvcygnus.soulnotes.config.ReactiveJsonStringJdbcType;
 import kurvcygnus.soulnotes.utils.JsonUtils;
+import org.hibernate.annotations.JdbcType;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -37,8 +39,8 @@ class AiChatSessionTest
         session.id = UUID.randomUUID();
         session.userId = UUID.randomUUID();
         session.messages = "[]";
-        session.warningTriggered = false;
 
+        //* 不显式赋值, 同时验证 warningTriggered 的默认状态.
         assertEquals("[]", session.messages);
         assertFalse(session.warningTriggered);
     }
@@ -105,6 +107,18 @@ class AiChatSessionTest
         //* messages 字段应为合法 JSON 数组.
         assertTrue(session.messages.startsWith("["));
         assertTrue(session.messages.endsWith("]"));
+    }
+
+    @Test
+    void messages_Field_ShouldDeclareJsonJdbcType() throws NoSuchFieldException
+    {
+        //* 声明字符串型 JSONB 映射后, 新写入为真 JSON (jsonb_typeof = array), 存量字符串标量行读出仍可解析;
+        //* 缺失时 Hibernate Reactive 把 JSON 文本再包一层, 存成字符串标量 (jsonb_typeof = string) 的双重编码形态.
+        final var field = AiChatSession.class.getDeclaredField("messages");
+        final var jdbcType = field.getAnnotation(JdbcType.class);
+
+        assertNotNull(jdbcType, "messages 字段缺少 @JdbcType 声明");
+        assertEquals(ReactiveJsonStringJdbcType.class, jdbcType.value());
     }
 
     private static AiChatSession createTestSession()

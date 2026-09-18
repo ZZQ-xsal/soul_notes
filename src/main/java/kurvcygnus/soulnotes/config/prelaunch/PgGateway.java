@@ -1,5 +1,6 @@
 package kurvcygnus.soulnotes.config.prelaunch;
 
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgBuilder;
@@ -23,19 +24,19 @@ import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 
 /**
- * <b>PostgreSQL 探测网关</b> (Spec §5 生产实现).
+ * <b>PostgreSQL 探测网关</b> (生产实现).
  * <p>Pre-Launch 阶段无容器无事件循环, 每次操作手工构建独立 Vertx + maxSize=1 小池, 用毕即毁 —
  * 不与运行期 Quarkus 管理的数据源共享任何资源. 响应式 API 经 {@code toCompletionStage} 阻塞等待,
  * 这在 Pre-Launch 上下文是安全且有意的 (主线程阻塞发生在 Quarkus 启动之前).
  * 池构建用 {@link PgBuilder}: {@code PgPool} 工厂在 Vert.x 4.5 起弃用, 零弃用政策下禁用.</p>
  *
- * <p>//* 错误码映射: SQLSTATE 28P01 (invalid_password) / 28000 (invalid_authorization_specification) → AUTH_FAILED;
+ * <p>错误码映射: SQLSTATE 28P01 (invalid_password) / 28000 (invalid_authorization_specification) → AUTH_FAILED;
  * 3D000 (invalid_catalog_name) → DB_MISSING; 连接拒绝/超时及其余未映射失败 → UNREACHABLE.</p>
  * @since 2.0
  */
 public final class PgGateway implements IDatabaseGateway
 {
-    //* 连接超时 5s (Spec §5 钉死); await 上限给足建连 + 慢查询余量, 兜底防止极端情况下调用线程永久挂起.
+    //* 连接超时 5s; await 上限给足建连 + 慢查询余量, 兜底防止极端情况下调用线程永久挂起.
     private static final int CONNECT_TIMEOUT_MS = 5000;
     private static final int AWAIT_TIMEOUT_MS = CONNECT_TIMEOUT_MS * 4;
 
@@ -44,7 +45,7 @@ public final class PgGateway implements IDatabaseGateway
     private static final @NotNull String DUPLICATE_DB_SQLSTATE = "42P04";
     private static final @NotNull String PRIVILEGE_SQLSTATE = "42501";
 
-    //* createDatabase 经主机默认维护库 postgres 落地 (Spec §5).
+    //* createDatabase 经主机默认维护库 postgres 落地.
     private static final @NotNull String POSTGRES_DB = "postgres";
 
     //* SCHEMA_MISSING 判定的期望表集: 三张业务表 + 版本表, 与 db/schema 脚本一一对应.
@@ -103,9 +104,9 @@ public final class PgGateway implements IDatabaseGateway
                 if(cause instanceof PgException pe)
                 {
                     if(DUPLICATE_DB_SQLSTATE.equals(pe.getSqlState()))
-                        throw new IllegalStateException("数据库 " + target.database() + " 已存在 (或并发创建竞争), 请重试探测", e);
+                        throw new IllegalStateException(PrintUtils.quickFormat("数据库 {} 已存在 (或并发创建竞争), 请重试探测", target.database()), e);
                     if(PRIVILEGE_SQLSTATE.equals(pe.getSqlState()))
-                        throw new IllegalStateException("账号 " + target.user() + " 无 CREATEDB 权限, 无法自动建库", e);
+                        throw new IllegalStateException(PrintUtils.quickFormat("账号 {} 无 CREATEDB 权限, 无法自动建库", target.user()), e);
                 }
                 throw e;
             }
@@ -132,7 +133,7 @@ public final class PgGateway implements IDatabaseGateway
                 {
                     try { awaitPlain(pool.query(readScript(script)).execute()); }
                     catch(IllegalStateException e)
-                        { throw new IllegalStateException("schema 脚本执行失败: " + script, e); }//! 单脚本失败即中止并携带脚本名 (Spec §5); 简单查询协议保证整脚本语句处于同一隐式事务批.
+                        { throw new IllegalStateException(PrintUtils.quickFormat("schema 脚本执行失败: {}", script), e); }//! 单脚本失败即中止并携带脚本名; 简单查询协议保证整脚本语句处于同一隐式事务批.
                     scriptProgress.accept(script);  //* 逐脚本进度回传 (向导逐行回显), 执行成功后才回报, 失败脚本不产生进度行.
                 }
             }
@@ -188,7 +189,7 @@ public final class PgGateway implements IDatabaseGateway
                 if(DB_MISSING_SQLSTATE.equals(pe.getSqlState())) throw new GatewayFailure(ProbeResult.State.DB_MISSING, pe);
             }
             //! 连接拒绝/未知主机等非 SQLSTATE 失败与未映射 SQLSTATE 一律保守归入 UNREACHABLE:
-            //! 非 OK 即 BLOCK, 拒绝启动优于运行期 500 (Spec §5).
+            //! 非 OK 即 BLOCK, 拒绝启动优于运行期 500.
             throw new GatewayFailure(ProbeResult.State.UNREACHABLE, cause);
         }
     }
@@ -202,7 +203,7 @@ public final class PgGateway implements IDatabaseGateway
             Thread.currentThread().interrupt();
             throw new IllegalStateException("数据库操作被中断", e);
         }
-        catch(TimeoutException e) { throw new IllegalStateException("数据库操作超时 (上限 " + AWAIT_TIMEOUT_MS + "ms)", e); }
+        catch(TimeoutException e) { throw new IllegalStateException(PrintUtils.quickFormat("数据库操作超时 (上限 {}ms)", AWAIT_TIMEOUT_MS), e); }
         catch(ExecutionException e) { throw new IllegalStateException(e.getCause() != null ? e.getCause() : e); }
     }
 
@@ -219,10 +220,11 @@ public final class PgGateway implements IDatabaseGateway
         try(InputStream in = Thread.currentThread().getContextClassLoader().getResourceAsStream(SCHEMA_DIR + name))
         {
             if(in == null)
-                throw new IllegalStateException("classpath 缺少 schema 脚本 " + SCHEMA_DIR + name + " (构建资源配置错误, 快速失败)");//! 漏配属构建错误而非用户可修复项, 快速失败并指名脚本.
+                throw new IllegalStateException(PrintUtils.quickFormat(
+                    "classpath 缺少 schema 脚本 {}{} (构建资源配置错误, 快速失败)", SCHEMA_DIR, name));//! 漏配属构建错误而非用户可修复项, 快速失败并指名脚本.
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
-        catch(IOException e) { throw new IllegalStateException("读取 schema 脚本失败: " + name, e); }
+        catch(IOException e) { throw new IllegalStateException(PrintUtils.quickFormat("读取 schema 脚本失败: {}", name), e); }
     }
 
     //* 池关闭失败不应掩盖主流程异常/结论 — 探测池为一次性对象, 最坏情形仅是池线程存活至进程退出.

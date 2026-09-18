@@ -6,7 +6,7 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * <b>语音上传响应</b>
- * <p>//* 同步转录契约: 转录失败不回 5xx, 而是 status=FAILED + message 透传原因 (离线安全网:
+ * <p>同步转录契约: 转录失败不回 5xx, 而是 status=FAILED + message 透传原因 (离线安全网:
  * 前端凭 message 展示降级文案并回落文字链路, 语音失败不影响应急热线兜底).</p>
  *
  * @param audioUrl        语音文件访问 URL
@@ -22,4 +22,5 @@ public record VoiceUploadResponse(
     @NotNull VoiceStatus   status,
     @Nullable String       transcribedText,
     @Nullable String       message
-) {}
+)
+{}

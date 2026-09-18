@@ -137,7 +137,7 @@ class VoiceRateLimitFilterTest
 
     /**
      * <b>伪造 Redis 数据源</b>
-     * <p>//* 仅实现过滤器使用的 value().incr 与 key().expire; incr 结果由用例注入, 驱动超限/降级分支.</p>
+     * <p>仅实现过滤器使用的 value().incr 与 key().expire; incr 结果由用例注入, 驱动超限/降级分支.</p>
      */
     private record FakeRedis(Uni<Long> incrResult)
     {

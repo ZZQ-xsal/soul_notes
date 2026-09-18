@@ -36,7 +36,7 @@ public interface EmpatheticChatAgent
      */
     //* {@code @MemoryId} 仅作为工具身份透传: 本项目未注册 ChatMemoryProvider, langchain4j 不会启用记忆累积,
     //* 但会将其传入工具执行上下文 — 缺失时工具收到非 UUID 的默认值, UserContextTool 解析用户 ID 必然失败.
-    //* {@code @V("systemPrompt")} 可在 {@code @SystemMessage} 模板内解析: 提示词配置化 (ai.prompt.*, Spec §4) 的接线点,
+    //* {@code @V("systemPrompt")} 可在 {@code @SystemMessage} 模板内解析: 提示词配置化 (ai.prompt.*) 的接线点,
     //* 内置默认人设由 PromptProvider 回退保证, Agent 侧不再硬编码常量.
     @SystemMessage("{{systemPrompt}}")
     @UserMessage(

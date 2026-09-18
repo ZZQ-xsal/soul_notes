@@ -1,10 +1,11 @@
 package kurvcygnus.soulnotes.config.prelaunch;
 
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Optional;
 
-/** <b>单字段校验</b> (向导实时校验与启动校验共用, Spec §6.1/§7.1). @since 2.0 */
+/** <b>单字段校验</b> (向导实时校验与启动校验共用). @since 2.0 */
 public final class FieldValidator
 {
     private FieldValidator() { throw new IllegalAccessError("Class \"FieldValidator\" is not meant to be instantized!"); }
@@ -26,10 +27,10 @@ public final class FieldValidator
             case URL -> validateUrl(meta, raw);
             case NUMBER -> parsePositive(raw);
             case INT -> parseIntValue(raw);
-            //* 规则矩阵 (Spec §6.1): GENERATE 与 SECRET 同受 minLength 下限约束 — 显式弱 JWT 属格式级 BLOCK, 不分 profile; TEXT 无格式规则.
+            //* 规则矩阵: GENERATE 与 SECRET 同受 minLength 下限约束 — 显式弱 JWT 属格式级 BLOCK, 不分 profile; TEXT 无格式规则.
             case SECRET, GENERATE -> raw.length() >= meta.minLength() ?
                                      Optional.empty() :
-                                     Optional.of("长度至少 " + meta.minLength() + " 字符");
+                                     Optional.of(PrintUtils.quickFormat("长度至少 {} 字符", meta.minLength()));
             case TEXT -> Optional.empty();
         };
     }
@@ -38,7 +39,7 @@ public final class FieldValidator
     {
         for(final var scheme: meta.scheme().split("\\|"))
             if(raw.startsWith(scheme)) return Optional.empty();//* 多 scheme 以 | 分隔, 命中任一即合法.
-        return Optional.of("必须以 " + meta.scheme().replace("|", " 或 ") + " 开头");
+        return Optional.of(PrintUtils.quickFormat("必须以 {} 开头", meta.scheme().replace("|", " 或 ")));
     }
 
     private static @NotNull Optional<String> parsePositive(@NotNull String raw)

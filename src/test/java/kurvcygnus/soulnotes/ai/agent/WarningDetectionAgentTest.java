@@ -22,7 +22,7 @@ class WarningDetectionAgentTest
         assertTrue(WarningDetectionAgent.class.isAnnotationPresent(RegisterAiService.class));
     }
 
-    //* 提示词配置化 (Spec §4) 后签名: detect(systemPrompt, content), 首参 @V("systemPrompt") 由调用方传入生效提示词.
+    //* 提示词配置化 后签名: detect(systemPrompt, content), 首参 @V("systemPrompt") 由调用方传入生效提示词.
     @Test void method_detect_ShouldHaveCorrectSignature() throws Exception
     {
         final var method = WarningDetectionAgent.class.getDeclaredMethod("detect", String.class, String.class);

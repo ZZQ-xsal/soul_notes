@@ -59,4 +59,11 @@ docs/superpowers/
 #* ASR Spike 工作区 (libvosk.dll/模型/测试音频等二进制资产, 结论已固化为 notes, 不入库).
 spike/
 
+#* ASR 本地运行时 (默认运行时目录, SOULNOTES_ASR_RUNTIME_DIR; 向导下载或手动放置的产物, 不入库).
+/asr-model/
+
+#* 根目录 vosk 下载残留 zip (模型/libvosk JAR 等, 向导下载中途产物或手动下载件).
+#* 点名前缀 + 通配: 只收 vosk-* 系列, 不用全局 *.zip 以免误伤未来有意入库的 zip 资产.
+/vosk-*.zip
+
 DEV.md

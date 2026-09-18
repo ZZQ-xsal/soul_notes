@@ -1,10 +1,11 @@
 package kurvcygnus.soulnotes.config.prelaunch;
 
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * <b>终端渲染器</b> (Spec §7.1 / Visual Companion v2).
+ * <b>终端渲染器</b>.
  * <p>pnpm 风格折叠清单的纯格式化层: 无状态静态方法, 只负责 ANSI 包装与行拼装;
  * 密钥掩码 ({@code ******}) 与取值取舍由调用方 (SetupWizard) 决定, 本类不感知配置语义.</p>
  * @since 2.0
@@ -13,7 +14,7 @@ public final class TerminalRenderer
 {
     //region 样式与状态体系
 
-    //* 色板对齐 Visual Companion v2 (#8b949e 灰 / #e3b341 黄 / #3fb950 绿 / #f85149 红 / #58a6ff 天蓝 / #a5d6ff 浅蓝),
+    //* 色板 (#8b949e 灰 / #e3b341 黄 / #3fb950 绿 / #f85149 红 / #58a6ff 天蓝 / #a5d6ff 浅蓝),
     //* 映射到最接近的标准 SGR 码 (亮色 90/94/96 在 Windows Terminal 与 xterm 下比暗色更贴近原设计); 六色互异, RESET 是复位常量而非颜色.
     public enum Style
     {
@@ -30,11 +31,19 @@ public final class TerminalRenderer
         Style(@NotNull String code) { this.code = code; }
     }
 
-    //* 清单行状态 (Spec §7.1 双轨状态表): 必填三态 + 可选两态.
-    public enum ItemState { REQUIRED_EMPTY, REQUIRED_INVALID, CONFIGURED, OPTIONAL_DEFAULT, OPTIONAL_SET }
+    //* 清单行状态 (双轨状态表): 必填三态 + 可选两态.
+    public enum ItemState
+    {
+        REQUIRED_EMPTY,
+        REQUIRED_INVALID,
+        CONFIGURED,
+        OPTIONAL_DEFAULT,
+        OPTIONAL_SET
+    }
 
     //* 清单行参数对象: echoText 语义随状态变化 (非法=失败原因 / 已配=保存值(密钥已掩码) / 可选默认=默认值 / 未填=null).
-    public record ListItem(@NotNull ItemState state, @NotNull String envName, @NotNull String humanName, @Nullable String echoText) {}
+    public record ListItem(@NotNull ItemState state, @NotNull String envName, @NotNull String humanName, @Nullable String echoText)
+    {}
 
     private static final @NotNull String CIRCLE_EMPTY = "○";
     private static final @NotNull String CIRCLE_FILLED = "●";
@@ -61,7 +70,7 @@ public final class TerminalRenderer
 
     /**
      * <span style="color: 95cc6d">渲染清单折叠行: 圆点 + 变量名 + 灰斜体中文名 (+ 行尾回显), 不含换行符.</span>
-     * <p>非法态整行红且不做内层着色 — 内层任何复位序列都会截断整行红色 (Spec §7.1 A1).</p>
+     * <p>非法态整行红且不做内层着色 — 内层任何复位序列都会截断整行红色.</p>
      * @param item 行参数
      * @return 单行渲染结果
      */
@@ -69,18 +78,37 @@ public final class TerminalRenderer
     {
         //* 可选默认: "默认 " 前缀与默认值一体, 默认值为空则整段回显省略.
         final var echoText = item.state() == ItemState.OPTIONAL_DEFAULT && item.echoText() != null && !item.echoText().isEmpty() ?
-                             DEFAULT_PREFIX + item.echoText() :
+                             PrintUtils.quickFormat("默认 {}", item.echoText()) :
                              item.echoText();
         return switch(item.state())
         {
             case REQUIRED_INVALID ->
-                paint(Style.BAD, CIRCLE_EMPTY + ' ' + item.envName() + COLUMN_GAP + item.humanName() + plainEcho(echoText));
+                paint(Style.BAD, PrintUtils.quickFormat("{} {}{}{}{}",
+                                                        CIRCLE_EMPTY,
+                                                        item.envName(),
+                                                        COLUMN_GAP,
+                                                        item.humanName(),
+                                                        plainEcho(echoText)));
             case REQUIRED_EMPTY ->
-                CIRCLE_EMPTY + ' ' + item.envName() + COLUMN_GAP + paint(Style.DIM, item.humanName());
+                PrintUtils.quickFormat("{} {}{}{}",
+                                       CIRCLE_EMPTY,
+                                       item.envName(),
+                                       COLUMN_GAP,
+                                       paint(Style.DIM, item.humanName()));
             case CONFIGURED, OPTIONAL_SET ->
-                paint(Style.OK, CIRCLE_FILLED) + ' ' + item.envName() + COLUMN_GAP + paint(Style.DIM, item.humanName()) + styledEcho(Style.VALUE, echoText);
+                PrintUtils.quickFormat("{} {}{}{}{}",
+                                       paint(Style.OK, CIRCLE_FILLED),
+                                       item.envName(),
+                                       COLUMN_GAP,
+                                       paint(Style.DIM, item.humanName()),
+                                       styledEcho(Style.VALUE, echoText));
             case OPTIONAL_DEFAULT ->
-                paint(Style.OPT, CIRCLE_EMPTY) + ' ' + item.envName() + COLUMN_GAP + paint(Style.DIM, item.humanName()) + styledEcho(Style.DIM, echoText);
+                PrintUtils.quickFormat("{} {}{}{}{}",
+                                       paint(Style.OPT, CIRCLE_EMPTY),
+                                       item.envName(),
+                                       COLUMN_GAP,
+                                       paint(Style.DIM, item.humanName()),
+                                       styledEcho(Style.DIM, echoText));
         };
     }
 
@@ -103,11 +131,11 @@ public final class TerminalRenderer
     {
         if(echoText == null || echoText.isEmpty())
             return "";
-        return COLUMN_GAP + paint(style, echoText);
+        return PrintUtils.quickFormat("{}{}", COLUMN_GAP, paint(style, echoText));
     }
 
     //* 回显段 (裸版): 仅供整行红的非法态使用 — 内层再着色会被复位截断.
-    private static @NotNull String plainEcho(@Nullable String echoText) { return echoText == null || echoText.isEmpty() ? "" : COLUMN_GAP + echoText; }
+    private static @NotNull String plainEcho(@Nullable String echoText) { return echoText == null || echoText.isEmpty() ? "" : PrintUtils.quickFormat("{}{}", COLUMN_GAP, echoText); }
 
     //endregion
 }

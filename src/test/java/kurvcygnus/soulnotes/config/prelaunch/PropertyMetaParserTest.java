@@ -75,7 +75,7 @@ class PropertyMetaParserTest
         assertTrue(items.stream().allMatch(i -> i.envName() != null));
     }
 
-    //* ASR 组 (Spec §4.5): 三项必须为带标签向导条目且位于 AI 高级组之后 (向导展示顺序即文件顺序).
+    //* ASR 组: 三项必须为带标签向导条目且位于 AI 高级组之后 (向导展示顺序即文件顺序).
     @Test void parseResourceAsrGroupTaggedAndPlacedAfterAiAdvanced()
     {
         final var items = PropertyMetaParser.parseResource();
@@ -99,7 +99,7 @@ class PropertyMetaParserTest
         assertTrue(engine > aiAdvanced, "ASR 组必须排在 AI 高级组之后 (向导展示顺序)");
     }
 
-    //* 集成组 (Spec §7.2/§7.3 网络-集成组): Webhook 预警渠道两键必须带标签进入向导, 空 url 即渠道禁用.
+    //* 集成组 (网络-集成组): Webhook 预警渠道两键必须带标签进入向导, 空 url 即渠道禁用.
     @Test void parseResourceAlertWebhookGroupTaggedAfterNetwork()
     {
         final var items = PropertyMetaParser.parseResource();
@@ -120,7 +120,7 @@ class PropertyMetaParserTest
         assertTrue(url > cors, "集成组必须排在网络组之后 (向导展示顺序即文件顺序)");
     }
 
-    //* issuer 配置化 (Spec §7.3): mp.jwt.verify.issuer 带标签进入向导 (安全组, 与 TokenService 签发同键);
+    //* issuer 配置化: mp.jwt.verify.issuer 带标签进入向导 (安全组, 与 TokenService 签发同键);
     //* 品牌名属部署微调, 不加标签, 不得进入向导清单.
     @Test void parseResourceIssuerTaggedInSecurityGroupButBrandUntagged()
     {

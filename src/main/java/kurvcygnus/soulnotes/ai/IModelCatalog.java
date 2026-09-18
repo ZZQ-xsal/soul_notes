@@ -8,10 +8,10 @@ import java.util.List;
 
 /**
  * <b>模型目录拉取端口: OpenAI 兼容 {@code /models} 列表探测</b>
- * <p>Pre-Launch 阶段 (配置向导 AI 拉取步, Spec §6) 运行于 CDI 容器启动之前, 只能以纯构造装配消费
+ * <p>Pre-Launch 阶段 (配置向导 AI 拉取步) 运行于 CDI 容器启动之前, 只能以纯构造装配消费
  * 模型列表能力; 本接口是该消费面的最小端口, 生产实现为 {@link HttpModelCatalog}.</p>
  *
- * <p>//* 不做 sealed: 向导的单元测试须跨包伪造本端口 (sealed permits 无法覆盖测试源),
+ * <p>不做 sealed: 向导的单元测试须跨包伪造本端口 (sealed permits 无法覆盖测试源),
  * 与 {@code IAsrRuntimeControl} 同一定位, 允许可替换实现.</p>
  * @since 2.0
  */
@@ -20,7 +20,8 @@ public interface IModelCatalog
     //region 数据表面
 
     //* 单条模型元数据: context 为上下文长度展示值, reasoning 为思考能力展示值 (✓|✗|-), 无对应扩展字段时均为 "-".
-    record ModelInfo(@NotNull String id, @NotNull String context, @NotNull String reasoning) {}
+    record ModelInfo(@NotNull String id, @NotNull String context, @NotNull String reasoning)
+    {}
 
     //* 拉取结果: normalizedEndpoint 为探测成功的 base + /v1 规范形 (langchain4j base-url 所需形态, fetch 与存储分离).
     record CatalogResult(@NotNull List<ModelInfo> models, @NotNull String normalizedEndpoint)
@@ -39,9 +40,9 @@ public interface IModelCatalog
     //region URL 启发式 (单一来源)
 
     /**
-     * <span style="color: 95cc6d">探测 URL 启发式 (Spec §6): endpoint 以 {@code /v1} 结尾 → 拼 {@code /models};
+     * <span style="color: 95cc6d">探测 URL 启发式: endpoint 以 {@code /v1} 结尾 → 拼 {@code /models};
      * 否则拼 {@code /v1/models}.</span>
-     * <p>//* 静态置于端口而非实现: 向导须在拉取前回显最终请求 URL (Spec §6), 与 fetch 共用同一启发式避免两处漂移.</p>
+     * <p>静态置于端口而非实现: 向导须在拉取前回显最终请求 URL, 与 fetch 共用同一启发式避免两处漂移.</p>
      * @param endpoint 用户输入的 OpenAI 兼容接口根地址
      * @return 实际探测的完整 URL
      */
@@ -52,9 +53,9 @@ public interface IModelCatalog
     }
 
     /**
-     * <span style="color: 95cc6d">存储规范形 (Spec §6 fetch 与存储分离): base + {@code /v1}
+     * <span style="color: 95cc6d">存储规范形 (fetch 与存储分离): base + {@code /v1}
      * (langchain4j base-url 所需形态).</span>
-     * <p>//* 与 {@link #modelsUrl} 共用同一后缀判定, 避免 "拉取成功但 chat 调用 404" 的路径不一致.</p>
+     * <p>与 {@link #modelsUrl} 共用同一后缀判定, 避免 "拉取成功但 chat 调用 404" 的路径不一致.</p>
      * @param endpoint 用户输入的接口根地址
      * @return 规范化 endpoint, 恒以 {@code /v1} 结尾
      */

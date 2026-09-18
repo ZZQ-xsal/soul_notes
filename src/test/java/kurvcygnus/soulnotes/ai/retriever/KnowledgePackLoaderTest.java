@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * <b>{@link KnowledgePackLoader} 单元测试</b>
- * <p>tips.md 块格式 (Spec §7.1 钉死): {@code ### 标题} 行开块 → {@code keywords: a,b,c} 行 → 正文至下一块.</p>
+ * <p>tips.md 块格式: {@code ### 标题} 行开块 → {@code keywords: a,b,c} 行 → 正文至下一块.</p>
  *
  * @author Claude Code
  * @since 2.0
@@ -32,7 +32,7 @@ class KnowledgePackLoaderTest
 
     @Test void parse_MissingKeywordsLine_ShouldSkipBlock()
     {
-        //* keywords 行为块必需 (Spec §7.1): 缺失则该块整体跳过并记录, 不产出残缺 Tip.
+        //* keywords 行为块必需: 缺失则该块整体跳过并记录, 不产出残缺 Tip.
         final var markdown = """
             ### 坏块无关键词行
             这一块缺少 keywords 行.
@@ -121,7 +121,7 @@ class KnowledgePackLoaderTest
 
     @Test void load_MissingPack_ShouldReturnEmpty()
     {
-        //* 包缺失返回空列表, 回退决策交由调用方 (Retriever) 处理 (Spec §7.1).
+        //* 包缺失返回空列表, 回退决策交由调用方 (Retriever) 处理.
         assertTrue(KnowledgePackLoader.load("no-such-pack").isEmpty());
     }
 

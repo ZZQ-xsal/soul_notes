@@ -15,4 +15,5 @@ public record WarningDetectionResult(
     String warningLevel,
     String reason,
     String suggestedAction
-) {}
+)
+{}

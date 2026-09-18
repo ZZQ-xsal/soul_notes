@@ -1,6 +1,7 @@
 package kurvcygnus.soulnotes.domain.chat.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import io.quarkus.arc.All;
 import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.hibernate.reactive.panache.common.WithTransaction;
 import io.smallrye.mutiny.Multi;
@@ -20,6 +21,7 @@ import kurvcygnus.soulnotes.domain.chat.entity.AiChatSession;
 import kurvcygnus.soulnotes.exception.ErrorCode;
 import kurvcygnus.soulnotes.exception.IBusinessException;
 import kurvcygnus.soulnotes.utils.JsonUtils;
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import kurvcygnus.soulnotes.utils.constants.AiPromptConstants;
 import kurvcygnus.soulnotes.websocket.IAlertNotifier;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -41,7 +43,7 @@ import java.util.UUID;
  *     <li>发送消息 (同步 + SSE 流式)</li>
  *     <li>会话历史管理</li>
  *     <li>预警检测与推送</li>
- *     <li>结构化输出管线 ("副医生"预埋, Spec §7.5): 契约提示词组装 + soulnotes 块拆流</li>
+     *     <li>结构化输出管线 ("副医生"预埋): 契约提示词组装 + soulnotes 块拆流</li>
  * </ul>
  * @since 1.0
  */
@@ -55,19 +57,21 @@ public final class ChatService
     private final @NotNull EmpatheticChatAgent empatheticChatAgent;
     private final @NotNull WarningDetectionAgent warningDetectionAgent;
     private final @NotNull PromptProvider promptProvider;
-    //* 预警渠道 fan-out: CDI 注入全部 IAlertNotifier 实现 (websocket/webhook, Spec §7.2), 渠道可插拔.
+    //* 预警渠道 fan-out: CDI 注入全部 IAlertNotifier 实现 (websocket/webhook), 渠道可插拔.
+    //* @All 是 Arc 集合注入的必要限定符: 缺失时注入点退化为对 List 类型 bean 的普通解析, 应用启动即
+    //! UnsatisfiedResolutionException (渠道全部缺席时 @All 语义为注入空集合, 不阻断启动).
     private final @NotNull List<IAlertNotifier> alertNotifiers;
     private final @NotNull Vertx vertx;
     //* 会话历史最多保留的消息条数, 防止 JSONB 无限增长与 Token 超限.
     private final int maxHistoryMessages;
-    //* 结构化输出契约开关 ("副医生"预埋, Spec §7.5): on 时共情提示词追加契约段, 回复落库前拆流.
+    //* 结构化输出契约开关 ("副医生"预埋): on 时共情提示词追加契约段, 回复落库前拆流.
     private final boolean clinicalTagging;
 
     public ChatService(
         @NotNull EmpatheticChatAgent empatheticChatAgent,
         @NotNull WarningDetectionAgent warningDetectionAgent,
         @NotNull PromptProvider promptProvider,
-        @NotNull List<IAlertNotifier> alertNotifiers,
+        @All @NotNull List<IAlertNotifier> alertNotifiers,
         @NotNull Vertx vertx,
         @ConfigProperty(name = "chat.history.max-messages", defaultValue = "50") int maxHistoryMessages,
         @ConfigProperty(name = "clinical.tagging", defaultValue = "false") boolean clinicalTagging
@@ -256,7 +260,7 @@ public final class ChatService
     }
 
     //* 在 worker 线程池启动 TokenStream, 桥接为 Multi 逐块推送.
-    //! 流式路径裁定 (Spec §7.5): emit 给前端的 token 保持原文, 拆流只作用于落库文本 (经 splitForStore) —
+    //! 流式路径裁定: emit 给前端的 token 保持原文, 拆流只作用于落库文本 (经 splitForStore) —
     //* 契约块是 HTML 注释, 前端 markdown 渲染下天然不可见, 与后端剥离构成双保险; 若缓冲到流结束再拆流,
     //* 须扣留全部 token, 既破坏逐字渲染体验, 流中断时已扣留内容还会整段丢失, 权衡后不采纳.
     private @NotNull Multi<String> streamAiReply(@NotNull AiChatSession session, @NotNull String content)
@@ -284,7 +288,11 @@ public final class ChatService
                             false
                         ).subscribe().with(
                             v -> emitter.complete(),
-                            t -> { LOG.warn("流式回复持久化失败: {}", t.getMessage()); emitter.complete(); }
+                            t ->
+                            {
+                                LOG.warn("流式回复持久化失败: {}", t.getMessage());
+                                emitter.complete();
+                            }
                         )
                     ).
                     onError(
@@ -308,7 +316,7 @@ public final class ChatService
             onItem().transformToUni(
                 reply ->
                 {
-                    //* 拆流在持久化之前 (Spec §7.5): 落库与返回前端均用剥离后正文 (ChatMessageVo 形状不变, 前端零改动),
+                    //* 拆流在持久化之前: 落库与返回前端均用剥离后正文 (ChatMessageVo 形状不变, 前端零改动),
                     //* messages JSONB 存剥离后文本, 历史回喂不再携带契约块.
                     final var visible = splitForStore(reply);
                     session.addMessage("assistant", visible);
@@ -332,7 +340,7 @@ public final class ChatService
             );
     }
 
-    //* 组装共情对话 systemPrompt (Spec §7.5 合并规则): 机构/内置提示词在前, 功能契约段在后,
+    //* 组装共情对话 systemPrompt (合并规则): 机构/内置提示词在前, 功能契约段在后,
     //* 契约段首行声明最高优先级, 兜底机构提示词中"不要输出 JSON"之类指令对输出格式的破坏;
     //* off 时不追加, 提示词与 token 成本同现状逐字节一致.
     private @NotNull String buildSystemPrompt()
@@ -340,11 +348,11 @@ public final class ChatService
         final var base = promptProvider.empatheticChat();
         if(!clinicalTagging)
             return base;
-        return base + "\n\n" + AiPromptConstants.CLINICAL_OUTPUT_CONTRACT;
+        return PrintUtils.quickFormat("{}\n\n{}", base, AiPromptConstants.CLINICAL_OUTPUT_CONTRACT);
     }
 
     //* 落库前拆流: on 时剥离回复末尾的 soulnotes 结构化块, 防止块在多轮历史间重复累积 (省 token);
-    //* payload 本轮仅 DEBUG 日志可观测, 存储/消费明确延后 (Spec §7.6); off 时原样透传不拆.
+    //* payload 本轮仅 DEBUG 日志可观测, 存储/消费明确延后; off 时原样透传不拆.
     private @NotNull String splitForStore(@NotNull String reply)
     {
         if(!clinicalTagging)
@@ -368,7 +376,7 @@ public final class ChatService
             onFailure().recoverWithItem(() -> null);
     }
 
-    //* 依据检测结果标记会话预警位, RED 等级立即经通知渠道逐渠道 fire-and-forget 推送热线 (websocket + webhook, Spec §7.2).
+    //* 依据检测结果标记会话预警位, RED 等级立即经通知渠道逐渠道 fire-and-forget 推送热线 (websocket + webhook).
     //! 必须在持久化前调用 (受管 Session), 确保 warningTriggered 随消息一并落库.
     private void applyWarning(@NotNull AiChatSession session, @Nullable WarningDetectionResult detection)
     {
@@ -415,7 +423,7 @@ public final class ChatService
                 final var msg     = messages.get(i);
                 final var role    = msg.getOrDefault("role", "unknown");
                 final var content = msg.getOrDefault("content", "");
-                sb.append(role).append(": ").append(content).append("\n");
+                sb.append(PrintUtils.quickFormat("{}: {}\n", role, content));
             }
             return sb.toString();
         }
@@ -450,7 +458,7 @@ public final class ChatService
             final var lastContent = messages.getLast().get("content");
             if(lastContent == null || lastContent.isBlank())
                 return "";
-            return lastContent.length() > 50 ? lastContent.substring(0, 50) + "..." : lastContent;
+            return lastContent.length() > 50 ? PrintUtils.quickFormat("{}...", lastContent.substring(0, 50)) : lastContent;
         }
         catch(Exception e) { LOG.warn("解析 messages JSON 获取预览失败: {}", e.getMessage()); return ""; }
     }

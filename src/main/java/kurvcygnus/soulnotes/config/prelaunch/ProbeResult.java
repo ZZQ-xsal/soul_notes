@@ -5,7 +5,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.List;
 
 /**
- * <b>数据库探测结果</b> (Spec §5 五态).
+ * <b>数据库探测结果</b> (五种互斥状态, 详见 {@link State}).
  * <p>missingTables 仅在 {@link State#SCHEMA_MISSING} 时非空, 其余状态恒为空列表.</p>
  * @since 2.0
  */

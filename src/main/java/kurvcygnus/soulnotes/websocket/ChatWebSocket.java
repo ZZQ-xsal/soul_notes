@@ -8,6 +8,8 @@ import io.quarkus.websockets.next.OnOpen;
 import io.quarkus.websockets.next.OnTextMessage;
 import io.quarkus.websockets.next.WebSocket;
 import io.quarkus.websockets.next.WebSocketConnection;
+import io.smallrye.common.vertx.VertxContext;
+import io.vertx.mutiny.core.Vertx;
 import kurvcygnus.soulnotes.domain.chat.service.ChatService;
 import kurvcygnus.soulnotes.utils.JsonUtils;
 import org.jetbrains.annotations.NotNull;
@@ -32,8 +34,13 @@ public class ChatWebSocket
 
     //region 注入
     private final @NotNull ChatService chatService;
+    private final @NotNull Vertx vertx;
 
-    public ChatWebSocket(@NotNull ChatService chatService) { this.chatService = chatService; }
+    public ChatWebSocket(@NotNull ChatService chatService, @NotNull Vertx vertx)
+    {
+        this.chatService = chatService;
+        this.vertx = vertx;
+    }
     //endregion
 
     //region 生命周期
@@ -92,15 +99,24 @@ public class ChatWebSocket
                 return;
             }
 
-            //* 订阅 AI 回复流, 逐 Token 推送至客户端.
-            chatService.streamMessage(sessionId, content, userId)
-                .onItem().transformToUni(connection::sendText)
-                .concatenate()
-                .subscribe().with(
-                    v -> {},
-                    failure -> LOG.warn("流式对话发送失败: userId={}, {}", userId, failure.getMessage()),
-                    () -> LOG.info("流式对话完成: userId={}", userId)
-                );
+            //* SERIAL 入站处理在无 Hibernate 会话上下文的 worker 线程执行, 直接启动响应式链会触发
+            //! HR000068 (流式对话在会话持久化前即失败). 修法必须逐消息建 duplicated context 而非
+            //* 直接 runOnContext: HR 以 Vertx.currentContext() 的 local 槽位存取会话 (withSession
+            //* 复用槽内已开 session), 主 context 为全应用共享 — 并发消息会复用同一 session 槽位,
+            //* 先完成者关闭 session 后, 后来者的持久化失败且仅 WARN 吞掉 (数据静默丢失).
+            //* SSE REST 路径无此问题, 真因是 RESTEasy Reactive 为每个请求建独立 duplicated context,
+            //* 与此处逐消息跳转同机制; SERIAL 仅保证回调启动顺序, 链路完成时长不受控, 不能依赖它隔离.
+            final var messageContext = VertxContext.getOrCreateDuplicatedContext(vertx.getDelegate());
+            messageContext.runOnContext((Void ignored) ->
+                chatService.streamMessage(sessionId, content, userId)
+                    .onItem().transformToUni(connection::sendText)
+                    .concatenate()
+                    .subscribe().with(
+                        v -> {},
+                        failure -> LOG.warn("流式对话发送失败: userId={}, {}", userId, failure.getMessage()),
+                        () -> LOG.info("流式对话完成: userId={}", userId)
+                    )
+            );
         }
         catch(Exception e)
         {

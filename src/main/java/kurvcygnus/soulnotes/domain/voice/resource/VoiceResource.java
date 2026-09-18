@@ -42,7 +42,7 @@ import java.util.UUID;
  *     <li>{@code POST /api/v1/voice/upload} — 上传语音文件并同步本地转录 (响应直接携带 transcribedText)</li>
  *     <li>{@code GET  /api/v1/voice/files/{fileId}} — 获取已存储的语音文件</li>
  * </ul>
- * <p>//* 同步转录链路: 大小校验 → RIFF/WAVE 头校验 → 存储 → 引擎转录 → 响应. 转录失败不回 5xx,
+ * <p>同步转录链路: 大小校验 → RIFF/WAVE 头校验 → 存储 → 引擎转录 → 响应. 转录失败不回 5xx,
  * 而是 status=FAILED + message 透传原因 (离线安全网: 文字链路与应急热线兜底不因语音失败而崩溃).</p>
  * @since 1.0
  */

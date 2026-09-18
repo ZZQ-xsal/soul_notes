@@ -20,4 +20,5 @@ public record MoodAnalysisResult(
     double anxiety,
     String weather,
     String summary
-) {}
+)
+{}

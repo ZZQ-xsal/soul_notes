@@ -18,7 +18,7 @@ class DbTargetTest
 
     @Test void parseWithUserinfoOverridesParams()
     {
-        //* 向导整串粘贴兼容 (Spec §5): userinfo 携带的凭据优先于分离收集的用户名/密码.
+        //* 向导整串粘贴兼容: userinfo 携带的凭据优先于分离收集的用户名/密码.
         final var target = DbTarget.parse("postgresql://alice:wonder@db.example.com:5432/notes", "kurv", "secret");
         assertEquals("alice", target.user());
         assertEquals("wonder", target.password());

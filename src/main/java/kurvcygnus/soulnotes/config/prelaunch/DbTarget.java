@@ -1,5 +1,6 @@
 package kurvcygnus.soulnotes.config.prelaunch;
 
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -7,7 +8,7 @@ import java.util.Objects;
 
 /**
  * <b>数据库探测目标</b>: 从 {@code postgresql://[user:pass@]host:port/db} 解析出的连接四要素.
- * <p>Spec §5: 向导支持整串粘贴 (userinfo 可选), 无 userinfo 时凭据取分离收集的 {@code SOULNOTES_DB_USER/PASSWORD}.
+ * <p>向导支持整串粘贴 (userinfo 可选), 无 userinfo 时凭据取分离收集的 {@code SOULNOTES_DB_USER/PASSWORD}.
  * scheme 级校验由 FieldValidator 在配置层 BLOCK, 本类只负责结构解析.</p>
  * @since 2.0
  */
@@ -28,7 +29,7 @@ public record DbTarget(@NotNull String host, int port, @NotNull String database,
     {
         Objects.requireNonNull(url, "Param \"url\" must not be null!");
         if(!url.startsWith(SCHEME))
-            throw new IllegalStateException("数据库地址必须以 " + SCHEME + " 开头: " + url);
+            throw new IllegalStateException(PrintUtils.quickFormat("数据库地址必须以 {} 开头: {}", SCHEME, url));
 
         var rest = url.substring(SCHEME.length());
 
@@ -42,28 +43,33 @@ public record DbTarget(@NotNull String host, int port, @NotNull String database,
             final var userinfo = rest.substring(0, at);
             rest = rest.substring(at + 1);
             final var colon = userinfo.indexOf(':');
-            if(colon < 0) { urlUser = userinfo; }
-            else { urlUser = userinfo.substring(0, colon); urlPassword = userinfo.substring(colon + 1); }
+            if(colon < 0)
+                urlUser = userinfo;
+            else
+            {
+                urlUser = userinfo.substring(0, colon);
+                urlPassword = userinfo.substring(colon + 1);
+            }
         }
 
         final var slash = rest.lastIndexOf('/');
         final var hostPort = slash < 0 ? rest : rest.substring(0, slash);
         final var database = slash < 0 ? "" : rest.substring(slash + 1);
         if(hostPort.isEmpty())
-            throw new IllegalStateException("数据库地址缺少 host: " + url);
+            throw new IllegalStateException(PrintUtils.quickFormat("数据库地址缺少 host: {}", url));
         if(database.isEmpty())
-            throw new IllegalStateException("数据库地址缺少库名: " + url);
+            throw new IllegalStateException(PrintUtils.quickFormat("数据库地址缺少库名: {}", url));
 
         final var colon = hostPort.indexOf(':');
         final var host = colon < 0 ? hostPort : hostPort.substring(0, colon);
         if(host.isEmpty())
-            throw new IllegalStateException("数据库地址缺少 host: " + url);
+            throw new IllegalStateException(PrintUtils.quickFormat("数据库地址缺少 host: {}", url));
 
         var port = DEFAULT_PORT;
         if(colon >= 0)
         {
             try { port = Integer.parseInt(hostPort.substring(colon + 1)); }
-            catch(NumberFormatException e) { throw new IllegalStateException("数据库地址端口非法: " + url, e); }
+            catch(NumberFormatException e) { throw new IllegalStateException(PrintUtils.quickFormat("数据库地址端口非法: {}", url), e); }
         }
 
         return new DbTarget(host, port, database,

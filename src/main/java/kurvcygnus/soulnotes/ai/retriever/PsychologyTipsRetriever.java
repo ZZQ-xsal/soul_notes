@@ -14,9 +14,9 @@ import java.util.stream.Stream;
 
 /**
  * <b>心理小知识检索器</b>
- * <p>知识库自 classpath {@code knowledge/{pack}/tips.md} 加载 (Spec §7.1), {@code SOULNOTES_KNOWLEDGE_PACK}
+ * <p>知识库自 classpath {@code knowledge/{pack}/tips.md} 加载, {@code SOULNOTES_KNOWLEDGE_PACK}
  * 选择包 (默认 {@code default}), 机构可整包替换心理知识而无需改代码.</p>
- * <p>//! 回退链 (Spec §7.1): 配置包缺失/解析为空 → 回退内置 default 包并 WARN; default 亦不可用 → 空列表 + WARN,
+ * <p>回退链: 配置包缺失/解析为空 → 回退内置 default 包并 WARN; default 亦不可用 → 空列表 + WARN,
  * 检索返回空. 后续可扩展为基于向量数据库的 RAG 检索.</p>
  * @since 2.0
  */
@@ -33,13 +33,13 @@ public final class PsychologyTipsRetriever
     //* 实例字段: GraalVM native-image 禁止 static final 字段持有 Random 实例 (构建期种子会被固化进镜像堆), 单例 bean 下实例字段语义等价.
     private final @NotNull Random random = new Random();
 
-    //* 懒加载缓存 (Spec §7.1 钉死): bean 内仅解析一次, 避免构造期 IO 拖慢启动; volatile 保证并发首调的可见性,
+    //* 懒加载缓存 (bean 内仅解析一次): 避免构造期 IO 拖慢启动; volatile 保证并发首调的可见性,
     //* 竞态下最坏重复解析一次, 结果幂等无害.
     private volatile List<@NotNull Tip> tips;
 
     /**
      * <span style="color: 95cc6d">构造入口 (CDI 注入 / 测试直构共用).</span>
-     * <p>//* 直构时 @ConfigProperty 注解不生效, 参数按普通字符串传入 — 单测借此注入任意包名验证回退链.</p>
+     * <p>直构时 @ConfigProperty 注解不生效, 参数按普通字符串传入 — 单测借此注入任意包名验证回退链.</p>
      * @param packName 知识包名 (SOULNOTES_KNOWLEDGE_PACK, 默认 {@link #DEFAULT_PACK})
      */
     @Inject
@@ -82,7 +82,7 @@ public final class PsychologyTipsRetriever
 
     /**
      * 解析并缓存当前包的 Tip 列表.
-     * <p>//* 回退决策集中于此: 配置包非空即用; 否则 (非 default 时) 回退 default 并 WARN;
+     * <p>回退决策集中于此: 配置包非空即用; 否则 (非 default 时) 回退 default 并 WARN;
      * default 自身缺失/为空则空列表 + WARN — 每种降级态都有日志, 机构配置错误不被静默吞掉.</p>
      */
     private @NotNull List<@NotNull Tip> tips()
@@ -119,5 +119,6 @@ public final class PsychologyTipsRetriever
         @NotNull String keywords,
         @NotNull String title,
         @NotNull String content
-    ) {}
+    )
+    {}
 }

@@ -39,7 +39,7 @@ public final class VoiceStorageService
 
     /**
      * <b>已存储语音</b>
-     * <p>//* store 的返回载体: fileId 供前端回访 /voice/files 端点, path 供引擎直读 —
+     * <p>store 的返回载体: fileId 供前端回访 /voice/files 端点, path 供引擎直读 —
      * 转录必须针对存储文件而非 resteasy 临时文件 (临时文件随请求结束被清理).</p>
      *
      * @param fileId 文件唯一标识 (UUID)

@@ -106,7 +106,7 @@ public class AlertWebSocket
     //region 热线解析
     /**
      * <span style="color: 95cc6d">从 Redis 或配置中解析热线主号码.</span>
-     * <p>//* 解析逻辑收编至 {@link IAlertNotifier#primaryHotlineOf}, 与 Webhook 渠道共享同一来源, 防止两处漂移.</p>
+     * <p>解析逻辑收编至 {@link IAlertNotifier#primaryHotlineOf}, 与 Webhook 渠道共享同一来源, 防止两处漂移.</p>
      */
     private @NotNull Uni<String> resolveHotline()
     {

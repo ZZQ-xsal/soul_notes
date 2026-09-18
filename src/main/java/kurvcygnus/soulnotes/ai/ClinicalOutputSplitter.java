@@ -10,19 +10,19 @@ import org.slf4j.LoggerFactory;
 import java.util.regex.Pattern;
 
 /**
- * <b>结构化输出拆流器 ("副医生"预埋, Spec §7.5)</b>
+ * <b>结构化输出拆流器 ("副医生"预埋)</b>
  * <p>从 AI 回复中提取 {@code AiPromptConstants#CLINICAL_OUTPUT_CONTRACT} 约定的
  * {@code <!--soulnotes {...}-->} HTML 注释块: 命中且 JSON 合法, 正文剔除该块并返回 payload;
  * 无块或 JSON 解析失败, 整条回复原样透传 (优雅降级).</p>
  * <p>边界: 剥离是主机制, 注释在 markdown/HTML 渲染下不可见仅是兜底 — 前端若以纯文本渲染,
- * 透传的注释块会以原文可见, 两者缺一不可 (Spec §7.5 拆流规则).</p>
+ * 透传的注释块会以原文可见, 两者缺一不可.</p>
  * @since 2.0
  */
 public final class ClinicalOutputSplitter
 {
     private static final Logger LOG = LoggerFactory.getLogger(ClinicalOutputSplitter.class);
 
-    //* 宽容正则 (Spec §7.5 钉死): "<!--+" 容忍 <!--- 多横线开标记, "--!?>" 容忍收标记感叹号变体;
+    //* 宽容正则: "<!--+" 容忍 <!--- 多横线开标记, "--!?>" 容忍收标记感叹号变体;
     //* DOTALL 使块内 JSON 可跨行; 捕获组仅取花括号 JSON 段, 整体锚定收标记使嵌套花括号正确回溯到最外层闭合.
     private static final Pattern SOULNOTES_BLOCK = Pattern.compile("<!--+\\s*soulnotes\\s*(\\{.*?})\\s*--!?>", Pattern.DOTALL);
 
@@ -38,7 +38,8 @@ public final class ClinicalOutputSplitter
     public record SplitResult(
         @NotNull String text,
         @Nullable JsonNode payload
-    ) {}
+    )
+    {}
 
     /**
      * <span style="color: 95cc6d">从回复中提取最后一个 {@code soulnotes} 注释块.</span>

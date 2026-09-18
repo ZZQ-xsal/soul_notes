@@ -20,7 +20,7 @@ class DbValidationTaskTest
     private static final PropertyMetaParser.ConfigItemMeta DB_PASSWORD =
         meta("SOULNOTES_DB_PASSWORD", "quarkus.datasource.password", "", PropertyMetaParser.InputType.SECRET, "");
 
-    //* 记录型 fake: probeCalls 验证探测发生, create/apply 计数钉死零写入契约 (Spec §5 非 TTY 只探测不写).
+    //* 记录型 fake: probeCalls 验证探测发生, create/apply 计数钉死零写入契约.
     @SuppressWarnings("NullableProblems")//! 测试源集不引 JetBrains 注解 (compileOnly), 以抑制覆写签名告警 (先例: VoskAsrEngineTest).
     private static final class FakeGateway implements IDatabaseGateway
     {
@@ -97,7 +97,7 @@ class DbValidationTaskTest
 
     @Test void blankUrlSkipsProbeSilently()
     {
-        //* 配置层必配 BLOCK 未通过时探测无意义 (Spec §5): 让 ConfigValidationTask 先报, 本任务静默跳过.
+        //* 配置层必配 BLOCK 未通过时探测无意义: 让 ConfigValidationTask 先报, 本任务静默跳过.
         final var fake = new FakeGateway();
         final var result = new DbValidationTask(fake).run(ctx(Map.of("SOULNOTES_DB_URL", "")));
         assertTrue(result.issues().isEmpty());

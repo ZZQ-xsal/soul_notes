@@ -243,7 +243,7 @@ class VoskAsrEngineTest
     //region 测试脚手架
 
     //* 就绪的最小运行时布局: lib/ 放占位文件 (引擎只探测存在性, 不真加载), model/ 下放含 am/+conf/ 标志目录的模型目录
-    //* (Task 5 起就绪判定收编进 AsrRuntimeManager: 任一标志目录存在即视为完整模型).
+    //* 就绪判定收编进 AsrRuntimeManager: 任一标志目录存在即视为完整模型).
     private static Path tempRuntimeAt(@TempDir Path tempDir) throws Exception
     {
         final var runtime = tempDir.resolve("runtime");
@@ -297,8 +297,8 @@ class VoskAsrEngineTest
 
     /**
      * <b>可记录调用的 fake {@link VoskFFM}</b>
-     * <p>//* 借助 VoskFFM 的测试扩展构造器跳过句柄绑定, 全部实例方法用哑段替代真指针.</p>
-     * <p>//! 测试源集不引 JetBrains 注解 (compileOnly, main-only), 以类级 NullableProblems 抑制覆写签名告警.</p>
+     * <p>借助 VoskFFM 的测试扩展构造器跳过句柄绑定, 全部实例方法用哑段替代真指针.</p>
+     * <p>测试源集不引 JetBrains 注解 (compileOnly, main-only), 以类级 NullableProblems 抑制覆写签名告警.</p>
      */
     @SuppressWarnings("NullableProblems")
     private static class RecordingFfm extends VoskFFM

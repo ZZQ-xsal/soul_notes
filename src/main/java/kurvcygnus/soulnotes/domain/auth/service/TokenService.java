@@ -58,7 +58,7 @@ public final class TokenService
         if(jwtSecret.isBlank() || jwtSecret.getBytes(StandardCharsets.UTF_8).length < 32)
             throw new IllegalStateException("jwt.secret 未配置或强度不足: 请通过 SOULNOTES_JWT_SECRET 环境变量提供至少 32 字节的签名密钥");
 
-        //! 签发与验签共用 mp.jwt.verify.issuer 一键 (Spec §7.3): 本字段注入的值即验签方期望值, 同源即同键;
+        //! 签发与验签共用 mp.jwt.verify.issuer 一键: 本字段注入的值即验签方期望值, 同源即同键;
         //! 空白 issuer 会使签发 (iss="") 与验签 (框架回退默认值) 行为分叉, 与密钥同级 fail-fast.
         if(jwtIssuer.isBlank())
             throw new IllegalStateException("mp.jwt.verify.issuer 未配置: 签发与验签必须共用同一 issuer 键");

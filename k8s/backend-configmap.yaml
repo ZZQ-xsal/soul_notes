@@ -7,3 +7,13 @@ data:
   SOULNOTES_REDIS_HOSTS: "redis://redis:6379"
   SOULNOTES_CORS_ORIGINS: "http://localhost:5173"
   SOULNOTES_VOICE_DIR: "/data/voice_uploads"
+  #* ASR 运行时目录: 与 Deployment 的卷挂载点对齐; 模型/动态库经向导下载到该卷或预先灌入 (见 README §8).
+  SOULNOTES_ASR_RUNTIME_DIR: "/data/asr-model"
+  #* 语音上传独立限流 (本地转录单请求成本高, 默认 10 次/分钟).
+  SOULNOTES_RATE_LIMIT_VOICE: "10"
+  #* 心理知识包: 默认 default 包; 机构整包替换时改为对应 classpath 包名 (见 README §10).
+  SOULNOTES_KNOWLEDGE_PACK: "default"
+  #* 结构化输出契约 ("副医生"预埋): 默认关闭; 开启后每请求追加契约段 token 成本, 谨慎评估后改 "on".
+  SOULNOTES_CLINICAL_TAGGING: "false"
+  #* 预警 Webhook: 空 = 渠道禁用 (仅 WebSocket 在线推送); 机构对接时填服务端地址, 鉴权令牌放 Secret.
+  SOULNOTES_ALERT_WEBHOOK_URL: ""

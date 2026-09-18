@@ -48,7 +48,7 @@ public interface TerminalIO
     static @NotNull TerminalIO system()
     {
         final var reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
-        //* Windows 控制台默认 GBK: 显式以 UTF-8 重建 out/err, 与 stdin 侧对称, 避免中文 UI/报告乱码 (Task 8 遗留).
+        //* Windows 控制台默认 GBK: 显式以 UTF-8 重建 out/err, 与 stdin 侧对称, 避免中文 UI/报告乱码.
         final var out = new PrintStream(new FileOutputStream(FileDescriptor.out), true, StandardCharsets.UTF_8);
         final var err = new PrintStream(new FileOutputStream(FileDescriptor.err), true, StandardCharsets.UTF_8);
         return new TerminalIO()
@@ -76,7 +76,7 @@ public interface TerminalIO
             {
                 final var console = System.console();
                 if(console != null) return console.readPassword();
-                //* 依 Spec §7.1: 无 Console 回退明文输入必须提示; 提示走 err 通道, 不污染 UI 渲染流.
+                //* 无 Console 回退明文输入必须提示; 提示走 err 通道, 不污染 UI 渲染流.
                 writeErr("(当前终端不支持隐藏输入, 密文将回显)\n");
                 final var line = readLine();
                 return line == null ? null : line.toCharArray();

@@ -30,7 +30,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * <b>{@link ChatService} 反射单元测试</b>
  * <p>通过反射验证私有辅助方法的正确性, 并以 fake Agent 替身驱动 {@code callAiAndRespond}
- * 主链路, 验证结构化输出管线的契约组装与拆流落库时序 (Spec §7.5).</p>
+ * 主链路, 验证结构化输出管线的契约组装与拆流落库时序.</p>
  *
  * @author Claude Code
  * @since 1.0
@@ -118,7 +118,7 @@ class ChatServiceTest
     }
     //endregion
 
-    //region 结构化输出管线: 契约组装 (Spec §7.5)
+    //region 结构化输出管线: 契约组装
     @Test void buildSystemPrompt_Off_ReturnsBasePromptOnly() throws Exception
     {
         assertEquals(AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT, invokeBuildSystemPrompt(newService(false, new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty()))));
@@ -132,13 +132,13 @@ class ChatServiceTest
 
     @Test void buildSystemPrompt_On_InstitutionalPromptStaysFirst() throws Exception
     {
-        //* 合并规则 (Spec §7.5 钉死): 机构提示词在前, 功能契约段在后 — 契约首行的最高优先级声明兜底机构指令冲突.
+        //* 合并规则: 机构提示词在前, 功能契约段在后 — 契约首行的最高优先级声明兜底机构指令冲突.
         final var provider = new PromptProvider(Optional.of("机构自定义人设"), Optional.empty(), Optional.empty());
         assertEquals("机构自定义人设\n\n" + AiPromptConstants.CLINICAL_OUTPUT_CONTRACT, invokeBuildSystemPrompt(newService(true, provider)));
     }
     //endregion
 
-    //region 结构化输出管线: 拆流落库时序 (Spec §7.5)
+    //region 结构化输出管线: 拆流落库时序
     //! 纯单测无 Hibernate 上下文, persist 必然失败并触发兜底消息路径 — 但拆流与 addMessage 发生在 persist 之前,
     //! 断言只关注 persist 前已完成的落库文本与 systemPrompt 入参, Uni 失败属预期环境限制.
     @Test void callAiAndRespond_On_SplitsBlockBeforePersist() throws Exception

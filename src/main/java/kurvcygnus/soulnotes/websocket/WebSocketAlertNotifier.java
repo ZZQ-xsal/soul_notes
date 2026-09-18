@@ -9,10 +9,10 @@ import java.util.UUID;
 
 /**
  * <b>RED 预警 WebSocket 渠道</b>
- * <p>面向在线前端 (Spec §7.2): 包装既有 {@link AlertWebSocket#pushAlert(UUID, String)},
+ * <p>面向在线前端: 包装既有 {@link AlertWebSocket#pushAlert(UUID, String)},
  * 连接注册表仍由 AlertWebSocket 持有, 本类仅作为 {@link IAlertNotifier} 渠道适配器;
  * 用户不在线时 pushAlert 内部静默跳过, 语义与收编前完全一致.</p>
- * <p>//! level 参数不参与 WS 负载: WS 推送仅由 RED 等级触发 (applyWarning 门控), 负载 type 恒为 RED_ALERT.</p>
+ * <p>level 参数不参与 WS 负载: WS 推送仅由 RED 等级触发 (applyWarning 门控), 负载 type 恒为 RED_ALERT.</p>
  * @since 2.0
  */
 @ApplicationScoped

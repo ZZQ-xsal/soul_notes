@@ -227,8 +227,8 @@ class VoiceResourceTest
 
     /**
      * <b>可记录调用的 fake {@link IAsrEngine}</b>
-     * <p>//* 固定返回构造时给定的 {@link AsrResult}, 并记录被转录的文件路径供断言.</p>
-     * <p>//! 测试源集不引 JetBrains 注解 (compileOnly, main-only), 以类级 NullableProblems 抑制覆写签名告警.</p>
+     * <p>固定返回构造时给定的 {@link AsrResult}, 并记录被转录的文件路径供断言.</p>
+     * <p>测试源集不引 JetBrains 注解 (compileOnly, main-only), 以类级 NullableProblems 抑制覆写签名告警.</p>
      */
     @SuppressWarnings("NullableProblems")
     static final class FakeEngine implements IAsrEngine

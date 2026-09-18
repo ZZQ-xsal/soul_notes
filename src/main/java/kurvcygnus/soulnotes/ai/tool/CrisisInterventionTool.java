@@ -3,6 +3,7 @@ package kurvcygnus.soulnotes.ai.tool;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import jakarta.enterprise.context.ApplicationScoped;
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import kurvcygnus.soulnotes.utils.constants.ConfigDefaults;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
@@ -60,10 +61,9 @@ public final class CrisisInterventionTool
     private static @NotNull String buildMessage(@NotNull String name, @NotNull String primary, @NotNull String backup)
     {
         final var sb = new StringBuilder();
-        sb.append("🚨 我们很关心你。\n\n");
-        sb.append(name).append(": ").append(primary);
+        sb.append(PrintUtils.quickFormat("🚨 我们很关心你。\n\n{}: {}", name, primary));
         if(!backup.isBlank())
-            sb.append("\n备用热线: ").append(backup);
+            sb.append(PrintUtils.quickFormat("\n备用热线: {}", backup));
         sb.append("\n\n你的安全是最重要的, 请立即联系专业人士。\n我们一直在你身边。");
         return sb.toString();
     }

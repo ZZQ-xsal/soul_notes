@@ -6,14 +6,24 @@ import java.util.List;
 
 /**
  * <b>Pre-Launch 任务</b>
- * <p>sealed: 新任务 (如 DB 探活) 需显式修订 permits — 有意的扩展门槛 (Spec §6).</p>
+ * <p>sealed: 新任务 (如 DB 探活) 需显式修订 permits — 有意的扩展门槛.</p>
  * @since 2.0
  */
 public sealed interface IPreLaunchTask permits ConfigValidationTask, DbValidationTask
 {
-    enum Level { BLOCK, WARN }
-    record Issue(@NotNull Level level, @NotNull String subject, @NotNull String message) {}
-    record Result(@NotNull List<Issue> issues) { public boolean hasBlocks() { return issues.stream().anyMatch(i -> i.level() == Level.BLOCK); } }
+    enum Level
+    {
+        BLOCK,
+        WARN
+    }
+
+    record Issue(@NotNull Level level, @NotNull String subject, @NotNull String message)
+    {}
+
+    record Result(@NotNull List<Issue> issues)
+    {
+        public boolean hasBlocks() { return issues.stream().anyMatch(i -> i.level() == Level.BLOCK); }
+    }
 
     @NotNull String name();
     default int priority() { return 0; }

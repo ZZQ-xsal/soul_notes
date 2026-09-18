@@ -1,5 +1,6 @@
 package kurvcygnus.soulnotes.config.prelaunch;
 
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -16,7 +17,7 @@ import java.util.regex.Pattern;
 
 /**
  * <b>application.properties 注释元数据解析器</b>
- * <p>Spec §7.3: 向导条目元数据以 {@code # @tag} 注释写在配置项正上方, 本类将其解析为 {@link ConfigItemMeta}.
+ * <p>向导条目元数据以 {@code # @tag} 注释写在配置项正上方, 本类将其解析为 {@link ConfigItemMeta}.
  * 环境变量名与默认值从值行 {@code ${ENV:default}} 提取, 不在注释中重复.</p>
  * @since 2.0
  */
@@ -24,7 +25,15 @@ public final class PropertyMetaParser
 {
     //* INT 与 NUMBER 分立: NUMBER 允许任意正小数 (temperature/weather 阈值), INT 拒绝小数 —
     //! 消费方为整型配置键时放行 "5.0" 会在 Quarkus bean 创建期才崩溃, 校验层必须能区分两者.
-    public enum InputType { TEXT, URL, SECRET, NUMBER, INT, GENERATE }
+    public enum InputType
+    {
+        TEXT,
+        URL,
+        SECRET,
+        NUMBER,
+        INT,
+        GENERATE
+    }
 
     public record ConfigItemMeta(
         String key,
@@ -37,7 +46,8 @@ public final class PropertyMetaParser
         String scheme,
         int minLength,
         boolean required
-    ) {}
+    )
+    {}
 
     private static final @NotNull Pattern VALUE_LINE = Pattern.compile("^([A-Za-z0-9._-]+)\\s*=\\s*(.*)$");
     private static final @NotNull Pattern ENV_DEFAULT = Pattern.compile("^\\$\\{([A-Z0-9_]+):(.*)}\\s*$", Pattern.DOTALL);
@@ -61,11 +71,19 @@ public final class PropertyMetaParser
         for(final var rawLine: lines)
         {
             final var line = rawLine.strip();
-            if(line.startsWith("# @")) { tags.add(line.substring(3)); continue; }
+            if(line.startsWith("# @"))
+            {
+                tags.add(line.substring(3));
+                continue;
+            }
             if(line.isEmpty() || line.startsWith("#")) continue;
 
             final var matcher = VALUE_LINE.matcher(line);
-            if(!matcher.matches()) { tags.clear(); continue; }
+            if(!matcher.matches())
+            {
+                tags.clear();
+                continue;
+            }
             if(!tags.isEmpty())
             {
                 //! buildMeta 对非向导条目 (无 @group 或无 ${ENV:} 展开) 返回 null, 必须跳过而非入列.
@@ -97,13 +115,17 @@ public final class PropertyMetaParser
             {
                 case "group" -> group = arg;
                 case "name" -> humanName = arg;
-                case "explain" -> { if(!explain.isEmpty()) explain.append('\n'); explain.append(arg); }
+                case "explain" ->
+                {
+                    if(!explain.isEmpty()) explain.append('\n');
+                    explain.append(arg);
+                }
                 case "input" -> inputType = PropertyMetaParser.InputType.valueOf(arg.toUpperCase());
                 case "scheme" -> scheme = arg;
                 case "min-length" -> minLength = Integer.parseInt(arg);
                 case "required" -> required = true;
-                default -> {//! 未知标签静默忽略, 保证旧版本解析器可读新文件.
-                }
+                //* 未知标签静默忽略, 保证旧版本解析器可读新文件.
+                default -> {}
             }
         }
         final Matcher env = ENV_DEFAULT.matcher(rawValue);
@@ -135,7 +157,7 @@ public final class PropertyMetaParser
         for(final var url : urls)
         {
             try(final var reader = new BufferedReader(new InputStreamReader(url.openStream(), StandardCharsets.UTF_8))) { items.addAll(parse(reader.lines().toList())); }
-            catch(IOException e) { throw new IllegalStateException("读取 application.properties 失败: " + url, e); }
+            catch(IOException e) { throw new IllegalStateException(PrintUtils.quickFormat("读取 application.properties 失败: {}", url), e); }
         }
         return List.copyOf(items);
     }

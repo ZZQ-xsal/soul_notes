@@ -83,7 +83,7 @@ class EntranceDecisionTest
 
     //endregion
 
-    //region banner: 品牌名配置化 (Spec §7.3)
+    //region banner: 品牌名配置化
 
     //* 品牌行必须位于 ASCII Art 顶部: Art 字模固定不可参数化, 品牌以 Art 上方的文字行呈现.
     @Test void bannerCarriesBrandLineOnTop()
@@ -116,7 +116,7 @@ class EntranceDecisionTest
 
     //endregion
 
-    //region runPreLaunchTasks: 配置 + DB 双任务编排 (Task 9)
+    //region runPreLaunchTasks: 配置 + DB 双任务编排
 
     @TempDir Path dir;
 

@@ -7,6 +7,7 @@ import io.quarkus.hibernate.reactive.panache.Panache;
 import jakarta.enterprise.context.ApplicationScoped;
 import kurvcygnus.soulnotes.domain.diary.entity.MoodDiary;
 import kurvcygnus.soulnotes.utils.JsonUtils;
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import kurvcygnus.soulnotes.utils.TimeUtils;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
@@ -62,7 +63,7 @@ public final class UserContextTool
                 atMost(Duration.ofSeconds(5));
 
             if(diaries.isEmpty())
-                return "用户在过去" + recentDays + "天内没有日记记录。";
+                return PrintUtils.quickFormat("用户在过去{}天内没有日记记录。", recentDays);
 
             return buildSummary(diaries);
         }
@@ -100,8 +101,7 @@ public final class UserContextTool
 
         if(parsedCount == 0)
         {
-            final var diaryCount = diaries.size();
-            return "用户最近有 " + diaryCount + " 条日记记录，但暂无情感分析结果。";
+            return PrintUtils.quickFormat("用户最近有 {} 条日记记录，但暂无情感分析结果。", diaries.size());
         }
 
         final var avgPositive = totalPositive / parsedCount;
@@ -109,13 +109,7 @@ public final class UserContextTool
         final var avgAnxiety  = totalAnxiety  / parsedCount;
 
         final var sb = new StringBuilder();
-        sb.append("用户近 ").
-            append(recentDays).
-            append(" 天共记录了 ").
-            append(diaries.size()).
-            append(" 篇日记，其中 ").
-            append(parsedCount).
-            append(" 篇已分析。");
+        sb.append(PrintUtils.quickFormat("用户近 {} 天共记录了 {} 篇日记，其中 {} 篇已分析。", recentDays, diaries.size(), parsedCount));
 
         if(avgPositive > avgNegative)
             sb.append("整体情绪偏向积极。");

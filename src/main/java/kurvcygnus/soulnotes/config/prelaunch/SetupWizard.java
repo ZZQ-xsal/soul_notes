@@ -2,6 +2,7 @@ package kurvcygnus.soulnotes.config.prelaunch;
 
 import kurvcygnus.soulnotes.ai.IModelCatalog;
 import kurvcygnus.soulnotes.ai.asr.IAsrRuntimeControl;
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -21,14 +22,14 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * <b>Pre-Launch 配置向导</b> (Spec §7.0-7.2).
+ * <b>Pre-Launch 配置向导</b>.
  * <p>pnpm 风格折叠清单的交互实现: 模式选择 (简单 = 仅必填 / 全面 = 全部) → 逐项编辑 (就地校验) →
  * 摘要确认 → 双文件落盘 → 完成屏 (启动/退出). 仅显式值进入结果与落盘, 未动项保持内置默认.</p>
- * <p>//* ASR 运行时交互 (Spec §4.5): 保存 {@code asr.engine} / {@code asr.runtime.dir} 条目后触发一次
+ * <p>ASR 运行时交互: 保存 {@code asr.engine} / {@code asr.runtime.dir} 条目后触发一次
  * 就绪检查, 未就绪现场询问是否立即下载 (进度行内回显); 控制端口经构造注入, null = 禁用该交互.</p>
- * <p>//* 数据库交互流 (Spec §5 TTY 列): 数据库组三项 (URL/用户名/密码) 全部保存且值指纹变化时触发一次性
+ * <p>数据库交互流: 数据库组三项 (URL/用户名/密码) 全部保存且值指纹变化时触发一次性
  * probe → 五态分流 (直通 ✔ / 即时 ✗ 回重编辑 / 自动建库 / 询问建表); 网关经构造注入, null = 禁用该流.</p>
- * <p>//* AI 模型拉取步 (Spec §6): AI 接入组 endpoint+key 保存且值指纹变化时触发一次性模型列表拉取
+ * <p>AI 模型拉取步: AI 接入组 endpoint+key 保存且值指纹变化时触发一次性模型列表拉取
  * (探测 URL 回显 → 元数据列表 → 序号选择), 401/403 回重编辑密钥, 网络失败/空列表退化为手动输入;
  * 拉取成功后 endpoint 存规范形 (fetch 与存储分离), 目录端口经构造注入, null = 禁用该流.</p>
  * <p>交互妥协记录 (审计): Windows conhost 无 raw mode 且零依赖约束禁用 JLine, 方向键全屏导航不可行,
@@ -42,19 +43,31 @@ public final class SetupWizard
 {
     //region 公共表面
 
-    public enum Mode { SIMPLE, FULL }
+    public enum Mode
+    {
+        SIMPLE,
+        FULL
+    }
 
-    //! CANCELLED 不得并入 EXIT: Spec §6.2 规定向导中途取消 (EOF/Ctrl+C) → 退出码 1, 由 Entrance 据此 System.exit(1); 向导自身禁调 System.exit (脚本化测试依赖). 用户主动选退出仍是 EXIT (退出码 0).
+    //! CANCELLED 不得并入 EXIT: 向导中途取消 (EOF/Ctrl+C) 属异常收场, 由 Entrance 映射 System.exit(1); 向导自身禁调 System.exit (脚本化测试依赖). 用户主动选退出仍是 EXIT (退出码 0).
     //! FAILED 不得并入 EXIT (评审轮次 2): 写盘失败属异常收场, 退出码必须为 1 (由 Entrance 映射), 否则与用户主动退出同码, 取消/失败语义倒挂.
-    public enum NextAction { LAUNCH, EXIT, CANCELLED, FAILED }
+    public enum NextAction
+    {
+        LAUNCH,
+        EXIT,
+        CANCELLED,
+        FAILED
+    }
 
     //* values 以 envName 为键, 仅显式设置项 (本次输入 + 已存在显式配置预填); 可选留默认项不入表, 保证落盘最小化.
     //* 继承自环境的密钥项保留在 values (进程环境中仍生效) 但不落盘, 见 [[SetupWizard#prefill]].
-    public record SetupResult(@NotNull Map<String, String> values, @NotNull NextAction action) {}
+    public record SetupResult(@NotNull Map<String, String> values, @NotNull NextAction action)
+    {}
 
     //* prefill 产物: values 供交互复用; envNames 记录继承来源 — 密钥类 (SECRET/GENERATE) 继承项落盘时排除
     //* (README prod 指引: 密钥必须环境变量注入, 且摘要屏全掩码, 用户无从察觉明文被物化), 可变集: 本会话重输即移出.
-    private record Prefill(@NotNull Map<String, String> values, @NotNull Set<String> envNames) {}
+    private record Prefill(@NotNull Map<String, String> values, @NotNull Set<String> envNames)
+    {}
 
     //endregion
 
@@ -72,20 +85,20 @@ public final class SetupWizard
     private static final @NotNull Set<String> ASR_TRIGGER_ENVS =
         Set.of("SOULNOTES_ASR_ENGINE", "SOULNOTES_ASR_RUNTIME_DIR");
 
-    //* DB 交互流触发键 (Spec §5 TTY 列): 数据库组三项 envName; 组名与元数据单一来源 (application.properties @group) 对齐.
+    //* DB 交互流触发键: 数据库组三项 envName; 组名与元数据单一来源 (application.properties @group) 对齐.
     private static final @NotNull String DB_GROUP = "数据库";
     private static final @NotNull String DB_URL_ENV = "SOULNOTES_DB_URL";
     private static final @NotNull String DB_USER_ENV = "SOULNOTES_DB_USER";
     private static final @NotNull String DB_PASSWORD_ENV = "SOULNOTES_DB_PASSWORD";
 
-    //* AI 模型拉取步触发键 (Spec §6, Task 10): AI 接入组的 endpoint 与 api-key 两项; model 项同组但仅作为选择结果落点,
+    //* AI 模型拉取步触发键: AI 接入组的 endpoint 与 api-key 两项; model 项同组但仅作为选择结果落点,
     //* 不参与触发 — 手动改模型名不应引发网络探测. 组名与元数据单一来源 (application.properties @group) 对齐.
     private static final @NotNull String AI_GROUP = "AI 接入";
     private static final @NotNull String AI_ENDPOINT_ENV = "SOULNOTES_AI_ENDPOINT";
     private static final @NotNull String AI_API_KEY_ENV = "SOULNOTES_AI_API_KEY";
     private static final @NotNull String AI_MODEL_ENV = "SOULNOTES_AI_MODEL";
 
-    //* 模型列表拉取超时 (Spec §6 钉死 10s): 拉取是向导内的同步交互, 过长等待会让人误以为向导挂死.
+    //* 模型列表拉取超时钉死 10s: 拉取是向导内的同步交互, 过长等待会让人误以为向导挂死.
     private static final @NotNull Duration AI_FETCH_TIMEOUT = Duration.ofSeconds(10);
 
     private final @NotNull Path workDir;
@@ -136,7 +149,7 @@ public final class SetupWizard
 
     /**
      * <span style="color: 95ccfd">执行向导主流程: 模式 → 编辑 → 摘要 → 落盘 → 完成屏.</span>
-     * <p>EOF/Ctrl+C 在写入前发生时打印取消提示并返回空表 + CANCELLED (Entrance 据此以退出码 1 收场, Spec §6.2), 不落盘; 写盘失败返回空表 + FAILED (评审轮次 2, 同为退出码 1); 写入后的 EOF 归为 EXIT (无可取消之物).</p>
+     * <p>EOF/Ctrl+C 在写入前发生时打印取消提示并返回空表 + CANCELLED (Entrance 据此以退出码 1 收场), 不落盘; 写盘失败返回空表 + FAILED (评审轮次 2, 同为退出码 1); 写入后的 EOF 归为 EXIT (无可取消之物).</p>
      */
     public @NotNull SetupResult run(
         @NotNull List<PropertyMetaParser.ConfigItemMeta> items,
@@ -173,23 +186,28 @@ public final class SetupWizard
                         case CANCEL -> { return cancelled(io); }
                         case SAVE ->
                         {
-                            //* ASR 条目保存后触发运行时就绪检查 (Spec §4.5): EOF 于询问符处沿用向导取消路径.
+                            //* ASR 条目保存后触发运行时就绪检查: EOF 于询问符处沿用向导取消路径.
                             if(!offerAsrRuntimeIfNotReady(visible.get(expanded), io)) return cancelled(io);
-                            //* 数据库组三项齐备且值指纹变化时触发 DB 探测/修复流 (Spec §5 TTY 列): EOF 于询问符处同走取消路径.
+                            //* 数据库组三项齐备且值指纹变化时触发 DB 探测/修复流: EOF 于询问符处同走取消路径.
                             final var step = runDbFlowIfTriggered(visible.get(expanded), values, dbProbeKey, io);
                             if(step.outcome() == DbFlowOutcome.CANCEL) return cancelled(io);
                             if(step.fingerprint() != null) dbProbeKey = step.fingerprint();
                             if(step.outcome() == DbFlowOutcome.REEDIT)
                                 continue;  //* 就地失败: 不推进光标 — 循环回到顶部重绘清单并重新展开当前项 (向导既有编辑态语义).
-                            //* AI 组 endpoint+key 齐备且值指纹变化时触发模型拉取/选择步 (Spec §6): EOF 于列表/输入符处同走取消路径.
+                            //* AI 组 endpoint+key 齐备且值指纹变化时触发模型拉取/选择步: EOF 于列表/输入符处同走取消路径.
                             final var aiStep = runAiFlowIfTriggered(visible.get(expanded), values, aiFetchKey, io);
                             if(aiStep.outcome() == AiFlowOutcome.CANCEL) return cancelled(io);
                             if(aiStep.fingerprint() != null) aiFetchKey = aiStep.fingerprint();
                             if(aiStep.outcome() == AiFlowOutcome.REEDIT)
                                 continue;  //* 密钥被拒: 停在当前项重编辑, 改值保存后经指纹重触发.
                             next = expanded + 1;
-                            if(next >= visible.size()) { expanded = null; editing = false; }  //* 末项已存 → 直达摘要.
-                            else expanded = next;                                             //* 保存即顺序推进到下一项.
+                            if(next >= visible.size())
+                            {
+                                expanded = null;
+                                editing = false;
+                            }//* 末项已存 → 直达摘要.
+                            else
+                                expanded = next;//* 保存即顺序推进到下一项.
                         }
                         case DISCARD -> expanded = null;  //* 放弃 → 折叠命令态, 光标仍指向下一未编辑项.
                     }
@@ -198,7 +216,11 @@ public final class SetupWizard
                 final var cmd = readCommand(visible.size(), next, io);
                 if(cmd == null) return cancelled(io);
                 if(cmd == CMD_FINISH) editing = false;
-                else { expanded = cmd; next = cmd + 1; }
+                else
+                {
+                    expanded = cmd;
+                    next = cmd + 1;
+                }
                 continue;
             }
 
@@ -216,12 +238,12 @@ public final class SetupWizard
 
     //region 阶段一: 模式选择
 
-    //* 返回 null = EOF 取消; 回车默认简单配置 (低门槛优先, Spec §7.0).
+    //* 返回 null = EOF 取消; 回车默认简单配置 (低门槛优先).
     private static @Nullable Mode askMode(int total, @NotNull TerminalIO io)
     {
-        io.writeOut("\n" + emph("== Soul Notes 配置向导 ==") + "\n\n");
+        io.writeOut(PrintUtils.quickFormat("\n{}\n\n", emph("== Soul Notes 配置向导 ==")));
         io.writeOut("  1. 简单配置 (仅必填项)\n");
-        io.writeOut("  2. 全面配置 (全部 " + total + " 项)\n");
+        io.writeOut(PrintUtils.quickFormat("  2. 全面配置 (全部 {} 项)\n", total));
         while(true)
         {
             io.writeOut("请选择 [1/2, 回车=1]: ");
@@ -230,7 +252,7 @@ public final class SetupWizard
             final var t = raw.strip();
             if(t.isEmpty() || t.equals("1")) return Mode.SIMPLE;
             if(t.equals("2")) return Mode.FULL;
-            io.writeOut(bad("✗ 无效选择, 请输入 1 或 2") + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", bad("✗ 无效选择, 请输入 1 或 2")));
         }
     }
 
@@ -251,7 +273,7 @@ public final class SetupWizard
         {
             if(prevGroup == null || !prevGroup.equals(meta.group()))
             {
-                io.writeOut(dim("── " + meta.group()) + "\n");
+                io.writeOut(PrintUtils.quickFormat("{}\n", dim(PrintUtils.quickFormat("── {}", meta.group()))));
                 prevGroup = meta.group();
             }
             io.writeOut(TerminalRenderer.listItemLine(stateOf(meta, values)) + "\n");
@@ -259,10 +281,15 @@ public final class SetupWizard
     }
 
     //* 展开态结局: SAVE = 保留/保存并推进; DISCARD = esc 放弃折叠; CANCEL = EOF 取消.
-    private enum Outcome { SAVE, DISCARD, CANCEL }
+    private enum Outcome
+    {
+        SAVE,
+        DISCARD,
+        CANCEL
+    }
 
     /**
-     * <span style="color: 95ccfd">展开块交互 (Spec §7.1): 输入行 + 空行 + 灰斜体解释.</span>
+     * <span style="color: 95ccfd">展开块交互: 输入行 + 空行 + 灰斜体解释.</span>
      * <p>空输入语义: 已有当前值 → 保留; GENERATE → 自动生成; 必填未配 → 红字重问 (不折叠);
      * 可选未配 → 保留默认且不入 values. 非法输入原地红字重问; {@code esc} 放弃折叠.</p>
      */
@@ -278,14 +305,14 @@ public final class SetupWizard
         boolean explainShown = false;  //* 解释只在首个输入行后渲染一次, 重问循环不重复刷屏.
         while(true)
         {
-            io.writeOut("  " + emph("❯") + " " + env + currentHint(meta, values) + ": ");
+            io.writeOut(PrintUtils.quickFormat("  {} {}{}: ", emph("❯"), env, currentHint(meta, values)));
             final var raw = secretLike(meta) ? readSecretLine(io) : io.readLine();
             if(raw == null)
                 return Outcome.CANCEL;
             if(!explainShown)
             {
                 io.writeOut("\n");
-                for(final var line : explain) io.writeOut("  " + dim(line) + "\n");
+                for(final var line : explain) io.writeOut(PrintUtils.quickFormat("  {}\n", dim(line)));
                 explainShown = true;
             }
             final var t = raw.strip();
@@ -302,7 +329,7 @@ public final class SetupWizard
                 }
                 if(meta.required())
                 {
-                    io.writeOut(bad("  ✗ 必填项, 请输入值 (输入 " + ESC_TOKEN + " 放弃)") + "\n");
+                    io.writeOut(PrintUtils.quickFormat("{}\n", bad(PrintUtils.quickFormat("  ✗ 必填项, 请输入值 (输入 {} 放弃)", ESC_TOKEN))));
                     continue;
                 }
                 return Outcome.SAVE;  //* 可选留空 = 保留默认, 不入 values (ConfigWriter 仅写显式值).
@@ -310,7 +337,7 @@ public final class SetupWizard
             final var err = FieldValidator.validate(meta, t);
             if(err.isPresent())
             {
-                io.writeOut(bad("  ✗ " + err.get()) + "\n");  //* 原地红字: 留在展开态重新提问.
+                io.writeOut(PrintUtils.quickFormat("{}\n", bad(PrintUtils.quickFormat("  ✗ {}", err.get()))));  //* 原地红字: 留在展开态重新提问.
                 continue;
             }
             values.put(env, t);
@@ -322,10 +349,10 @@ public final class SetupWizard
     //* 折叠命令态: 返回 null = EOF 取消; CMD_FINISH = q 完成; >=0 = 待展开条目下标.
     private static @Nullable Integer readCommand(int size, int next, @NotNull TerminalIO io)
     {
-        io.writeOut(dim("序号 跳转 / Enter 顺序遍历 / q 完成") + "\n");
+        io.writeOut(PrintUtils.quickFormat("{}\n", dim("序号 跳转 / Enter 顺序遍历 / q 完成")));
         while(true)
         {
-            io.writeOut(emph("❯") + " ");
+            io.writeOut(PrintUtils.quickFormat("{} ", emph("❯")));
             final var raw = io.readLine();
             if(raw == null)
                 return null;
@@ -336,9 +363,9 @@ public final class SetupWizard
                 return CMD_FINISH;
             final var idx = parseIndex(t, size);
             if(idx != null) return idx;
-            io.writeOut(bad(t.matches("[0-9]{1,9}")
-                ? "✗ 序号超出范围 (1-" + size + ")"
-                : "✗ 无效输入: 序号 (1-" + size + ") / Enter 顺序遍历 / q 完成") + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", bad(t.matches("[0-9]{1,9}")
+                ? PrintUtils.quickFormat("✗ 序号超出范围 (1-{})", size)
+                : PrintUtils.quickFormat("✗ 无效输入: 序号 (1-{}) / Enter 顺序遍历 / q 完成", size))));
         }
     }
 
@@ -353,18 +380,18 @@ public final class SetupWizard
 
     //endregion
 
-    //region ASR 运行时交互 (Spec §4.5)
+    //region ASR 运行时交互
 
     /**
      * <span style="color: 95ccfd">ASR 条目保存后的就绪检查与就地下载询问.</span>
-     * <p>//* 就绪静默跳过 — 反复提示会淹没清单主流程; 就绪判定为纯文件检查, 即刻返回.</p>
+     * <p>就绪静默跳过 — 反复提示会淹没清单主流程; 就绪判定为纯文件检查, 即刻返回.</p>
      * @return false = 询问符处 EOF (沿用向导取消路径), 调用方立即收场
      */
     private boolean offerAsrRuntimeIfNotReady(@NotNull PropertyMetaParser.ConfigItemMeta meta, @NotNull TerminalIO io)
     {
         if(asrControl == null || !ASR_TRIGGER_ENVS.contains(meta.envName()) || asrControl.ready())
             return true;
-        io.writeOut(dim("ASR 运行时未就绪 (缺少本地模型或动态库, 语音转写暂不可用)") + "\n");
+        io.writeOut(PrintUtils.quickFormat("{}\n", dim("ASR 运行时未就绪 (缺少本地模型或动态库, 语音转写暂不可用)")));
         while(true)
         {
             io.writeOut("运行时未就绪, 是否立即下载? [Y/n] ");
@@ -378,10 +405,10 @@ public final class SetupWizard
             }
             if(t.equalsIgnoreCase("n"))
             {
-                io.writeOut(dim("已跳过, 可稍后手动放置或重试") + "\n");
+                io.writeOut(PrintUtils.quickFormat("{}\n", dim("已跳过, 可稍后手动放置或重试")));
                 return true;
             }
-            io.writeOut(bad("✗ 无效输入, 请输入 Y 或 n") + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", bad("✗ 无效输入, 请输入 Y 或 n")));
         }
     }
 
@@ -396,16 +423,16 @@ public final class SetupWizard
         {
             control.ensureDownloaded((received, total) -> renderProgress(io, printed, received, total)).
                 await().indefinitely();
-            io.writeOut(ok("✔ ASR 运行时就绪") + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", ok("✔ ASR 运行时就绪")));
         }
         catch(Exception e)
         {
             //* Mutiny await 对受检异常会包一层, 统一解到根因再做类型分支.
             final var cause = rootCause(e);
             if(cause instanceof IllegalStateException concurrent && isAlreadyDownloading(concurrent))
-                io.writeOut(dim("已有下载在进行, 请等待其完成") + "\n");
+                io.writeOut(PrintUtils.quickFormat("{}\n", dim("已有下载在进行, 请等待其完成")));
             else
-                io.writeOut(dim("下载失败 (" + cause.getMessage() + "), 可稍后手动放置或重试") + "\n");
+                io.writeOut(PrintUtils.quickFormat("{}\n", dim(PrintUtils.quickFormat("下载失败 ({}), 可稍后手动放置或重试", cause.getMessage()))));
         }
     }
 
@@ -419,9 +446,9 @@ public final class SetupWizard
     private static void renderProgress(@NotNull TerminalIO io, @NotNull AtomicBoolean printed, int received, int total)
     {
         final var line = total > 0
-            ? "  下载中 " + (int) Math.min(received * 100L / total, 100) + "%"
-            : "  已接收 " + received / (1024 * 1024) + "MB";
-        io.writeOut((printed.get() ? TerminalRenderer.eraseAbove(1) : "") + line + "\n");
+            ? PrintUtils.quickFormat("  下载中 {}%", (int) Math.min(received * 100L / total, 100))
+            : PrintUtils.quickFormat("  已接收 {}MB", received / (1024 * 1024));
+        io.writeOut(PrintUtils.quickFormat("{}{}\n", printed.get() ? TerminalRenderer.eraseAbove(1) : "", line));
         printed.set(true);
     }
 
@@ -435,10 +462,15 @@ public final class SetupWizard
 
     //endregion
 
-    //region 数据库交互流 (Spec §5 TTY 列, Task 9)
+    //region 数据库交互流
 
     //* DB 流结局: CONTINUE = 推进清单; REEDIT = 就地失败, 停在当前项重编辑; CANCEL = 询问符处 EOF, 沿用向导取消路径.
-    private enum DbFlowOutcome { CONTINUE, REEDIT, CANCEL }
+    private enum DbFlowOutcome
+    {
+        CONTINUE,
+        REEDIT,
+        CANCEL
+    }
 
     //* DB 流单步产物: fingerprint = 本次实际探测的三项值指纹 (null = 未触发, 调用方不得覆盖已存指纹);
     //* 重触发判定取 "三项值指纹" 而非 "每会话一次" — 两者实现复杂度相当, 指纹版免去改值后必须重启向导重跑的可用性坑,
@@ -476,7 +508,7 @@ public final class SetupWizard
         catch(IllegalStateException e)
         {
             //! URL 级校验 (scheme/host/端口) 已由 FieldValidator 在展开态拦截, 此处仅防御 userinfo 等深解析失败.
-            io.writeOut(bad("✗ 数据库地址无法解析: " + e.getMessage()) + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", bad(PrintUtils.quickFormat("✗ 数据库地址无法解析: {}", e.getMessage()))));
             return new DbFlowStep(fingerprint, DbFlowOutcome.REEDIT);
         }
         return new DbFlowStep(fingerprint, runDbFlow(gateway, target, io));
@@ -488,37 +520,37 @@ public final class SetupWizard
         var probe = gateway.probe(target);
         if(probe.state() == ProbeResult.State.DB_MISSING)
         {
-            io.writeOut(dim("目标数据库 " + target.database() + " 不存在, 尝试自动创建...") + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", dim(PrintUtils.quickFormat("目标数据库 {} 不存在, 尝试自动创建...", target.database()))));
             try { gateway.createDatabase(target); }
             catch(IllegalStateException e)
             {
-                io.writeOut(bad("✗ 自动建库失败: " + rootCause(e).getMessage()) + "\n");
+                io.writeOut(PrintUtils.quickFormat("{}\n", bad(PrintUtils.quickFormat("✗ 自动建库失败: {}", rootCause(e).getMessage()))));
                 return DbFlowOutcome.REEDIT;  //* 无权限/竞争等: 保持在 DB 项展开态, 用户改值后经指纹重触发.
             }
-            probe = gateway.probe(target);  //* 建库成功必须重探确认 (Spec §5: 重探 ✔).
+            probe = gateway.probe(target);  //* 建库成功必须重探确认.
         }
         return switch(probe.state())
         {
             case OK ->
             {
-                io.writeOut(ok("✔ 数据库连接就绪") + "\n");
+                io.writeOut(PrintUtils.quickFormat("{}\n", ok("✔ 数据库连接就绪")));
                 yield DbFlowOutcome.CONTINUE;
             }
             case SCHEMA_MISSING -> confirmSchema(gateway, target, probe.missingTables(), io);
             case UNREACHABLE ->
             {
-                io.writeOut(bad("✗ 数据库不可达 (连接被拒绝或超时), 请确认 PostgreSQL 实例已运行且 host:port 正确") + "\n");
+                io.writeOut(PrintUtils.quickFormat("{}\n", bad("✗ 数据库不可达 (连接被拒绝或超时), 请确认 PostgreSQL 实例已运行且 host:port 正确")));
                 yield DbFlowOutcome.REEDIT;
             }
             case AUTH_FAILED ->
             {
-                io.writeOut(bad("✗ 数据库账号或密码被拒绝, 请重新输入用户名/密码") + "\n");
+                io.writeOut(PrintUtils.quickFormat("{}\n", bad("✗ 数据库账号或密码被拒绝, 请重新输入用户名/密码")));
                 yield DbFlowOutcome.REEDIT;
             }
             case DB_MISSING ->
             {
                 //! 建库已报告成功但重探仍缺库: 只可能是并发竞争或服务端异常, 原地报错让用户重试.
-                io.writeOut(bad("✗ 数据库创建后仍不存在 (可能并发竞争), 请重试") + "\n");
+                io.writeOut(PrintUtils.quickFormat("{}\n", bad("✗ 数据库创建后仍不存在 (可能并发竞争), 请重试")));
                 yield DbFlowOutcome.REEDIT;
             }
         };
@@ -531,7 +563,7 @@ public final class SetupWizard
         @NotNull List<String> missingTables, @NotNull TerminalIO io
     )
     {
-        io.writeOut(dim("缺少数据表: " + String.join(", ", missingTables)) + "\n");
+        io.writeOut(PrintUtils.quickFormat("{}\n", dim(PrintUtils.quickFormat("缺少数据表: {}", String.join(", ", missingTables)))));
         while(true)
         {
             io.writeOut("初始化数据库结构? [Y/n] ");
@@ -541,33 +573,38 @@ public final class SetupWizard
             if(t.isEmpty() || t.equalsIgnoreCase("y")) break;
             if(t.equalsIgnoreCase("n"))
             {
-                io.writeOut(dim("已跳过: 启动校验将拒绝启动 (可稍后 --setup 重跑)") + "\n");
+                io.writeOut(PrintUtils.quickFormat("{}\n", dim("已跳过: 启动校验将拒绝启动 (可稍后 --setup 重跑)")));
                 return DbFlowOutcome.CONTINUE;
             }
-            io.writeOut(bad("✗ 无效输入, 请输入 Y 或 n") + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", bad("✗ 无效输入, 请输入 Y 或 n")));
         }
-        try { gateway.applySchema(target, script -> io.writeOut(dim("  执行 schema 脚本: " + script) + "\n")); }
+        try { gateway.applySchema(target, script -> io.writeOut(PrintUtils.quickFormat("{}\n", dim(PrintUtils.quickFormat("  执行 schema 脚本: {}", script))))); }
         catch(IllegalStateException e)
         {
-            io.writeOut(bad("✗ 数据库结构初始化失败: " + rootCause(e).getMessage()) + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", bad(PrintUtils.quickFormat("✗ 数据库结构初始化失败: {}", rootCause(e).getMessage()))));
             return DbFlowOutcome.REEDIT;
         }
         if(gateway.probe(target).state() != ProbeResult.State.OK)
         {
             //! 脚本执行完毕但重探仍未全绿: 脚本与期望表集漂移 (构建期缺陷), 原地报错交由用户查看服务端日志.
-            io.writeOut(bad("✗ 初始化脚本执行完毕但校验仍未通过, 请检查数据库日志") + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", bad("✗ 初始化脚本执行完毕但校验仍未通过, 请检查数据库日志")));
             return DbFlowOutcome.REEDIT;
         }
-        io.writeOut(ok("✔ 数据库连接就绪") + "\n");
+        io.writeOut(PrintUtils.quickFormat("{}\n", ok("✔ 数据库连接就绪")));
         return DbFlowOutcome.CONTINUE;
     }
 
     //endregion
 
-    //region AI 模型拉取步 (Spec §6, Task 10)
+    //region AI 模型拉取步
 
     //* AI 流结局: CONTINUE = 推进清单; REEDIT = 401/403 密钥被拒, 停在当前项重编辑; CANCEL = 选择/输入符处 EOF, 沿用向导取消路径.
-    private enum AiFlowOutcome { CONTINUE, REEDIT, CANCEL }
+    private enum AiFlowOutcome
+    {
+        CONTINUE,
+        REEDIT,
+        CANCEL
+    }
 
     //* AI 流单步产物: fingerprint = 本次触发判定的值指纹 (null = 未触发/已取消, 调用方不得覆盖已存指纹).
     //* 成功路径以 "规范化后 endpoint + key" 入指纹而非触发时原值: 规范化会改写 values 中的 endpoint,
@@ -600,23 +637,23 @@ public final class SetupWizard
         final var fingerprint = endpoint + "\n" + apiKey;
         if(fingerprint.equals(lastFingerprint))
             return AiFlowStep.SKIPPED;  //* 同值重存: 静默跳过, 不重复探测.
-        //* 回显最终请求 URL (Spec §6): 与 fetch 共用同一启发式 (单一来源), 用户可预判探测落点.
-        io.writeOut(dim("探测模型列表: " + IModelCatalog.modelsUrl(endpoint) + " ...") + "\n");
+        //* 回显最终请求 URL: 与 fetch 共用同一启发式 (单一来源), 用户可预判探测落点.
+        io.writeOut(PrintUtils.quickFormat("{}\n", dim(PrintUtils.quickFormat("探测模型列表: {} ...", IModelCatalog.modelsUrl(endpoint)))));
         final IModelCatalog.CatalogResult result;
         try { result = catalog.fetch(endpoint, apiKey, AI_FETCH_TIMEOUT); }
         catch(IModelCatalog.UnauthorizedException e)
         {
-            io.writeOut(bad("✗ 密钥无效 (服务端拒绝鉴权), 请重新输入接口地址与 API 密钥") + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", bad("✗ 密钥无效 (服务端拒绝鉴权), 请重新输入接口地址与 API 密钥")));
             return new AiFlowStep(fingerprint, AiFlowOutcome.REEDIT);
         }
         catch(IOException e)
         {
-            io.writeOut(emph("⚠ 无法获取模型列表 (" + rootCause(e).getMessage() + "), 请手动输入模型名称") + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", emph(PrintUtils.quickFormat("⚠ 无法获取模型列表 ({}), 请手动输入模型名称", rootCause(e).getMessage()))));
             return new AiFlowStep(fingerprint, manualModelInput(values, io));
         }
         if(result.models().isEmpty())
         {
-            io.writeOut(emph("⚠ 服务端返回的模型列表为空, 请手动输入模型名称") + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", emph("⚠ 服务端返回的模型列表为空, 请手动输入模型名称")));
             return new AiFlowStep(fingerprint, manualModelInput(values, io));
         }
         renderModelList(result.models(), io);
@@ -625,21 +662,22 @@ public final class SetupWizard
             return AiFlowStep.SKIPPED;  //* 选择符处 EOF: 向导随即取消, 指纹不再有意义.
         final var chosen = result.models().get(picked);
         values.put(AI_MODEL_ENV, chosen.id());
-        //* fetch 与存储分离 (Spec §6): endpoint 存探测成功的规范形 (langchain4j base-url 形态),
+        //* fetch 与存储分离: endpoint 存探测成功的规范形 (langchain4j base-url 形态),
         //* 避免 "拉取成功但 chat 调用 404" 的路径不一致; 摘要屏自然呈现规范化后的值.
         values.put(AI_ENDPOINT_ENV, result.normalizedEndpoint());
-        io.writeOut(ok("✔ 模型已选定: " + chosen.id() + " (接口地址已规范化为 " + result.normalizedEndpoint() + ")") + "\n");
+        io.writeOut(PrintUtils.quickFormat("{}\n", ok(PrintUtils.quickFormat(
+            "✔ 模型已选定: {} (接口地址已规范化为 {})", chosen.id(), result.normalizedEndpoint()))));
         return new AiFlowStep(result.normalizedEndpoint() + "\n" + apiKey, AiFlowOutcome.CONTINUE);
     }
 
-    //* 元数据列表行 (Spec §6): "序号. 模型ID [上下文: n|-] [思考: ✓|✗|-]"; 保持整行无着色, 行内容本身即断言面.
+    //* 元数据列表行: "序号. 模型ID [上下文: n|-] [思考: ✓|✗|-]"; 保持整行无着色, 行内容本身即断言面.
     private static void renderModelList(@NotNull List<IModelCatalog.ModelInfo> models, @NotNull TerminalIO io)
     {
-        io.writeOut(dim("可用模型 (" + models.size() + " 个):") + "\n");
+        io.writeOut(PrintUtils.quickFormat("{}\n", dim(PrintUtils.quickFormat("可用模型 ({} 个):", models.size()))));
         for(int i = 0; i < models.size(); i++)
         {
             final var m = models.get(i);
-            io.writeOut("  " + (i + 1) + ". " + m.id() + " [上下文: " + m.context() + "] [思考: " + m.reasoning() + "]\n");
+            io.writeOut(PrintUtils.quickFormat("  {}. {} [上下文: {}] [思考: {}]\n", i + 1, m.id(), m.context(), m.reasoning()));
         }
     }
 
@@ -648,16 +686,16 @@ public final class SetupWizard
     {
         while(true)
         {
-            io.writeOut("请选择模型序号 [1-" + size + "]: ");
+            io.writeOut(PrintUtils.quickFormat("请选择模型序号 [1-{}]: ", size));
             final var raw = io.readLine();
             if(raw == null)
                 return -1;
             final var t = raw.strip();
             final var idx = parseIndex(t, size);
             if(idx != null) return idx;
-            io.writeOut(bad(t.matches("[0-9]{1,9}")
-                ? "✗ 序号超出范围 (1-" + size + ")"
-                : "✗ 无效输入, 请输入 1-" + size + " 的序号") + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", bad(t.matches("[0-9]{1,9}")
+                ? PrintUtils.quickFormat("✗ 序号超出范围 (1-{})", size)
+                : PrintUtils.quickFormat("✗ 无效输入, 请输入 1-{} 的序号", size))));
         }
     }
 
@@ -673,7 +711,7 @@ public final class SetupWizard
             final var t = raw.strip();
             if(t.isEmpty())
             {
-                io.writeOut(bad("✗ 模型名称不能为空") + "\n");
+                io.writeOut(PrintUtils.quickFormat("{}\n", bad("✗ 模型名称不能为空")));
                 continue;
             }
             values.put(AI_MODEL_ENV, t);
@@ -692,7 +730,7 @@ public final class SetupWizard
         @NotNull TerminalIO io
     )
     {
-        io.writeOut("\n" + emph("== 配置摘要 ==") + "\n");
+        io.writeOut(PrintUtils.quickFormat("\n{}\n", emph("== 配置摘要 ==")));
         String prevGroup = null;
         for(final var meta: items)
         {
@@ -701,15 +739,15 @@ public final class SetupWizard
                 continue;
             if(prevGroup == null || !prevGroup.equals(meta.group()))
             {
-                io.writeOut(dim("── " + meta.group()) + "\n");
+                io.writeOut(PrintUtils.quickFormat("{}\n", dim(PrintUtils.quickFormat("── {}", meta.group()))));
                 prevGroup = meta.group();
             }
-            io.writeOut("  " + meta.key() + " = " + displayValue(meta, v) + "\n");
+            io.writeOut(PrintUtils.quickFormat("  {} = {}\n", meta.key(), displayValue(meta, v)));
             if(prefilled.contains(meta.envName()) && secretLike(meta))
-                io.writeOut(dim("  (继承自环境, 不写入文件)") + "\n");  //* 掩码之下用户无从分辨落盘与否, 须显式预告该项不会进入输出文件.
+                io.writeOut(PrintUtils.quickFormat("{}\n", dim("  (继承自环境, 不写入文件)")));  //* 掩码之下用户无从分辨落盘与否, 须显式预告该项不会进入输出文件.
         }
-        if(values.isEmpty()) io.writeOut(dim("  (无显式设置项, 全部使用内置默认)") + "\n");
-        io.writeOut(dim("未列出的项保持内置默认; 已存在的输出文件会先备份为 *.bak") + "\n");
+        if(values.isEmpty()) io.writeOut(PrintUtils.quickFormat("{}\n", dim("  (无显式设置项, 全部使用内置默认)")));
+        io.writeOut(PrintUtils.quickFormat("{}\n", dim("未列出的项保持内置默认; 已存在的输出文件会先备份为 *.bak")));
     }
 
     //* 返回 null = EOF 取消; TRUE = 确认写入; FALSE = 否决回编辑态.
@@ -723,7 +761,7 @@ public final class SetupWizard
             final var t = raw.strip();
             if(t.isEmpty() || t.equalsIgnoreCase("y")) return Boolean.TRUE;
             if(t.equalsIgnoreCase("n")) return Boolean.FALSE;
-            io.writeOut(bad("✗ 无效输入, 请输入 Y 或 n") + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", bad("✗ 无效输入, 请输入 Y 或 n")));
         }
     }
 
@@ -742,13 +780,15 @@ public final class SetupWizard
         catch(IOException e)
         {
             //! 落盘失败必须显式可见, 向导以异常收场语义结束 — 不存在静默半写状态.
-            io.writeErr(bad("✗ 配置写入失败: " + e) + "\n");
+            //! SLF4J 会把尾参 Throwable 抽走不参与 {} 填充 (getThrowableCandidate), 传 e 本身会退化成字面 "{}" 丢失全部诊断,
+            //! 必须先 toString() 才与旧 "+ e" 拼接逐字符等价.
+            io.writeErr(PrintUtils.quickFormat("{}\n", bad(PrintUtils.quickFormat("✗ 配置写入失败: {}", e.toString()))));
             //! 评审轮次 2: 失败归 EXIT 会使进程退出码 0, 与取消的退出码 1 倒挂 → 改 FAILED (Entrance 映射 System.exit(1)); 返回空表: 值未持久化, 维持 "非空 values ⟺ 已落盘" 不变量.
             return new SetupResult(Map.of(), NextAction.FAILED);
         }
-        //* 完成屏 (Spec §7.2.5): 双文件 ✔ (含 .bak 备注) + 启动/退出选择.
-        io.writeOut("\n" + ok("✔") + " 配置已写入: " + displayPath(propsPath) + bakNote(hadProps, "application.properties.bak") + "\n");
-        io.writeOut(ok("✔") + " 配置已写入: " + displayPath(envPath) + bakNote(hadEnv, ".env.bak") + "\n\n");
+        //* 完成屏: 双文件 ✔ (含 .bak 备注) + 启动/退出选择.
+        io.writeOut(PrintUtils.quickFormat("\n{} 配置已写入: {}{}\n", ok("✔"), displayPath(propsPath), bakNote(hadProps, "application.properties.bak")));
+        io.writeOut(PrintUtils.quickFormat("{} 配置已写入: {}{}\n\n", ok("✔"), displayPath(envPath), bakNote(hadEnv, ".env.bak")));
         io.writeOut("  1. 启动应用\n  2. 退出\n");
         while(true)
         {
@@ -759,7 +799,7 @@ public final class SetupWizard
             if(t.isEmpty() || t.equals("1"))
                 return new SetupResult(Map.copyOf(values), NextAction.LAUNCH);
             if(t.equals("2")) return new SetupResult(Map.copyOf(values), NextAction.EXIT);
-            io.writeOut(bad("✗ 无效选择, 请输入 1 或 2") + "\n");
+            io.writeOut(PrintUtils.quickFormat("{}\n", bad("✗ 无效选择, 请输入 1 或 2")));
         }
     }
 
@@ -780,7 +820,11 @@ public final class SetupWizard
         {
             if(meta.envName() == null)
                 continue;  //! 非向导条目理论上不会出现 (解析器已过滤), 防御 null 键入表.
-            view.explicit(meta.key(), meta.envName()).ifPresent(v -> { values.put(meta.envName(), v); envNames.add(meta.envName()); });
+            view.explicit(meta.key(), meta.envName()).ifPresent(v ->
+            {
+                values.put(meta.envName(), v);
+                envNames.add(meta.envName());
+            });
         }
         return new Prefill(values, envNames);
     }
@@ -840,8 +884,8 @@ public final class SetupWizard
     {
         final var current = values.get(meta.envName());
         if(current != null)
-            return " [当前: " + displayValue(meta, current) + "]";
-        return meta.defaultValue().isEmpty() ? "" : " [默认: " + displayValue(meta, meta.defaultValue()) + "]";
+            return PrintUtils.quickFormat(" [当前: {}]", displayValue(meta, current));
+        return meta.defaultValue().isEmpty() ? "" : PrintUtils.quickFormat(" [默认: {}]", displayValue(meta, meta.defaultValue()));
     }
 
     private static @NotNull TerminalRenderer.ListItem stateOf(
@@ -887,7 +931,7 @@ public final class SetupWizard
     private static @NotNull String displayPath(@NotNull Path p) { return p.toString().replace('\\', '/'); }
 
     private static @NotNull String bakNote(boolean had, @NotNull String bakName)
-        { return had ? " (原文件已备份为 " + bakName + ")" : ""; }
+        { return had ? PrintUtils.quickFormat(" (原文件已备份为 {})", bakName) : ""; }
 
     //endregion
 }

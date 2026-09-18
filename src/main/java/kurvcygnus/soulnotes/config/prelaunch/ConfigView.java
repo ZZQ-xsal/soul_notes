@@ -1,5 +1,6 @@
 package kurvcygnus.soulnotes.config.prelaunch;
 
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -16,7 +17,7 @@ import java.util.Properties;
 /**
  * <b>Pre-Launch 配置视图</b>
  * <p>显式值查找: 系统属性 > 环境变量 > 工作目录 config/application.properties; 未命中回退元数据默认值.
- * classpath 文件的 ${ENV:default} 解析属 Quarkus 运行时职责, 本视图不读取 (Spec §6).</p>
+ * classpath 文件的 ${ENV:default} 解析属 Quarkus 运行时职责, 本视图不读取.</p>
  * @since 2.0
  */
 public final class ConfigView
@@ -27,7 +28,11 @@ public final class ConfigView
 
     //* 包私有, 测试注入.
     ConfigView(@NotNull Map<String, String> sysProps, @NotNull Map<String, String> env, @NotNull Properties workdirProps)
-        { this.sysProps = sysProps; this.env = env; this.workdirProps = workdirProps; }
+    {
+        this.sysProps = sysProps;
+        this.env = env;
+        this.workdirProps = workdirProps;
+    }
 
     public static @NotNull ConfigView load() { return loadIn(Path.of("")); }
 
@@ -43,7 +48,7 @@ public final class ConfigView
                 //* ISO-8859-1, 会把非 ASCII 显式值 (如品牌名) 读成乱码, 与运行时行为分叉.
                 props.load(new InputStreamReader(in, StandardCharsets.UTF_8));
             }
-            catch(Exception e) { throw new IllegalStateException("读取 " + file + " 失败", e); }//! 文件损坏属用户可修复错误, 明确报错优于静默.
+            catch(Exception e) { throw new IllegalStateException(PrintUtils.quickFormat("读取 {} 失败", file), e); }//! 文件损坏属用户可修复错误, 明确报错优于静默.
         }
         return new ConfigView(snapshotSysProps(), Map.copyOf(System.getenv()), props);
     }

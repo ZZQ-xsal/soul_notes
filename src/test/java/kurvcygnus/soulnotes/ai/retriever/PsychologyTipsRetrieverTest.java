@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * <b>{@link PsychologyTipsRetriever} 单元测试</b>
- * <p>//* 等价性钉死 (Spec §7.1): {@link #EXPECTED_TIPS} 为资源化迁移前硬编码的 13 条原 List,
+ * <p>等价性钉死: {@link #EXPECTED_TIPS} 为资源化迁移前硬编码的 13 条原 List,
  * 逐条断言 tips.md 解析结果与检索行为和它全等, 保证迁移零行为漂移.</p>
  *
  * @author Claude Code
@@ -88,7 +88,7 @@ class PsychologyTipsRetrieverTest
 
     private final PsychologyTipsRetriever retriever = new PsychologyTipsRetriever(PsychologyTipsRetriever.DEFAULT_PACK);
 
-    //region 等价性 (Spec §7.1 硬性要求)
+    //region 等价性
 
     @Test void loadDefaultPack_ShouldEqualOriginalThirteenTips()
     {
@@ -123,7 +123,7 @@ class PsychologyTipsRetrieverTest
 
     //endregion
 
-    //region 包选择与回退 (Spec §7.1)
+    //region 包选择与回退
 
     @Test void retrieve_MissingPack_ShouldFallbackToDefault()
     {

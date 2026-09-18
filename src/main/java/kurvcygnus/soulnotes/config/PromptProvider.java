@@ -10,7 +10,7 @@ import java.util.Optional;
 
 /**
  * <b>提示词提供者</b>
- * <p>读 ai.prompt.* 配置覆盖, 空白回退 {@link AiPromptConstants} 内置默认 (机构自定义 AI 人设钩子, Spec §4).</p>
+ * <p>读 ai.prompt.* 配置覆盖, 空白回退 {@link AiPromptConstants} 内置默认 (机构自定义 AI 人设钩子).</p>
  * @since 2.0
  */
 @ApplicationScoped
@@ -41,6 +41,6 @@ public final class PromptProvider
         return v.orElse(fallback);
     }
 
-    //* 环境变量单行, 值中字面 \n 还原为换行 (Spec §4 多行约定).
+    //* 环境变量单行, 值中字面 \n 还原为换行 (多行提示词约定).
     public static @Nullable String normalize(@Nullable String v) { return v == null ? null : v.replace("\\n", "\n"); }
 }

@@ -1,5 +1,6 @@
 package kurvcygnus.soulnotes.ai.asr;
 
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -21,16 +22,17 @@ import java.util.Objects;
  * <p>以 JDK 25 Foreign Function &amp; Memory API 直连 libvosk, 不经 JNI/JNA (Spike 已验证 JVM 与
  * GraalVM Native Image 双侧可行, 见 docs/superpowers/notes/2026-09-14-asr-spike-notes.md).</p>
  *
- * <p>//* 符号与签名以 alphacephei 官方 vosk_api.h 为准 (snake_case), 描述符已按其钉死:
+ * <p>符号与签名以 alphacephei 官方 vosk_api.h 为准 (snake_case), 描述符已按其钉死:
  * 指针一律 {@code ADDRESS}, 采样率 {@code JAVA_FLOAT}, 布尔返回 {@code JAVA_INT}.</p>
  *
- * <p>//! downcall 句柄必须在运行时初始化 (GraalVM 硬约束): 本类通过 {@link #load(Path)} 在
+ * <p>downcall 句柄必须在运行时初始化 (GraalVM 硬约束): 本类通过 {@link #load(Path)} 在
  * 首次识别时才绑定句柄, 严禁类静态初始化期加载动态库.</p>
  *
- * <p>//! 本类非 final 且提供无参测试扩展构造器: {@link VoskAsrEngine} 的单元测试以可覆写的
+ * <p>本类非 final 且提供无参测试扩展构造器: {@link VoskAsrEngine} 的单元测试以可覆写的
  * fake 子类注入, 绕过真实动态库; 无参构造器不绑定任何句柄, 生产代码一律经 {@link #load(Path)}.</p>
  * @since 1.0
  */
+@SuppressWarnings("NullableProblems")//! Mock实现都位于测试模块下; 测试模块无法使用 JetBrains Annotations.
 public class VoskFFM
 {
     //region 句柄
@@ -56,11 +58,20 @@ public class VoskFFM
 
     /**
      * <span style="color: f84b4b">测试扩展构造器.</span>
-     * <p>//! 不绑定任何句柄, 仅供引擎测试的 fake 子类调用以绕开动态库; 所有实例方法必须被覆写,
+     * <p>不绑定任何句柄, 仅供引擎测试的 fake 子类调用以绕开动态库; 所有实例方法必须被覆写,
      * 否则句柄字段为 null 直接 NPE.</p>
      */
     @SuppressWarnings("ConstantConditions")//! 测试扩展构造器刻意置空全部句柄: fake 子类必须覆写全部实例方法, 置空可让漏覆写处快速失败 (NPE).
-    protected VoskFFM() { lookup = null; modelNewHandle = null; modelFreeHandle = null; recognizerNewHandle = null; recognizerFreeHandle = null; acceptWaveformHandle = null; finalResultHandle = null; }
+    protected VoskFFM()
+    {
+        lookup = null;
+        modelNewHandle = null;
+        modelFreeHandle = null;
+        recognizerNewHandle = null;
+        recognizerFreeHandle = null;
+        acceptWaveformHandle = null;
+        finalResultHandle = null;
+    }
 
     /**
      * <span style="color: 95cc6d">绑定动态库并创建全部 downcall 句柄.</span>
@@ -70,7 +81,7 @@ public class VoskFFM
     {
         Objects.requireNonNull(nativeLib, "Param \"nativeLib\" must not be null!");
         if(!Files.isRegularFile(nativeLib))
-            throw new IllegalStateException("Vosk 动态库不存在: " + nativeLib);
+            throw new IllegalStateException(PrintUtils.quickFormat("Vosk 动态库不存在: {}", nativeLib));
 
         try
         {
@@ -80,7 +91,7 @@ public class VoskFFM
         catch(IllegalArgumentException e)
         {
             //* libraryLookup 对无法加载的库抛 IAE, 包装成带路径的明确诊断.
-            throw new IllegalStateException("Vosk 动态库加载失败: " + nativeLib + " (" + e.getMessage() + ")", e);
+            throw new IllegalStateException(PrintUtils.quickFormat("Vosk 动态库加载失败: {} ({})", nativeLib, e.getMessage()), e);
         }
 
         this.modelNewHandle = bind(lookup, "vosk_model_new", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
@@ -94,7 +105,7 @@ public class VoskFFM
 
     /**
      * <span style="color: 95cc6d">加载并绑定 libvosk.</span>
-     * <p>//* 生产入口: 句柄在调用时刻 (运行时) 绑定, 满足 GraalVM 对 downcall 的初始化时序约束.</p>
+     * <p>生产入口: 句柄在调用时刻 (运行时) 绑定, 满足 GraalVM 对 downcall 的初始化时序约束.</p>
      * @param nativeLib 动态库路径
      * @return 已绑定的绑定实例
      */
@@ -146,7 +157,7 @@ public class VoskFFM
 
     /**
      * <span style="color: 95cc6d">销毁识别器.</span>
-     * <p>//* Recognizer 非线程安全且持有音频缓冲, 识别结束 (含失败路径) 必须销毁.</p>
+     * <p>Recognizer 非线程安全且持有音频缓冲, 识别结束 (含失败路径) 必须销毁.</p>
      */
     public void recognizerFree(@NotNull MemorySegment recognizer)
     {
@@ -173,7 +184,7 @@ public class VoskFFM
 
     /**
      * <span style="color: 95cc6d">取最终识别结果 JSON (形如 {@code {"text" : "..."}}).</span>
-     * <p>//! 返回串所有权仍属 recognizer: 本方法立即拷贝为 Java String, 调用方随后可安全释放识别器.</p>
+     * <p>返回串所有权仍属 recognizer: 本方法立即拷贝为 Java String, 调用方随后可安全释放识别器.</p>
      * @return 结果 JSON 字符串 (永不为 null; Vosk 返回 NULL 时抛 IllegalStateException)
      */
     public @NotNull String finalResult(@NotNull MemorySegment recognizer)
@@ -187,7 +198,7 @@ public class VoskFFM
 
     /**
      * <span style="color: 95cc6d">开关 Vosk 自身日志.</span>
-     * <p>//! best-effort: 未 load 前调用为安全 no-op, 不使未加载环境 (如单元测试) 抛错.
+     * <p>best-effort: 未 load 前调用为安全 no-op, 不使未加载环境 (如单元测试) 抛错.
      * 另注意 Kaldi 层 LOG 走自有通道直写 stderr, 本开关压不掉模型加载期的日志 (Spike 坑清单 #3).</p>
      * @param on true = 开启 Vosk 日志
      */
@@ -205,11 +216,11 @@ public class VoskFFM
 
     /**
      * <span style="color: 95cc6d">按符号名绑定 downcall 句柄.</span>
-     * <p>//* 找不到符号立即抛 UnsatisfiedLinkError 并指名, 便于区分 "库未加载" 与 "符号缺失".</p>
+     * <p>找不到符号立即抛 UnsatisfiedLinkError 并指名, 便于区分 "库未加载" 与 "符号缺失".</p>
      */
     private static @NotNull MethodHandle bind(@NotNull SymbolLookup lookup, @NotNull String symbol, @NotNull FunctionDescriptor descriptor)
     {
-        final var address = lookup.find(symbol).orElseThrow(() -> new UnsatisfiedLinkError("libvosk 缺少符号: " + symbol));
+        final var address = lookup.find(symbol).orElseThrow(() -> new UnsatisfiedLinkError(PrintUtils.quickFormat("libvosk 缺少符号: {}", symbol)));
         return Linker.nativeLinker().downcallHandle(address, descriptor);
     }
 
@@ -217,7 +228,7 @@ public class VoskFFM
     private static @Nullable Object call(@NotNull MethodHandle handle, @Nullable Object... args)
     {
         try { return handle.invokeWithArguments(args); }
-        catch(Throwable throwable) { throw new IllegalStateException("Vosk downcall 调用失败: " + throwable.getMessage(), throwable); }
+        catch(Throwable throwable) { throw new IllegalStateException(PrintUtils.quickFormat("Vosk downcall 调用失败: {}", throwable.getMessage()), throwable); }
     }
 
     //endregion

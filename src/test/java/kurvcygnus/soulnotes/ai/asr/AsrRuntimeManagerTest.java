@@ -48,7 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * modelDir/nativeLib 路径解析, ensureDownloaded 的下载落位/进度回调/zip-slip 防护/失败清理等.
  * 下载用例经 JDK 内置 HttpServer 回环伺服本地 fixture zip, 不触真实网络.</p>
  *
- * <p>//! 真实网络下载用例标注 {@code @Disabled} 手动执行, 不进 CI.</p>
+ * <p>真实网络下载用例标注 {@code @Disabled} 手动执行, 不进 CI.</p>
  * @since 1.0
  */
 class AsrRuntimeManagerTest
@@ -524,7 +524,7 @@ class AsrRuntimeManagerTest
 
     /**
      * <b>回环 HTTP fixture 服务器</b>
-     * <p>//* 用 JDK 内置 HttpServer 以真实 HTTP 通路驱动 manager 的 HttpClient 下载路径
+     * <p>用 JDK 内置 HttpServer 以真实 HTTP 通路驱动 manager 的 HttpClient 下载路径
      * (HttpClient 不支持 file://, 回环服务器即可覆盖进度回调与状态码分支, 又不触外网).</p>
      */
     private static final class ZipServer implements AutoCloseable
@@ -591,9 +591,9 @@ class AsrRuntimeManagerTest
 
     /**
      * <b>可记录响应体的 fake {@link HttpClient}</b>
-     * <p>//* 绕过真实网络栈直接回送固定状态码与载荷, 以 {@link RecordingInputStream} 观测
+     * <p>绕过真实网络栈直接回送固定状态码与载荷, 以 {@link RecordingInputStream} 观测
      * manager 是否关闭响应体 (资源契约无法从 HttpServer 侧可靠观测).</p>
-     * <p>//! JDK 21 起 HttpClient 仅 send/sendAsync 为抽象方法, 其余访问器走默认实现.</p>
+     * <p>JDK 21 起 HttpClient 仅 send/sendAsync 为抽象方法, 其余访问器走默认实现.</p>
      */
     private static final class RecordingClient extends HttpClient
     {

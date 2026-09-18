@@ -3,6 +3,7 @@ package kurvcygnus.soulnotes.ai;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -16,12 +17,12 @@ import java.util.Locale;
 import java.util.Objects;
 
 /**
- * <b>HTTP 模型目录拉取器</b> (Spec §6, Task 10)
+ * <b>HTTP 模型目录拉取器</b>
  * <p>以 JDK {@link java.net.http.HttpClient} 探测 OpenAI 兼容 {@code /models} 端点 (URL 启发式见
  * {@link IModelCatalog#modelsUrl}), 解析 {@code data[].id} 与扩展字段为向导展示行;
  * 401/403 分型为 {@link IModelCatalog.UnauthorizedException} 供向导回重编辑密钥, 其余失败归一
  * {@link IOException} 供向导走手动输入兜底 — 拉取成功即连通性 + 密钥双重验证, 不重复造验证轮子.</p>
- * <p>//* 无状态且 Pre-Launch 阶段先于 CDI 启动, 纯构造即可用 (Entrance 直接 new).</p>
+ * <p>无状态且 Pre-Launch 阶段先于 CDI 启动, 纯构造即可用 (Entrance 直接 new).</p>
  * @since 2.0
  */
 public final class HttpModelCatalog implements IModelCatalog
@@ -35,7 +36,7 @@ public final class HttpModelCatalog implements IModelCatalog
     //* Jackson 直用而非 JsonUtils 静态桥: 后者由 Quarkus @Startup 注入, Pre-Launch 阶段尚未初始化.
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    //* 思考能力展示值 (Spec §6 列表行): 从宽映射, 见 [[HttpModelCatalog#reasoningOf]].
+    //* 思考能力展示值 (列表行): 从宽映射, 见 [[HttpModelCatalog#reasoningOf]].
     private static final String REASONING_YES = "✓";
     private static final String REASONING_NO = "✗";
     private static final String FIELD_ABSENT = "-";
@@ -56,9 +57,9 @@ public final class HttpModelCatalog implements IModelCatalog
         }
         final var status = response.statusCode();
         if(status == 401 || status == 403)
-            throw new UnauthorizedException("HTTP " + status + ": API 密钥被服务端拒绝");
+            throw new UnauthorizedException(PrintUtils.quickFormat("HTTP {}: API 密钥被服务端拒绝", status));
         if(status != 200)
-            throw new IOException("HTTP " + status);
+            throw new IOException(PrintUtils.quickFormat("HTTP {}", status));
         return parse(response.body(), endpoint);
     }
 
@@ -79,7 +80,7 @@ public final class HttpModelCatalog implements IModelCatalog
         }
         catch(IllegalArgumentException e)
         {
-            throw new IOException("接口地址无法解析: " + endpoint, e);
+            throw new IOException(PrintUtils.quickFormat("接口地址无法解析: {}", endpoint), e);
         }
     }
 

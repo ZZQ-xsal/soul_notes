@@ -28,13 +28,13 @@ import static org.junit.jupiter.api.Assertions.*;
  * <b>{@link WebhookAlertNotifier} 行为单元测试</b>
  * <p>经 JDK 内置 HttpServer 回环接收 RED 预警负载, 覆盖负载字段形状与 hotline 主号码解析,
  * Bearer 鉴权头的携带与省略, 禁用态 (url 空) 零请求, 以及 5xx/读超时/连接拒绝/热线解析失败/
- * 非法地址五类故障全部降级为日志绝不抛出 (主预警链路安全, Spec §7.2), 不触真实网络.</p>
+ * 非法地址五类故障全部降级为日志绝不抛出 (主预警链路安全), 不触真实网络.</p>
  * @since 2.0
  */
 class WebhookAlertNotifierTest
 {
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
-    //* 生产实现固定 3s 请求超时 (Spec §7.2); 测试经构造缝下发更短超时, 避免套件被真实超时拖慢.
+    //* 生产实现固定 3s 请求超时; 测试经构造缝下发更短超时, 避免套件被真实超时拖慢.
     private static final Duration PROD_TIMEOUT = Duration.ofSeconds(3);
     private static final Duration AWAIT = Duration.ofSeconds(5);
 
@@ -50,7 +50,7 @@ class WebhookAlertNotifierTest
 
     /**
      * <b>回环 Webhook 接收端</b>
-     * <p>//* 任意路径均伺服同一状态码 (无响应体), 请求方法/头/体逐次记录供断言;
+     * <p>任意路径均伺服同一状态码 (无响应体), 请求方法/头/体逐次记录供断言;
      * hold 非 null 时 handler 先挂住再响应 (读超时用例), close 时放行以免线程滞留.</p>
      */
     private static final class HookServer implements AutoCloseable
@@ -118,7 +118,7 @@ class WebhookAlertNotifierTest
         assertNotNull(WebhookAlertNotifier.class.getAnnotation(ApplicationScoped.class));
     }
 
-    //* RED 预警负载必须携带 Spec §7.2 全部字段, hotline 为主号码 (与 WS 推送同源解析).
+    //* RED 预警负载必须携带 全部契约字段, hotline 为主号码 (与 WS 推送同源解析).
     @Test void notifyPostsFullPayloadAndParsesPrimaryHotline() throws Exception
     {
         try(var server = new HookServer(200, null))
@@ -168,7 +168,7 @@ class WebhookAlertNotifierTest
 
     //region 禁用态
 
-    //* url 空/空白 = 渠道禁用: 不发请求, notify 恒成功完成 (Spec §7.2).
+    //* url 空/空白 = 渠道禁用: 不发请求, notify 恒成功完成.
     @Test void blankUrlDisablesChannelSilently() throws Exception
     {
         try(var server = new HookServer(200, null))
