@@ -24,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -125,8 +126,18 @@ class AsrRuntimeManagerTest
         final var lib = manager(runtime, "unused").nativeLib();
 
         assertEquals(runtime.resolve("lib"), lib.getParent(), "动态库必须落在 <runtime>/lib/ 下");
-        assertTrue(lib.getFileName().toString().matches("libvosk\\.(dll|so|dylib)"),
-            "文件名须按平台三态: " + lib);
+        assertEquals(AsrRuntimeManager.nativeLibFileName(System.getProperty("os.name")), lib.getFileName().toString(),
+            "文件名须与生产平台解析同源 (禁止写死任一平台名): " + lib);
+    }
+
+    @Test void nativeLibFileName_ShouldMapOsNameThreeWay()
+    {
+        //* 与生产 nativeLib 同源的三态映射钉死: 未知平台回落 .so, 不抛异常.
+        assertEquals("libvosk.dll", AsrRuntimeManager.nativeLibFileName("Windows 11"));
+        assertEquals("libvosk.dylib", AsrRuntimeManager.nativeLibFileName("Mac OS X"));
+        assertEquals("libvosk.dylib", AsrRuntimeManager.nativeLibFileName("Darwin"));
+        assertEquals("libvosk.so", AsrRuntimeManager.nativeLibFileName("Linux"));
+        assertEquals("libvosk.so", AsrRuntimeManager.nativeLibFileName("SunOS"));
     }
 
     //endregion
@@ -140,6 +151,7 @@ class AsrRuntimeManagerTest
         assertEquals("win32-x86-64", AsrRuntimeManager.platformEntryDir("Windows Server 2022", "x86_64"));
         assertEquals("linux-x86-64", AsrRuntimeManager.platformEntryDir("Linux", "amd64"));
         assertEquals("darwin", AsrRuntimeManager.platformEntryDir("Mac OS X", "x86_64"));
+        assertEquals("darwin", AsrRuntimeManager.platformEntryDir("Darwin", "x86_64"));
     }
 
     @Test void platformEntryDir_UnsupportedPlatform_ShouldReturnNull()
@@ -178,13 +190,7 @@ class AsrRuntimeManagerTest
             MODEL_DIR_NAME + "/am/scanner", new byte[] {1},
             MODEL_DIR_NAME + "/conf/model.conf", new byte[] {2},
             MODEL_DIR_NAME + "/README", "fake model".getBytes()));
-        final var libJar = zipOf(Map.of(
-            "win32-x86-64/libvosk.dll", new byte[] {3},
-            "win32-x86-64/libstdc++-6.dll", new byte[] {4},
-            "win32-x86-64/libgcc_s_seh-1.dll", new byte[] {5},
-            "win32-x86-64/libwinpthread-1.dll", new byte[] {6},
-            "linux-x86-64/libvosk.so", new byte[] {7},
-            "darwin/libvosk.dylib", new byte[] {8}));
+        final var libJar = zipOf(fullLibEntries());
 
         try(var modelServer = new ZipServer(modelZip, 200, null);
             var libServer = new ZipServer(libJar, 200, null))
@@ -197,8 +203,8 @@ class AsrRuntimeManagerTest
             assertEquals(MODEL_DIR_NAME, manager.modelDir().getFileName().toString(),
                 "模型 zip 顶层目录应解压落位于 <runtime>/model/ 下");
             assertTrue(Files.isRegularFile(runtime.resolve("model").resolve(MODEL_DIR_NAME).resolve("conf").resolve("model.conf")));
-            assertArrayEquals(new byte[] {3}, Files.readAllBytes(manager.nativeLib()),
-                "动态库内容须从 JAR 内平台 entry 原样提取");
+            assertArrayEquals(expectedPlatformLibBytes(), Files.readAllBytes(manager.nativeLib()),
+                "动态库内容须从 JAR 内当前平台 entry 原样提取");
         }
     }
 
@@ -354,10 +360,12 @@ class AsrRuntimeManagerTest
 
     @Test void ensureDownloaded_MaliciousJarEntry_ShouldFailWithoutWritingOutsideLib(@TempDir Path tempDir) throws Exception
     {
-        //* 对抗性输入: JAR entry "../../evil.dll" 的 .dll 后缀过滤挡不住路径穿越, 必须整体拒绝且零逃逸落盘.
-        //* fixture 只带恶意 entry: 排除合法 entry 先行落位对 ready() 断言的干扰.
+        //* 对抗性输入: JAR entry "<平台entry目录>/../../evil.dll" 的 .dll 后缀过滤挡不住路径穿越, 必须整体拒绝且零逃逸落盘.
+        //* 恶意 entry 挂在当前平台 entry 目录下: 其余平台的 entry 目录会被平台过滤先跳过, 用例就测不到 zip-slip 防护本身.
         final var runtime = tempDir.resolve("runtime");
-        final var hostileJar = zipOf(Map.of("win32-x86-64/../../evil.dll", new byte[] {9}));
+        final var hostileJar = zipOf(Map.of(
+            AsrRuntimeManager.platformEntryDir(System.getProperty("os.name"), System.getProperty("os.arch")) + "/../../evil.dll",
+            new byte[] {9}));
 
         try(var modelServer = new ZipServer(zipOf(Map.of(MODEL_DIR_NAME + "/conf/x", new byte[] {1})), 200, null);
             var libServer = new ZipServer(hostileJar, 200, null))
@@ -468,25 +476,42 @@ class AsrRuntimeManagerTest
         return runtime;
     }
 
-    //* 覆盖 0.3.45 JAR 全部平台 entry 的 fixture: 任何测试平台都能提取到自己的动态库.
+    //* 覆盖 0.3.45 JAR 全部平台 entry 的 fixture 内容: libvosk 本体三平台占位 + Windows MinGW 伴生 DLL.
+    //* 内容值 {3}..{8} 供期望值按平台 entry 推导, 断言不得写死任一平台的内容.
+    private static Map<String, byte[]> fullLibEntries()
+    {
+        final var entries = new LinkedHashMap<String, byte[]>();
+        entries.put("win32-x86-64/libvosk.dll", new byte[] {3});
+        entries.put("win32-x86-64/libstdc++-6.dll", new byte[] {4});
+        entries.put("win32-x86-64/libgcc_s_seh-1.dll", new byte[] {5});
+        entries.put("win32-x86-64/libwinpthread-1.dll", new byte[] {6});
+        entries.put("linux-x86-64/libvosk.so", new byte[] {7});
+        entries.put("darwin/libvosk.dylib", new byte[] {8});
+        return entries;
+    }
+
+    //* libvosk JAR fixture (与真实 JAR 同构, MinGW 伴生 DLL 仅 win entry 携带).
     private static byte[] fullLibJar() throws IOException
     {
-        return zipOf(Map.of(
-            "win32-x86-64/libvosk.dll", new byte[] {3},
-            "win32-x86-64/libstdc++-6.dll", new byte[] {4},
-            "win32-x86-64/libgcc_s_seh-1.dll", new byte[] {5},
-            "win32-x86-64/libwinpthread-1.dll", new byte[] {6},
-            "linux-x86-64/libvosk.so", new byte[] {7},
-            "darwin/libvosk.dylib", new byte[] {8}));
+        return zipOf(fullLibEntries());
+    }
+
+    //* 当前平台在 fixture JAR 内的 libvosk 期望内容: entry 目录与文件名均经生产同源平台解析推导.
+    private static byte[] expectedPlatformLibBytes()
+    {
+        final var entryKey = AsrRuntimeManager.platformEntryDir(System.getProperty("os.name"), System.getProperty("os.arch"))
+            + "/" + AsrRuntimeManager.nativeLibFileName(System.getProperty("os.name"));
+        return fullLibEntries().get(entryKey);
     }
 
     //* 完整运行时: am/ + conf/ + 平台动态库占位文件 (manager 只探测存在性, 不真加载).
+    //* 库名经生产同源的 nativeLibFileName 推导: CI (Linux) 与本机 (Windows) 夹具与 ready() 判定永远对齐.
     private static Path completeRuntime(Path tempDir) throws IOException
     {
         final var runtime = modelOnlyRuntime(tempDir, "am");
         Files.createDirectories(runtime.resolve("model").resolve(MODEL_DIR_NAME).resolve("conf"));
         Files.createDirectories(runtime.resolve("lib"));
-        Files.write(runtime.resolve("lib").resolve("libvosk.dll"), new byte[] {1});
+        Files.write(runtime.resolve("lib").resolve(AsrRuntimeManager.nativeLibFileName(System.getProperty("os.name"))), new byte[] {1});
         return runtime;
     }
 

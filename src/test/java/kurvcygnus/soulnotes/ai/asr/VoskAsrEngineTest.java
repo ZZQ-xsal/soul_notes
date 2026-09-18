@@ -244,6 +244,7 @@ class VoskAsrEngineTest
 
     //* 就绪的最小运行时布局: lib/ 放占位文件 (引擎只探测存在性, 不真加载), model/ 下放含 am/+conf/ 标志目录的模型目录
     //* 就绪判定收编进 AsrRuntimeManager: 任一标志目录存在即视为完整模型).
+    //* 库名经生产同源的 nativeLibFileName 推导: 夹具不得写死平台名, 否则 Linux CI 上 ready() 永假, 引擎用例连环失败.
     private static Path tempRuntimeAt(@TempDir Path tempDir) throws Exception
     {
         final var runtime = tempDir.resolve("runtime");
@@ -251,7 +252,7 @@ class VoskAsrEngineTest
         final var fakeModel = runtime.resolve("model").resolve("vosk-model-fake");
         Files.createDirectories(fakeModel.resolve("am"));
         Files.createDirectories(fakeModel.resolve("conf"));
-        Files.write(runtime.resolve("lib").resolve("libvosk.dll"), new byte[] {1});
+        Files.write(runtime.resolve("lib").resolve(AsrRuntimeManager.nativeLibFileName(System.getProperty("os.name"))), new byte[] {1});
         return runtime;
     }
 

@@ -183,13 +183,23 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
      *
      * @return 动态库期望路径; 文件未必已存在, 存在性由 {@link #ready()} 判定
      */
-    public @NotNull Path nativeLib()
+    public @NotNull Path nativeLib() { return runtimeDir.resolve("lib").resolve(nativeLibFileName(System.getProperty("os.name", ""))); }
+
+    /**
+     * 平台动态库文件名解析 (按 os.name 三态: 含 mac/darwin -> .dylib, 含 win -> .dll, 其余 -> .so).
+     * <p>包内单一来源: 生产 {@link #nativeLib()} 与测试夹具共用, 夹具据此生成期望文件名,
+     * 禁止测试另行写死平台名; 写死 dll 曾使 Linux CI 上夹具与生产解析错位, ready() 误判引发连环失败.</p>
+     *
+     * @param osName 操作系统名 (System.getProperty("os.name") 语义)
+     * @return 动态库文件名 (libvosk.dll / libvosk.dylib / libvosk.so)
+     */
+    static @NotNull String nativeLibFileName(@NotNull String osName)
     {
-        final var os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        final var fileName = os.contains("win") ? "libvosk.dll" :
-                             os.contains("mac") || os.contains("darwin") ? "libvosk.dylib" :
-                             "libvosk.so";
-        return runtimeDir.resolve("lib").resolve(fileName);
+        final var os = osName.toLowerCase(Locale.ROOT);
+        //! "darwin" 字面含 "win": win 判定若前置, darwin 分支永不可达且 darwin 平台会误取 .dll.
+        return os.contains("mac") || os.contains("darwin") ? "libvosk.dylib" :
+               os.contains("win") ? "libvosk.dll" :
+               "libvosk.so";
     }
 
     /**
@@ -428,10 +438,11 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
     {
         final var os = osName.toLowerCase(Locale.ROOT);
         final var arch = normalizeArch(osArch);
-        if(os.contains("win"))
-            return "x86-64".equals(arch) ? MIN_GW_ENTRY_DIR : null;
+        //! 与 nativeLibFileName 同理: "darwin" 字面含 "win", mac/darwin 判定必须前置, 否则 darwin 平台误入 win 分支.
         if(os.contains("mac") || os.contains("darwin"))
             return "x86-64".equals(arch) ? "darwin" : null;
+        if(os.contains("win"))
+            return "x86-64".equals(arch) ? MIN_GW_ENTRY_DIR : null;
         if(os.contains("linux"))
             return "x86-64".equals(arch) ? "linux-x86-64" : null;
         return null;
