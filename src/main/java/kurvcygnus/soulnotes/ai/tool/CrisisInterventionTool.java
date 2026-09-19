@@ -3,16 +3,18 @@ package kurvcygnus.soulnotes.ai.tool;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
 import jakarta.enterprise.context.ApplicationScoped;
+import kurvcygnus.soulnotes.utils.PrintUtils;
+import kurvcygnus.soulnotes.utils.constants.ConfigDefaults;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * <b>危机干预热线工具</b>
- * <p>当情感分析或对话中检测到 <span style="color: f84b4b">RED 预警</span> 时,
- * AI Agent 可调用此工具获取心理援助热线信息.</p>
+ * 危机干预热线工具.
+ * <p>当情感分析或对话中检测到 RED 预警时, AI Agent 可调用此工具获取心理援助热线信息.</p>
  *
- * <span style="color: 95cc6d">热线信息优先从 Redis 加载, 不可用时使用配置默认值.</span>
- * @since 2.0
+ * <p>热线信息以构造期配置为源 (crisis.hotline.*), Redis 侧动态值由 {@code RedisStartupConfig#getHotline}
+ * 供前端链路使用 — 工具侧取静态配置, 保证无 Redis 环境下热线仍可得 (Offline Safety Net).</p>
+ * @since 1.0
  */
 @ApplicationScoped
 public final class CrisisInterventionTool
@@ -22,10 +24,18 @@ public final class CrisisInterventionTool
     private final @NotNull String hotlineName;
 
     //* 默认热线兜底 (仅当无 Redis 且无配置时).
-    public static final @NotNull String DEFAULT_PRIMARY = "400-161-9995";
-    public static final @NotNull String DEFAULT_BACKUP = "12355";
-    public static final @NotNull String DEFAULT_NAME   = "全国心理援助热线";
+    //* 委托: 兼容别名, 权威单一来源为 [[ConfigDefaults]], 防止字面量漂移.
+    public static final @NotNull String DEFAULT_PRIMARY = ConfigDefaults.HOTLINE_PRIMARY;
+    public static final @NotNull String DEFAULT_BACKUP  = ConfigDefaults.HOTLINE_BACKUP;
+    public static final @NotNull String DEFAULT_NAME    = ConfigDefaults.HOTLINE_NAME;
 
+    /**
+     * CDI 构造入口, 三个热线配置项均可被 crisis.hotline.* 覆盖.
+     *
+     * @param primary 主热线号码
+     * @param backup 备用热线号码
+     * @param name 热线名称
+     */
     public CrisisInterventionTool(
         @ConfigProperty(name = "crisis.hotline.primary", defaultValue = DEFAULT_PRIMARY) @NotNull String primary,
         @ConfigProperty(name = "crisis.hotline.backup", defaultValue = DEFAULT_BACKUP) @NotNull String backup,
@@ -38,14 +48,10 @@ public final class CrisisInterventionTool
     }
 
     /**
-     * <b>获取危机干预信息</b>
-     * <ul>
-     *     <li>返回心理援助热线信息</li>
-     *     <li>记录预警日志</li>
-     * </ul>
+     * 获取危机干预信息: 返回含热线名称、主/备用热线号码与安抚语句的关怀文本, 供 AI 回复直接引用.
      *
-     * @param userId 触发预警的用户 ID
-     * @return 包含热线信息的文本
+     * @param userId 触发预警的用户 ID (预留: 后续查询学校定制热线)
+     * @return 包含热线信息的关怀文本
      */
     @Tool("当检测到红色预警时调用, 返回心理危机干预热线与建议")
     @SuppressWarnings("unused") //* userId 预留用于后续查询学校定制热线
@@ -58,10 +64,9 @@ public final class CrisisInterventionTool
     private static @NotNull String buildMessage(@NotNull String name, @NotNull String primary, @NotNull String backup)
     {
         final var sb = new StringBuilder();
-        sb.append("🚨 我们很关心你。\n\n");
-        sb.append(name).append(": ").append(primary);
+        sb.append(PrintUtils.quickFormat("🚨 我们很关心你。\n\n{}: {}", name, primary));
         if(!backup.isBlank())
-            sb.append("\n备用热线: ").append(backup);
+            sb.append(PrintUtils.quickFormat("\n备用热线: {}", backup));
         sb.append("\n\n你的安全是最重要的, 请立即联系专业人士。\n我们一直在你身边。");
         return sb.toString();
     }

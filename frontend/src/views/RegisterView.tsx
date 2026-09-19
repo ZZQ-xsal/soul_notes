@@ -44,7 +44,7 @@ export default function RegisterView() {
     <div className="auth-page">
       <div className="auth-card card">
         <div className="auth-brand">
-          <h1>加入心声树洞</h1>
+          <h1>加入心灵札记</h1>
           <p>注册仅需一个用户名和密码, 即刻开始记录心情</p>
         </div>
         <form onSubmit={handleSubmit}>

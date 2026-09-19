@@ -7,7 +7,9 @@ import io.quarkus.hibernate.reactive.panache.Panache;
 import jakarta.enterprise.context.ApplicationScoped;
 import kurvcygnus.soulnotes.domain.diary.entity.MoodDiary;
 import kurvcygnus.soulnotes.utils.JsonUtils;
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import kurvcygnus.soulnotes.utils.TimeUtils;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,26 +20,35 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * <b>用户上下文工具</b>
+ * 用户上下文工具.
  * <p>AI Agent 可调用此工具获取用户近期的情绪状态摘要,
  * 以便在对话中提供更有针对性的共情回应.</p>
- * @since 2.0
+ * @since 1.0
  */
 @ApplicationScoped
 public final class UserContextTool
 {
     private static final Logger LOG = LoggerFactory.getLogger(UserContextTool.class);
 
-    private static final int RECENT_DAYS = 7;
-
     private static final @NotNull TypeReference<Map<String, Object>> ANALYSIS_MAP_TYPE = new TypeReference<>() {};
 
+    //* 用户上下文工具回溯天数.
+    private final int recentDays;
+
     /**
-     * <b>获取用户近期情绪摘要</b>
-     * <p>查询最近 {@value RECENT_DAYS} 天的日记分析结果, 返回自然语言摘要.</p>
+     * CDI 构造入口.
      *
-     * @param userId 用户 ID
-     * @return 情绪摘要文本
+     * @param recentDays 摘要回溯天数 (ai.context.recent-days, 默认 7)
+     * @since 1.1.0
+     */
+    public UserContextTool(@ConfigProperty(name = "ai.context.recent-days", defaultValue = "7") int recentDays) { this.recentDays = recentDays; }
+
+    /**
+     * 获取用户近期情绪摘要.
+     * <p>查询最近 N 天的日记分析结果, 汇总为自然语言摘要 (篇数 + 情绪倾向 + 焦虑提示).</p>
+     *
+     * @param userId 用户 ID ({@code @ToolMemoryId} 透传)
+     * @return 情绪摘要文本; 任何失败形态 (非法 ID/查询超时/解析异常) 都降级为固定提示文本, 绝不抛出
      */
     @Tool("获取用户近期情绪状态摘要, 以便提供更贴近用户当前心境的回应")
     @SuppressWarnings("unused")
@@ -47,7 +58,7 @@ public final class UserContextTool
         {
             final var uuid    = java.util.UUID.fromString(userId);
             final var end     = LocalDate.now(TimeUtils.ZONE_ASIA_SHANGHAI);
-            final var start   = end.minusDays(RECENT_DAYS);
+            final var start   = end.minusDays(recentDays);
             final var startTs = start.atStartOfDay(TimeUtils.ZONE_ASIA_SHANGHAI).toInstant();
             final var endTs   = end.plusDays(1).atStartOfDay(TimeUtils.ZONE_ASIA_SHANGHAI).toInstant();
 
@@ -58,7 +69,7 @@ public final class UserContextTool
                 atMost(Duration.ofSeconds(5));
 
             if(diaries.isEmpty())
-                return "用户在过去" + RECENT_DAYS + "天内没有日记记录。";
+                return PrintUtils.quickFormat("用户在过去{}天内没有日记记录。", recentDays);
 
             return buildSummary(diaries);
         }
@@ -70,14 +81,15 @@ public final class UserContextTool
     }
 
     //region 摘要构建
-    private static @NotNull String buildSummary(@NotNull List<MoodDiary> diaries)
+    //* 非 static: 摘要文案需引用构造器注入的配置字段 recentDays.
+    private @NotNull String buildSummary(@NotNull List<MoodDiary> diaries)
     {
         var totalPositive = .0;
         var totalNegative = .0;
         var totalAnxiety  = .0;
         var parsedCount   = 0;
 
-        for(final var diary : diaries)
+        for(final var diary: diaries)
         {
             if(diary.analysisResult == null || diary.analysisResult.isBlank())
                 continue;
@@ -95,8 +107,7 @@ public final class UserContextTool
 
         if(parsedCount == 0)
         {
-            final var diaryCount = diaries.size();
-            return "用户最近有 " + diaryCount + " 条日记记录，但暂无情感分析结果。";
+            return PrintUtils.quickFormat("用户最近有 {} 条日记记录，但暂无情感分析结果。", diaries.size());
         }
 
         final var avgPositive = totalPositive / parsedCount;
@@ -104,13 +115,7 @@ public final class UserContextTool
         final var avgAnxiety  = totalAnxiety  / parsedCount;
 
         final var sb = new StringBuilder();
-        sb.append("用户近 ").
-            append(RECENT_DAYS).
-            append(" 天共记录了 ").
-            append(diaries.size()).
-            append(" 篇日记，其中 ").
-            append(parsedCount).
-            append(" 篇已分析。");
+        sb.append(PrintUtils.quickFormat("用户近 {} 天共记录了 {} 篇日记，其中 {} 篇已分析。", recentDays, diaries.size(), parsedCount));
 
         if(avgPositive > avgNegative)
             sb.append("整体情绪偏向积极。");

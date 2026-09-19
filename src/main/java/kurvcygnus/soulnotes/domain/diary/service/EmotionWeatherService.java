@@ -21,8 +21,11 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * <b>情绪天气预报服务</b>
- * <p>按时间维度聚合情感分析数据, 生成前端"情绪天气预报"可视化所需的数据.</p>
+ * 情绪天气预报服务: 按时间维度聚合情感分析数据,
+ * 生成前端"情绪天气预报"可视化所需的按日聚合数据集.
+ *
+ * @implNote 天气类型由情感均值对阈值映射而成, 阈值可经 {@code weather.threshold.*} 配置覆盖,
+ *           判定边界统一使用 >= 保证行为确定; 日期边界统一按上海时区 ({@code TimeUtils}) 换算.
  * @since 1.0
  */
 @ApplicationScoped
@@ -52,12 +55,12 @@ public final class EmotionWeatherService
     //* 统一使用 TimeUtils 中定义的上海时区, 避免多处硬编码.
 
     /**
-     * <span style="color: 95cc6d">按日聚合用户指定日期范围内的情感数据.</span>
+     * 按日聚合用户指定日期范围内的情感数据.
      *
      * @param userId 用户 ID
-     * @param start  开始日期 (含)
-     * @param end    结束日期 (含)
-     * @return 按天排列的情绪天气预报 VO 列表
+     * @param start  开始日期 (含, ISO 格式)
+     * @param end    结束日期 (含, ISO 格式; 实际取其次日零点前为查询上界)
+     * @return 按天排列的情绪天气预报 VO 列表 (无日记或分析结果缺失的日期不产出条目)
      */
     @WithTransaction
     public @NotNull Uni<List<EmotionWeatherVo>> getWeatherData(
@@ -79,10 +82,10 @@ public final class EmotionWeatherService
     private static final @NotNull TypeReference<Map<String, Object>> ANALYSIS_MAP_TYPE = new TypeReference<>() {};
 
     /**
-     * <span style="color: 95cc6d">将日记列表按日分组, 计算每日的情感均值并映射为天气类型.</span>
+     * 将日记列表按日分组, 计算每日情感均值并映射为天气类型.
      *
      * @param diaries 日记实体列表
-     * @return 按日聚合的情绪天气预报 VO 列表
+     * @return 按日聚合的情绪天气预报 VO 列表; 单条 analysisResult 解析失败仅 WARN 跳过, 不影响其余聚合
      */
     private @NotNull List<EmotionWeatherVo> aggregateByDay(@NotNull List<MoodDiary> diaries)
     {

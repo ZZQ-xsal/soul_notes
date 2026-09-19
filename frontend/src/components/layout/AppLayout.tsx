@@ -74,8 +74,8 @@ export default function AppLayout() {
             <path d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z" fill="var(--brand-ink)" />
           </svg>
           <div className="brand-text">
-            <span className="brand-title">心声树洞</span>
-            <span className="brand-sub">Soul Notes</span>
+            <span className="brand-title">心灵札记</span>
+            <span className="brand-sub">Xinling Zhaji</span>
           </div>
         </div>
         <nav className="app-nav" aria-label="主导航">

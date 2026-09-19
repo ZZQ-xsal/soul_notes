@@ -1,7 +1,7 @@
 package kurvcygnus.soulnotes.utils.enums;
 
 /**
- * <b>用户角色枚举</b>
+ * 用户角色枚举.
  * <ul>
  *     <li>{@link #STUDENT} — 学生</li>
  *     <li>{@link #COUNSELOR} — 心理咨询师</li>

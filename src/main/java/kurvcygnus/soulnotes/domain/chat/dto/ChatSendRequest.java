@@ -6,10 +6,10 @@ import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
 
 /**
- * <b>发送消息请求体</b>
+ * 发送消息请求体.
  *
- * @param sessionId 会话 ID (可选, 新会话则不传)
- * @param content   消息内容
+ * @param sessionId 会话 ID; {@code null} 表示开启新会话, 非法/空白值在流式路径同样回退为新会话
+ * @param content   消息正文
  * @since 1.0
  */
 public record ChatSendRequest(

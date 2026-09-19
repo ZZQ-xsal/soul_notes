@@ -17,6 +17,10 @@ spec:
           envFrom:
             - configMapRef: { name: soulnotes-backend-config }
             - secretRef:    { name: soulnotes-backend-secret }
+          env:
+            #* JVM 模式 ASR 经 FFM 受限 native 调用, JDK 24+ 默认告警 — 显式放行 (run-java.sh 的追加槽).
+            - name: JAVA_OPTS_APPEND
+              value: "--enable-native-access=ALL-UNNAMED"
           livenessProbe:
             httpGet: { path: /q/health/live,  port: 8080 }
             initialDelaySeconds: 10
@@ -31,6 +35,11 @@ spec:
           volumeMounts:
             - name: voice-storage
               mountPath: /data/voice_uploads
+            #* ASR 运行时 (模型 ~42MB + libvosk): 空卷可经向导下载灌入, 或构建侧预先填充.
+            - name: asr-model
+              mountPath: /data/asr-model
       volumes:
         - name: voice-storage
           persistentVolumeClaim: { claimName: soulnotes-voice-pvc }
+        - name: asr-model
+          persistentVolumeClaim: { claimName: soulnotes-asr-pvc }

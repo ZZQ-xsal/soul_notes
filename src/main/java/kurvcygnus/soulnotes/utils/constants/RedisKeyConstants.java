@@ -3,10 +3,10 @@ package kurvcygnus.soulnotes.utils.constants;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * <b>Redis Key 模式常量</b>
+ * Redis Key 模式常量.
  * <ul>
- *     <li>{@link #TOKEN_BLACKLIST} — JWT 黑名单 Key，使用 {@link String#formatted(Object...)} 传入 jti</li>
- *     <li>{@link #RATE_LIMIT} — 限流 Key，预留未来使用</li>
+ *     <li>{@link #TOKEN_BLACKLIST} — JWT 黑名单 Key, 使用 {@link String#formatted(Object...)} 传入 jti</li>
+ *     <li>{@link #RATE_LIMIT} — 限流 Key, 首段为业务域 (chat/login/voice), 次段为限流维度 (userId/ip)</li>
  * </ul>
  * @since 1.0
  */

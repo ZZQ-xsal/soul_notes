@@ -22,16 +22,17 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 
 /**
- * <b>聊天 API 限流过滤器</b>
+ * 聊天 API 限流过滤器.
  * <ul>
- *     <li>限制 {@code /api/v1/chat/send} 和 {@code /api/v1/chat/stream} 的请求频率</li>
+ *     <li>限制 {@code /api/v1/chat/send} 和 {@code /api/v1/chat/stream} 的请求频率,
+ *         以验签后的 userId 为限流维度</li>
  *     <li>使用 Redis 响应式计数器, 上限由 {@code rate.limit.chat.max-per-minute} 配置 (默认 20 次/分钟)</li>
- *     <li>超限返回 {@code 429 Too Many Requests}</li>
+ *     <li>超限返回 {@code 429 Too Many Requests} (业务码 429001)</li>
  * </ul>
  *
- * <span style="color: 95cc6d">采用 {@code @ServerRequestFilter} + {@code Uni<Response>} 响应式实现,
- * 全程无阻塞, 不会占用事件循环.</span>
- * @since 2.0
+ * <p>采用 {@code @ServerRequestFilter} + {@code Uni<Response>} 响应式实现,
+ * 全程无阻塞, 不会占用事件循环.</p>
+ * @since 1.0
  */
 @ApplicationScoped
 @SuppressWarnings("unused")//! @ServerRequestFilter 由 RESTEasy Reactive 注解扫描发现, IDE 静态分析误报类与方法未使用;
@@ -69,8 +70,15 @@ public final class ChatRateLimitFilter
     }
 
     /**
-     * <span style="color: 95cc6d">响应式限流过滤.</span>
-     * <p>返回非 {@code null} 的 {@link Response} 时中止处理, 返回 {@code null} 时放行.</p>
+     * 响应式限流过滤: 非聊天端点或无法确定 userId 时直接放行, 命中端点则按固定窗口计数.
+     * <p>返回的 {@link Response} 为 {@code null} 时放行; 非 {@code null} (429) 时中止请求;
+     * Redis 操作失败时降级放行 (限流精度让位于可用性).</p>
+     * @param uriInfo     请求路径信息, 用于端点匹配
+     * @param httpHeaders 请求头, 用于提取并验签 JWT
+     * @return 携带 429 响应 (中止) 或 {@code null} (放行) 的 {@code Uni}, 永不为 {@code null}
+     * @implNote Redis {@code INCR} 计数, 首次计数时设置 60 秒 TTL 构成固定窗口; 过滤器优先级为
+     *           {@code Priorities.AUTHORIZATION - 10}, 先于标准鉴权链执行, 故此处自行完成 JWT 验签.
+     * @since 1.0
      */
     @ServerRequestFilter(priority = Priorities.AUTHORIZATION - 10)
     public @NotNull Uni<Response> filter(@NotNull UriInfo uriInfo, @NotNull HttpHeaders httpHeaders)
@@ -124,8 +132,9 @@ public final class ChatRateLimitFilter
     //region 辅助方法
 
     /**
-     * <span style="color: 95cc6d">从 JWT Authorization header 中提取用户 ID.</span>
-     * <p>先验签再取 {@code sub} claim, 获取用户 ID; 验签失败或 header 缺失时返回 {@code null}.</p>
+     * 从 JWT Authorization header 中提取用户 ID.
+     * <p>先验签再取 {@code sub} claim 作为用户 ID; header 缺失、格式不符或验签失败时返回 {@code null}
+     * (调用方按放行处理, 而非拒绝请求).</p>
      */
     private @Nullable String extractUserId(@NotNull HttpHeaders headers)
     {

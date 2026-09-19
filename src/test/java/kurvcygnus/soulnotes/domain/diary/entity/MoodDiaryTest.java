@@ -1,5 +1,7 @@
 package kurvcygnus.soulnotes.domain.diary.entity;
 
+import kurvcygnus.soulnotes.config.ReactiveJsonStringJdbcType;
+import org.hibernate.annotations.JdbcType;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -46,6 +48,18 @@ class MoodDiaryTest
         assertNull(diary.content);
         assertNull(diary.audioUrl);
         assertNull(diary.analysisResult);
+    }
+
+    @Test
+    void analysisResult_Field_ShouldDeclareJsonJdbcType() throws NoSuchFieldException
+    {
+        //* 声明字符串型 JSONB 映射后, 新写入为真 JSON (jsonb_typeof = object), 存量字符串标量行读出仍可解析;
+        //* 缺失时 Hibernate Reactive 把 JSON 文本再包一层, 存成字符串标量 (jsonb_typeof = string) 的双重编码形态.
+        final var field = MoodDiary.class.getDeclaredField("analysisResult");
+        final var jdbcType = field.getAnnotation(JdbcType.class);
+
+        assertNotNull(jdbcType, "analysisResult 字段缺少 @JdbcType 声明");
+        assertEquals(ReactiveJsonStringJdbcType.class, jdbcType.value());
     }
 
     @Test

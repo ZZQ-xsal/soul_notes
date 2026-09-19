@@ -3,17 +3,23 @@ package kurvcygnus.soulnotes.domain.diary.entity;
 import io.quarkus.hibernate.reactive.panache.PanacheEntityBase;
 import io.quarkus.hibernate.reactive.panache.PanacheQuery;
 import jakarta.persistence.*;
+<<<<<<< HEAD
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+=======
+import kurvcygnus.soulnotes.config.ReactiveJsonStringJdbcType;
+import org.hibernate.annotations.JdbcType;
+>>>>>>> d7f2ceea1df0a55e8cd86485acb01b4f257a541d
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Instant;
 import java.util.UUID;
 
 /**
- * <b>情绪日记实体</b>
- * <p>对应 {@code mood_diaries} 表, 使用自增 BigInt 作为主键.</p>
- * <p>{@code analysisResult} 字段存储 JSONB, 包含情感分析和预警检测结果.</p>
+ * 情绪日记实体, 对应 {@code mood_diaries} 表.
+ * <p>主键为自增 BigInt (体积小, 适合日记高频写入的分页查询);
+ * {@code analysisResult} 字段存储 JSONB, 包含情感分析与预警检测结果.</p>
+ *
  * @since 1.0
  */
 @Entity
@@ -37,8 +43,14 @@ public final class MoodDiary extends PanacheEntityBase
     @Column(name = "audio_url")
     public String audioUrl;
 
+<<<<<<< HEAD
     //! 缺少 @JdbcTypeCode(SqlTypes.JSON) 时 Hibernate 按 VARCHAR 提取 JSONB 列, reactive-pg-client 返回 JsonObject 触发 ClassCastException (真实数据库必现).
     @JdbcTypeCode(SqlTypes.JSON)
+=======
+    //* 显式字符串型 JSONB 映射: 新写入落为真 JSON (jsonb_typeof = object), 而非把 JSON 文本再包一层的字符串标量双重编码形态.
+    //* 存量字符串标量行读出仍是可被 JsonUtils 解析的 JSON 文本, 迁移安全, 不做数据回填.
+    @JdbcType(ReactiveJsonStringJdbcType.class)
+>>>>>>> d7f2ceea1df0a55e8cd86485acb01b4f257a541d
     @Column(name = "analysis_result", columnDefinition = "JSONB")
     public String analysisResult;
 
@@ -48,12 +60,12 @@ public final class MoodDiary extends PanacheEntityBase
 
     //region 静态查询
     /**
-     * <span style="color: 95cc6d">按用户与时间范围分页查询日记.</span>
+     * 按用户与创建时间范围构建分页查询 (创建时间倒序).
      *
      * @param userId 用户 ID
      * @param start  开始时间 (含)
      * @param end    结束时间 (含)
-     * @return 分页查询对象
+     * @return 分页查询对象, 由调用方继续指定 page/list 等终止操作
      */
     public static @NotNull PanacheQuery<MoodDiary> findByUserAndDateRange(
         @NotNull UUID userId,
@@ -68,10 +80,10 @@ public final class MoodDiary extends PanacheEntityBase
     }
 
     /**
-     * <span style="color: 95cc6d">按用户分页查询所有日记 (倒序).</span>
+     * 按用户构建全量分页查询 (创建时间倒序).
      *
      * @param userId 用户 ID
-     * @return 分页查询对象
+     * @return 分页查询对象, 由调用方继续指定 page/list 等终止操作
      */
     public static @NotNull PanacheQuery<MoodDiary> findByUserId(@NotNull UUID userId) { return find("userId = ?1 ORDER BY createdAt DESC", userId); }
     //endregion

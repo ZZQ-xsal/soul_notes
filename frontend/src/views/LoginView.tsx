@@ -63,7 +63,7 @@ export default function LoginView() {
             <circle cx="32" cy="32" r="30" fill="var(--brand)" />
             <path d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z" fill="var(--brand-ink)" />
           </svg>
-          <h1>心声树洞</h1>
+          <h1>心灵札记</h1>
           <p>倾听你的每一种情绪</p>
         </div>
         <form onSubmit={handleSubmit}>

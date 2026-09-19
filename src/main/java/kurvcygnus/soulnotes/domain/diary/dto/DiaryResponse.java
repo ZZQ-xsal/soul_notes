@@ -13,14 +13,15 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * <b>日记响应体</b>
- * <p>包含日记全部字段, 并将 {@code analysisResult} (JSONB 字符串) 解析为结构化对象.</p>
+ * 日记响应体, 包含日记全部字段.
+ * <p>{@code analysisResult} (JSONB 字符串) 在此解析为结构化对象 {@link OfAnalysisResult};
+ * JSON 为空或解析失败时该字段为 {@code null} (降级不抛错, 日记本体仍可展示).</p>
  *
  * @param id             日记 ID
- * @param userId         用户 ID
- * @param content        文字内容
- * @param audioUrl      语音文件 URL
- * @param analysisResult 解析后的分析结果 (包含情感评分、天气类型、预警等级等)
+ * @param userId         所属用户 ID
+ * @param content        文字内容 (纯语音日记为 {@code null})
+ * @param audioUrl       语音文件 URL (纯文本日记为 {@code null})
+ * @param analysisResult 解析后的分析结果 (情感评分/天气类型/预警等级等); 无分析或解析失败时为 {@code null}
  * @param createdAt      创建时间
  * @since 1.0
  */
@@ -34,7 +35,10 @@ public record DiaryResponse(
 )
 {
     /**
-     * <span style="color: 95cc6d">从 {@link MoodDiary} 实体构造响应.</span>
+     * 从 {@link MoodDiary} 实体构造响应, 附带 analysisResult JSON 的容错解析.
+     *
+     * @param diary 已持久化的日记实体
+     * @return 面向前端的日记响应
      */
     public static @NotNull DiaryResponse fromEntity(@NotNull MoodDiary diary)
     {
@@ -60,8 +64,14 @@ public record DiaryResponse(
     }
 
     /**
-     * <b>分析结果 DTO</b>
-     * <p>对应 {@code analysisResult} JSONB 字段的结构化映射.</p>
+     * 情感分析结果 DTO, 对应 {@code analysisResult} JSONB 字段的结构化映射.
+     *
+     * @param positive     正向情感评分 (0.0 ~ 1.0)
+     * @param negative     负向情感评分 (0.0 ~ 1.0)
+     * @param anxiety      焦虑程度评分 (0.0 ~ 1.0)
+     * @param weather      情绪天气类型 (SUNNY / CLOUDY / OVERCAST / RAINY / THUNDERSTORM)
+     * @param warningLevel 预警等级 (GREEN / YELLOW / RED)
+     * @param summary      分析摘要 (可能为 {@code null})
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     @RegisterForReflection//! native 下 Jackson 反序列化该 record 需要反射注册 (JsonUtils 手动 mapper 路径).

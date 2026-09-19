@@ -11,7 +11,7 @@ import ChatBubble from '../components/chat/ChatBubble'
 
 const GREETING: ChatMessage = {
   role: 'assistant',
-  content: '你好, 我是心声树洞。这里很安全, 你的每一句话都会被认真倾听。今天想聊点什么?',
+  content: '你好, 我是心灵札记。这里很安全, 你的每一句话都会被认真倾听。今天想聊点什么?',
 }
 
 export default function ChatView() {

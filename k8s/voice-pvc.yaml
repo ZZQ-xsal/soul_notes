@@ -9,3 +9,15 @@ spec:
     requests:
       storage: 1Gi
   #* 若需多副本 (replicas > 1) 共享同一语音目录, 需改用支持 ReadWriteMany 的存储或对象存储 (如 S3).
+---
+#* ASR 运行时卷: 挂载于 /data/asr-model (SOULNOTES_ASR_RUNTIME_DIR), 存放本地模型 (~42MB) 与 libvosk 动态库.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: soulnotes-asr-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

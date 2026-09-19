@@ -8,19 +8,56 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # Mock-LLM 全链路 @QuarkusTest 强依赖 postgres + redis; GitHub Actions 的 service 容器
+    # 在 hosted runner 上直接绑定 localhost (同网络命名空间), 与本地开发容器同形, 测试无需改动.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kurv
+          POSTGRES_PASSWORD: CHANGE_ME_DB_PASSWORD
+          POSTGRES_DB: soulnotes
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kurv -d soulnotes"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: gradle
 
       - name: Make gradlew executable
         run: chmod +x gradlew
+
+      # service 容器的 postgres 是空库: 依次执行程序化权威源 db/schema/ 全部 4 脚本 (含 platform_schema_version
+      # 版本表), 与 Pre-Launch 探测的期望表集 (PgGateway#EXPECTED_TABLES) 一致; 缺版本表会使探测判 SCHEMA_MISSING.
+      # 文件名序号保证执行次序; ON_ERROR_STOP=1 任一脚本失败即整体失败 (run 默认 bash -e).
+      - name: Init database schema
+        run: |
+          set -e
+          for f in src/main/resources/db/schema/*.sql; do
+            PGPASSWORD=CHANGE_ME_DB_PASSWORD psql -h localhost -U kurv -d soulnotes -v ON_ERROR_STOP=1 -f "$f"
+          done
 
       - name: Run unit tests
         run: ./gradlew :test --console=plain
@@ -32,11 +69,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: gradle
 
       - name: Make gradlew executable

@@ -1,9 +1,9 @@
 {
-  "name": "soul-notes-frontend",
+  "name": "xinling-zhaji-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Soul Notes 心声树洞前端 (React 19 + TypeScript + Vite)",
+  "description": "心灵札记前端 (React 19 + TypeScript + Vite)",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

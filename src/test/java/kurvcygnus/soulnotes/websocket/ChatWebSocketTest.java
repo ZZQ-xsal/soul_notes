@@ -29,9 +29,11 @@ class ChatWebSocketTest
         assertEquals(InboundProcessingMode.SERIAL, ws.inboundProcessingMode());
     }
 
-    @Test void constructor_TakesChatService() throws Exception
+    //* 构造签名随 HR000068 修复同步: 增加注入 Vertx, 消息处理跳 event loop 启动响应式链.
+    @Test void constructor_TakesChatServiceAndVertx() throws Exception
     {
-        final var constructor = ChatWebSocket.class.getDeclaredConstructor(kurvcygnus.soulnotes.domain.chat.service.ChatService.class);
+        final var constructor = ChatWebSocket.class.getDeclaredConstructor(
+            kurvcygnus.soulnotes.domain.chat.service.ChatService.class, io.vertx.mutiny.core.Vertx.class);
         assertNotNull(constructor);
     }
 

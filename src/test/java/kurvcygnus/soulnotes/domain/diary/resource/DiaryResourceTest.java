@@ -42,4 +42,21 @@ class DiaryResourceTest
         assertNotNull(DiaryResource.class.getMethod("delete", long.class));
         assertNotNull(DiaryResource.class.getMethod("getWeather", String.class, String.class));
     }
+
+    @Test void parseDateRange_ValidDates_ShouldReturnRange() throws Exception
+    {
+        final var range = DiaryResource.parseDateRange("2026-01-01", "2026-01-31");
+        assertEquals("2026-01-01", range.start().toString());
+        assertEquals("2026-01-31", range.end().toString());
+    }
+
+    @Test void parseDateRange_InvalidFormat_ShouldThrowBusinessExceptionWithUnifiedPayload() throws Exception
+    {
+        final var ex = assertThrows(Exception.class, () -> DiaryResource.parseDateRange("01/02/2026", "2026-01-31"));
+        assertInstanceOf(kurvcygnus.soulnotes.exception.StructuredException.class, ex);
+        final var business = (kurvcygnus.soulnotes.exception.IBusinessException<?>) ex;
+        assertEquals(kurvcygnus.soulnotes.exception.ErrorCode.BAD_REQUEST, business.getErrorCode());
+        assertEquals("DIARY_WEATHER_DATE_INVALID", business.tag());
+        assertTrue(business.getMessage().contains("yyyy-MM-dd"));
+    }
 }

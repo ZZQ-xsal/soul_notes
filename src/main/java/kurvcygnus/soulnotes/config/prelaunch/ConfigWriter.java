@@ -1,0 +1,146 @@
+package kurvcygnus.soulnotes.config.prelaunch;
+
+import kurvcygnus.soulnotes.utils.PrintUtils;
+import org.jetbrains.annotations.NotNull;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+
+/**
+ * Pre-Launch 配置落盘器.
+ * <p>把向导收集到的用户显式值写出为双文件 — {@code config/application.properties} (键 = meta.key) 与
+ * {@code .env} (键 = 环境变量名). 未显式输入的项不落盘, 默认值继续由内置 classpath 配置提供,
+ * 输出因此保持最小化, 不干扰框架默认行为.</p>
+ * @since 1.1.0
+ */
+public final class ConfigWriter
+{
+    /**
+     * 落盘结果路径, 供向导向用户提示文件位置.
+     *
+     * @param propertiesFile {@code config/application.properties} 的落点
+     * @param envFile {@code .env} 的落点
+     * @since 1.1.0
+     */
+    public record Written(@NotNull Path propertiesFile, @NotNull Path envFile)
+    {}
+
+    private ConfigWriter() { throw new IllegalAccessError("Class \"ConfigWriter\" is not meant to be instantized!"); }
+
+    //region 双文件写出
+
+    /**
+     * 把用户显式值写出到工作目录的双文件.
+     * <p>两个文件共享同一结构: 头部时间戳行 + {@code # ---- {group} ----} 分组节 + 值行;
+     * properties 值行按配置键对齐, .env 值行严格 {@code envName=value} 不补齐 (机器消费兼容);
+     * 分组节按条目首次出现的顺序排列 (向导按文件顺序传入), 组内无任何显式条目时该节整体省略.</p>
+     *
+     * @param workDir 工作目录 ({@code config/} 子目录与 {@code .env} 的落点, 不存在时自动创建)
+     * @param items 向导条目元数据, 调用方给定的顺序即落盘顺序
+     * @param values 用户显式值, 以环境变量名为键; 匹配不到任何条目的键静默忽略 (值集可能残留已下线条目)
+     * @param timestamp 预格式化的生成时间戳, 仅用于头部注释行
+     * @return 两个文件的落点路径
+     * @throws IOException 目录创建/备份/写文件失败时原样向上抛 (如 {@code workDir/config} 被同名文件占用, 快速失败优于静默)
+     * @since 1.1.0
+     */
+    public static @NotNull Written write(
+        @NotNull Path workDir,
+        @NotNull List<PropertyMetaParser.ConfigItemMeta> items,
+        @NotNull Map<String, String> values, @NotNull String timestamp
+    ) throws IOException
+    {
+        Objects.requireNonNull(workDir, "Param \"workDir\" must not be null!");
+        Objects.requireNonNull(items, "Param \"items\" must not be null!");
+        Objects.requireNonNull(values, "Param \"values\" must not be null!");
+        Objects.requireNonNull(timestamp, "Param \"timestamp\" must not be null!");
+
+        //* 仅收集显式条目: values 无对应项的条目不落盘 (默认值仍由内置配置提供, 保持最小输出语义);
+        //* 反方向同理 — values 中匹配不到任何条目的键静默忽略而非报错 (值集可能残留已从配置中下线的条目).
+        final var explicit = new ArrayList<PropertyMetaParser.ConfigItemMeta>();
+        for(final var item: items)
+        {
+            //! envName 理论可为 null (非向导条目), 短路判空以避免 containsKey(null) 在 Map.of 上抛 NPE.
+            if(item.envName() == null || !values.containsKey(item.envName())) continue;
+            explicit.add(item);
+        }
+
+        //* 简报草图中的 TreeMap 按组序已被覆盖: 必须保持条目给定顺序, 故用 LinkedHashMap 记首次出现序.
+        final var groups = new LinkedHashMap<String, List<PropertyMetaParser.ConfigItemMeta>>();
+        for(final var item : explicit) groups.computeIfAbsent(item.group(), k -> new ArrayList<>()).add(item);
+
+        //* 对齐选型: 仅人读的 properties 落盘键列宽 = 已写出键的最大长度, 短键补空格至同一 "=" 列;
+        //* .env 不补齐 (严格 envName=value): 它由 docker compose env_file / source / kubectl 消费, 键内空格会破坏解析.
+        final var propKeyWidth = explicit.stream().mapToInt(i -> i.key().length()).max().orElse(0);
+
+        final var propsFile = workDir.resolve("config").resolve("application.properties");
+        final var envFile = workDir.resolve(".env");
+        Files.createDirectories(propsFile.getParent());//* config 路径被同名文件占用时此处抛 IOException, 快速失败.
+        backupToBak(propsFile);
+        backupToBak(envFile);
+        //* 显式 UTF-8: 分组名含中文; 换行钉死 \n: properties 惯例且跨平台 diff 友好 (不用 platform 相关分隔符).
+        Files.writeString(propsFile,
+            render(groups, timestamp, item -> PrintUtils.quickFormat("{} = {}\n", pad(item.key(), propKeyWidth), values.get(item.envName()))),
+            StandardCharsets.UTF_8);
+        Files.writeString(envFile,
+            render(groups, timestamp, item -> PrintUtils.quickFormat("{}={}\n", item.envName(), values.get(item.envName()))),
+            StandardCharsets.UTF_8);
+        return new Written(propsFile, envFile);
+    }
+
+    //endregion
+
+    //region 内部工具
+
+    //* 已存在 → 先移为 .bak, REPLACE_EXISTING 覆盖旧备份 (仅保留最近一次).
+    /**
+     * 已存在文件先移为 {@code .bak} (覆盖旧备份, 仅保留最近一次); 文件不存在时无操作.
+     *
+     * @param file 待备份文件
+     * @throws IOException 移动失败原样上抛 (快速失败)
+     */
+    private static void backupToBak(@NotNull Path file) throws IOException
+    {
+        if(Files.exists(file))
+            Files.move(file, file.resolveSibling(PrintUtils.quickFormat("{}.bak", file.getFileName())), StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    /**
+     * 拼装双文件共享结构: 头部时间戳注释行 + {@code # ---- {group} ----} 分组节 (组间空行) + 逐条目值行.
+     *
+     * @param groups 分组到条目的有序映射 (首次出现序)
+     * @param timestamp 预格式化的生成时间戳
+     * @param lineOf 单条目值行渲染函数 (properties 与 .env 形态不同, 由调用方注入)
+     * @return 完整文件内容
+     */
+    private static @NotNull String render(
+        @NotNull Map<String, List<PropertyMetaParser.ConfigItemMeta>> groups,
+        @NotNull String timestamp, @NotNull Function<PropertyMetaParser.ConfigItemMeta, String> lineOf
+    )
+    {
+        final var sb = new StringBuilder();
+        sb.append(PrintUtils.quickFormat("# Generated by soulnotes setup @ {}\n", timestamp));
+        var first = true;
+        for(final var entry : groups.entrySet())
+        {
+            if(!first) sb.append('\n');//* 组间空行, 仅可读性.
+            first = false;
+            sb.append(PrintUtils.quickFormat("# ---- {} ----\n", entry.getKey()));
+            for(final var item : entry.getValue()) sb.append(lineOf.apply(item));
+        }
+        return sb.toString();
+    }
+
+    /** 右侧补空格至指定宽度 (properties 键列对齐用). */
+    private static @NotNull String pad(@NotNull String key, int width) { return PrintUtils.quickFormat("{}{}", key, " ".repeat(width - key.length())); }
+
+    //endregion
+}

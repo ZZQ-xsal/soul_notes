@@ -21,16 +21,16 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 
 /**
- * <b>登录 API 限流过滤器</b>
+ * 登录 API 限流过滤器.
  * <ul>
  *     <li>限制 {@code /api/v1/auth/login} 的请求频率 (IP 维度, 防止暴力破解)</li>
  *     <li>使用 Redis 响应式计数器, 上限由 {@code rate.limit.login.max-per-minute} 配置 (默认 10 次/分钟)</li>
- *     <li>超限返回 {@code 429 Too Many Requests}</li>
+ *     <li>超限返回 {@code 429 Too Many Requests} (业务码 429002)</li>
  * </ul>
  *
- * <span style="color: 95cc6d">采用 {@code @ServerRequestFilter} + {@code Uni<Response>} 响应式实现,
- * 全程无阻塞, 不会占用事件循环.</span>
- * @since 2.0
+ * <p>采用 {@code @ServerRequestFilter} + {@code Uni<Response>} 响应式实现,
+ * 全程无阻塞, 不会占用事件循环.</p>
+ * @since 1.0
  */
 @ApplicationScoped
 @SuppressWarnings("unused")//! @ServerRequestFilter 由 RESTEasy Reactive 注解扫描发现, IDE 静态分析误报类与方法未使用;
@@ -60,8 +60,15 @@ public final class LoginRateLimitFilter
     }
 
     /**
-     * <span style="color: 95cc6d">响应式登录限流过滤.</span>
-     * <p>返回非 {@code null} 的 {@link Response} 时中止处理, 返回 {@code null} 时放行.</p>
+     * 响应式登录限流过滤: 非登录端点或无法确定客户端 IP 时直接放行, 命中端点则按固定窗口计数.
+     * <p>返回的 {@link Response} 为 {@code null} 时放行; 非 {@code null} (429) 时中止请求;
+     * Redis 操作失败时降级放行, 保证登录可用.</p>
+     * @param routingContext Vert.x 请求上下文, 用于提取客户端 IP
+     * @param uriInfo        请求路径信息, 用于端点匹配
+     * @return 携带 429 响应 (中止) 或 {@code null} (放行) 的 {@code Uni}, 永不为 {@code null}
+     * @implNote Redis {@code INCR} 计数, 首次计数时设置 60 秒 TTL 构成固定窗口; 过滤器优先级为
+     *           {@code Priorities.AUTHORIZATION - 10}, 先于标准鉴权链执行.
+     * @since 1.0
      */
     @ServerRequestFilter(priority = Priorities.AUTHORIZATION - 10)
     public @NotNull Uni<Response> filter(@NotNull RoutingContext routingContext, @NotNull UriInfo uriInfo)
@@ -115,8 +122,9 @@ public final class LoginRateLimitFilter
     //region 辅助方法
 
     /**
-     * <span style="color: 95cc6d">提取客户端 IP.</span>
-     * <p>优先取 {@code X-Forwarded-For} 首个值 (反向代理场景), 否则取直连地址.</p>
+     * 提取客户端 IP.
+     * <p>优先取 {@code X-Forwarded-For} 首个值 (反向代理场景), 否则取直连地址;
+     * 两者均不可得时返回 {@code null} (调用方按放行处理).</p>
      */
     private static @Nullable String extractClientIp(@NotNull RoutingContext ctx)
     {
