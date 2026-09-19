@@ -85,21 +85,7 @@ docker compose up -d postgres redis   # 基础服务
 ./gradlew quarkusDev                  # dev profile 自带本地默认配置
 ```
 
-**生产部署** (三步, 无需手工整理环境变量):
-
-```bash
-<<<<<<< HEAD
-chmod +x gradlew      # 非 Windows 用户; Windows 请使用 gradlew.bat
-./gradlew quarkusDev
-```
-
-- 开发模式默认加载 `application-dev.properties`, 本地数据库口令与 JWT 密钥均有默认值, 可直接启动
-- Dev UI: http://localhost:8080/q/dev/
-- 需要覆盖配置时, 在启动前导出环境变量即可 (见"配置表")
-
-### 前端 (React + TypeScript)
-
-前端位于 `frontend/` (Vite 开发端口 5173, 与 CORS 白名单默认值一致, 开发期 `/api` 与 `/ws` 自动代理到 8080):
+**前端开发** (React + TypeScript, Vite 端口 5173, 开发期 `/api` 与 `/ws` 自动代理到 8080):
 
 ```bash
 cd frontend
@@ -109,23 +95,9 @@ npm run dev      # http://localhost:5173
 
 包含登录注册 / 日记 CRUD (文字+语音) / 情绪天气预报看板 / 树洞对话 (SSE 流式) / RED 预警弹窗 (WebSocket) / 离线热线兜底页, 详见 `frontend/README.md`。
 
-## 4. 测试
+**生产部署** (三步, 无需手工整理环境变量):
 
 ```bash
-chmod +x gradlew      # 非 Windows 用户; Windows 请使用 gradlew.bat
-./gradlew :test
-```
-
-约 172 个单元测试, 覆盖异常体系 / 工具类 / DTO 边界 / Service 反射逻辑 / Resource 结构 / Agent 签名 / Retriever.
-
-## 5. 部署
-
-### 5.1 打包与运行
-
-```bash
-chmod +x gradlew      # 非 Windows 用户; Windows 请使用 gradlew.bat
-=======
->>>>>>> d7f2ceea1df0a55e8cd86485acb01b4f257a541d
 ./gradlew build
 java -jar build/quarkus-app/quarkus-run.jar --setup   # 向导: 配置 + 建库 + 模型下载
 java -jar build/quarkus-app/quarkus-run.jar

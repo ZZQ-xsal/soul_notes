@@ -3,13 +3,8 @@ package kurvcygnus.soulnotes.domain.diary.entity;
 import io.quarkus.hibernate.reactive.panache.PanacheEntityBase;
 import io.quarkus.hibernate.reactive.panache.PanacheQuery;
 import jakarta.persistence.*;
-<<<<<<< HEAD
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
-=======
 import kurvcygnus.soulnotes.config.ReactiveJsonStringJdbcType;
 import org.hibernate.annotations.JdbcType;
->>>>>>> d7f2ceea1df0a55e8cd86485acb01b4f257a541d
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Instant;
@@ -43,14 +38,9 @@ public final class MoodDiary extends PanacheEntityBase
     @Column(name = "audio_url")
     public String audioUrl;
 
-<<<<<<< HEAD
-    //! 缺少 @JdbcTypeCode(SqlTypes.JSON) 时 Hibernate 按 VARCHAR 提取 JSONB 列, reactive-pg-client 返回 JsonObject 触发 ClassCastException (真实数据库必现).
-    @JdbcTypeCode(SqlTypes.JSON)
-=======
     //* 显式字符串型 JSONB 映射: 新写入落为真 JSON (jsonb_typeof = object), 而非把 JSON 文本再包一层的字符串标量双重编码形态.
     //* 存量字符串标量行读出仍是可被 JsonUtils 解析的 JSON 文本, 迁移安全, 不做数据回填.
     @JdbcType(ReactiveJsonStringJdbcType.class)
->>>>>>> d7f2ceea1df0a55e8cd86485acb01b4f257a541d
     @Column(name = "analysis_result", columnDefinition = "JSONB")
     public String analysisResult;
 

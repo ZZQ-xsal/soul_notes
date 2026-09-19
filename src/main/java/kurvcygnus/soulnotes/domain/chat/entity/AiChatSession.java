@@ -6,12 +6,7 @@ import io.smallrye.mutiny.Uni;
 import jakarta.persistence.*;
 import kurvcygnus.soulnotes.config.ReactiveJsonStringJdbcType;
 import kurvcygnus.soulnotes.utils.JsonUtils;
-<<<<<<< HEAD
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
-=======
 import org.hibernate.annotations.JdbcType;
->>>>>>> d7f2ceea1df0a55e8cd86485acb01b4f257a541d
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Instant;
@@ -41,14 +36,9 @@ public final class AiChatSession extends PanacheEntityBase
     @Column(name = "user_id", nullable = false)
     public UUID userId;
 
-<<<<<<< HEAD
-    //! 缺少 @JdbcTypeCode(SqlTypes.JSON) 时 Hibernate 按 VARCHAR 提取 JSONB 列, reactive-pg-client 返回 JsonArray 触发 ClassCastException (真实数据库必现).
-    @JdbcTypeCode(SqlTypes.JSON)
-=======
     //* 显式字符串型 JSONB 映射: 新写入落为真 JSON (jsonb_typeof = array), 而非把 JSON 文本再包一层的字符串标量双重编码形态.
     //* 存量字符串标量行读出仍是可被 JsonUtils 解析的 JSON 文本, 迁移安全, 不做数据回填.
     @JdbcType(ReactiveJsonStringJdbcType.class)
->>>>>>> d7f2ceea1df0a55e8cd86485acb01b4f257a541d
     @Column(columnDefinition = "JSONB")
     public String messages;
 
