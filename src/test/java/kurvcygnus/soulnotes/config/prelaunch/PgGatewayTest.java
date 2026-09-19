@@ -25,7 +25,8 @@ class PgGatewayTest
     private static final int PORT = 5432;
     private static final String DB = "soulnotes";
     private static final String USER = "kurv";
-    private static final String PASSWORD = "CHANGE_ME_DB_PASSWORD";
+    //* 口令经环境变量注入 (CI 传入非敏感临时口令; 本地跑真机用例需先 export SOULNOTES_DB_PASSWORD).
+    private static final String PASSWORD = System.getenv().getOrDefault("SOULNOTES_DB_PASSWORD", "CHANGE_ME_DB_PASSWORD");
 
     @Test void probeRealServerReturnsOkWhenSchemaComplete()
     {
