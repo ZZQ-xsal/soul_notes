@@ -52,4 +52,4 @@ npm run preview  # 本地预览构建产物
 2. **流式接口不返回 sessionId**: 新会话首轮回复后, 前端经会话列表回查最近会话实现"续聊" (启发式, 见 `ChatView.tsx`)。
 3. **日记列表无总条数**: 后端 `GET /diaries` 只返回数组, 分页的"下一页"以本页是否满页推断。
 4. **AI 占位符**: 后端 `ai.openai.api-key=placeholder` 时所有 LLM 调用走降级 (日记无 analysisResult, 聊天返回兜底文案), 前端已按此展示提示。
-5. **语音分析链路**: `audioData` (Base64) 直接进入日记创建; 后端 ASR 转录当前为桩实现, 语音日记的转写文本暂不返回。
+5. **语音分析链路**: 录音/选文件后前端经 Web Audio 转码为 16kHz 单声道 PCM16 WAV (后端仅接受该格式), 上传 `/voice/upload` 同步本地转录; 转写文本回填编辑器 (可修改) 并与语音一并提交 (VOICE + content); 转录失败 (`status=FAILED` / 上传异常 / 静音) 时回落纯语音提交, 行为与旧版一致。

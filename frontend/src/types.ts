@@ -73,3 +73,18 @@ export interface HotlineInfo {
   backup: string
   message: string
 }
+
+//! 后端 VoiceStatus 枚举序列化为名称字符串; 转录失败不回 5xx,
+//! 而是 status=FAILED + message 透传原因 (离线安全网语义).
+export type VoiceStatus = 'TRANSCRIBED' | 'FAILED'
+
+/** VoiceUploadResponse (v1.1.0): 上传语音文件同步转录的契约载体 */
+export interface VoiceUploadResponse {
+  audioUrl: string
+  fileId: string
+  status: VoiceStatus
+  /** 转录文本 (失败时为 null; 静音时为空串) */
+  transcribedText: string | null
+  /** 失败原因 (成功时为 null) */
+  message: string | null
+}

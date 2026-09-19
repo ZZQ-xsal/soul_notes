@@ -1,10 +1,13 @@
 //* 写日记编辑器: 文字 / 语音两种来源.
-//* 语音经 MediaRecorder 录音或本地文件读取为 Base64, 进入 DiaryCreateRequest.audioData (VOICE 管线).
+//* 语音经 MediaRecorder 录音或本地文件读取, 转码为 16kHz 单声道 WAV 上传 /voice/upload 同步转写;
+//* 转写文本回填可编辑, 提交时与音频一并进入 DiaryCreateRequest (VOICE 管线), 失败回落纯语音提交.
 
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { createDiary } from '../../api/diary'
 import { ApiError } from '../../api/http'
+import { uploadVoice } from '../../api/voice'
+import { blobToWav16kMono } from '../../utils/audio'
 import type { DiaryItem } from '../../types'
 
 interface Props {
@@ -14,8 +17,8 @@ interface Props {
 
 //* 与后端 voice.storage.max-size 默认值 (10MB) 对齐.
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024
-//* 单次录音上限 5 分钟, 避免 Base64 体积失控.
-const MAX_RECORD_SECONDS = 300
+//* 单次录音上限 3 分钟: WAV 16kHz 单声道 PCM16 为 32KB/s, 3 分钟 ≈ 5.8MB, 距 10MB 上限留有余量.
+const MAX_RECORD_SECONDS = 180
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -42,6 +45,10 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
   const [recordSeconds, setRecordSeconds] = useState(0)
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
   const [audioBase64, setAudioBase64] = useState<string | null>(null)
+  const [transcribing, setTranscribing] = useState(false)
+  const [transcript, setTranscript] = useState('')
+  const [transcriptFailed, setTranscriptFailed] = useState('')
+  const [wavBase64, setWavBase64] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [micAvailable, setMicAvailable] = useState(true)
@@ -51,6 +58,8 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
   const timerRef = useRef<number | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const previewUrlRef = useRef<string | null>(null)
+  //* 转写请求序号: 重录/丢弃后, 在途旧请求的回包不再写状态 (竞态防护).
+  const transcribeSeqRef = useRef(0)
 
   //* 卸载清理: 停计时器、释放麦克风轨道与预览 URL.
   useEffect(
@@ -78,6 +87,41 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
     }
   }
 
+  //* 转码 + 上传同步转写; 结果非阻塞: 失败仅提示, 提交时回落纯语音日记.
+  const startTranscribe = async (blob: Blob): Promise<void> => {
+    const seq = ++transcribeSeqRef.current
+    setTranscribing(true)
+    setTranscript('')
+    setTranscriptFailed('')
+    setWavBase64(null)
+    try {
+      const wav = await blobToWav16kMono(blob)
+      if (seq !== transcribeSeqRef.current) return //* 已被新音频替换, 丢弃本次结果
+      if (wav.size > MAX_AUDIO_BYTES) {
+        setTranscriptFailed('音频时长过长, 无法转写 (上限约 5 分钟); 仍可提交为语音日记')
+        return
+      }
+      setWavBase64(await blobToBase64(wav))
+      const resp = await uploadVoice(wav)
+      if (seq !== transcribeSeqRef.current) return
+      if (resp.status === 'TRANSCRIBED') {
+        if (resp.transcribedText) {
+          setTranscript(resp.transcribedText)
+        } else {
+          //* 静音为空串属合法成功, 按降级提示处理 (可补录文字或直接提交语音).
+          setTranscriptFailed('未识别到语音内容 (可能为静音), 可直接提交语音日记')
+        }
+      } else {
+        setTranscriptFailed(resp.message ?? '语音转写失败, 将按纯语音日记提交')
+      }
+    } catch (err) {
+      if (seq !== transcribeSeqRef.current) return
+      setTranscriptFailed(err instanceof ApiError ? err.message : '语音转写失败, 将按纯语音日记提交')
+    } finally {
+      if (seq === transcribeSeqRef.current) setTranscribing(false)
+    }
+  }
+
   const startRecording = async (): Promise<void> => {
     setError('')
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
@@ -102,6 +146,7 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
         if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
         previewUrlRef.current = URL.createObjectURL(blob)
         setAudioBase64(await blobToBase64(blob))
+        void startTranscribe(blob)
       }
       recorder.start()
       setRecording(true)
@@ -120,6 +165,11 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
 
   const discardAudio = (): void => {
     clearTimer()
+    transcribeSeqRef.current++ //* 使在途转写请求的回包失效
+    setTranscribing(false)
+    setTranscript('')
+    setTranscriptFailed('')
+    setWavBase64(null)
     setAudioBlob(null)
     setAudioBase64(null)
     if (previewUrlRef.current) {
@@ -142,12 +192,13 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
       setAudioBlob(file)
       previewUrlRef.current = URL.createObjectURL(file)
       setAudioBase64(await blobToBase64(file))
+      void startTranscribe(file)
     } catch {
       setError('文件读取失败')
     }
   }
 
-  const canSubmit = mode === 'TEXT' ? content.trim().length > 0 : audioBase64 !== null
+  const canSubmit = mode === 'TEXT' ? content.trim().length > 0 : audioBase64 !== null && !transcribing
 
   const handleSubmit = async (): Promise<void> => {
     if (!canSubmit || submitting) return
@@ -157,7 +208,13 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
       const diary =
         mode === 'TEXT'
           ? await createDiary({ content: content.trim(), audioData: null, sourceType: 'TEXT' })
-          : await createDiary({ content: null, audioData: audioBase64, sourceType: 'VOICE' })
+          : await createDiary({
+              //* 有转写文本时一并提交 (AI 分析基于文字); 用户清空文本则回落纯语音日记.
+              content: transcript.trim() || null,
+              //* 优先提交统一格式的 WAV; 转码本身失败时才用原始音频.
+              audioData: wavBase64 ?? audioBase64,
+              sourceType: 'VOICE',
+            })
       onCreated(diary)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '提交失败, 请稍后再试')
@@ -221,6 +278,26 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
             ) : audioBlob ? (
               <div className="recorder-box">
                 <audio controls src={previewUrlRef.current ?? undefined} className="audio-preview" />
+                {transcribing && (
+                  <p className="editor-hint" role="status" aria-live="polite">
+                    正在转写语音…
+                  </p>
+                )}
+                {transcript.length > 0 && (
+                  <>
+                    <textarea
+                      className="textarea"
+                      rows={4}
+                      value={transcript}
+                      onChange={(e) => setTranscript(e.target.value)}
+                      maxLength={2000}
+                      aria-label="语音转写文本"
+                      placeholder="转写文本可修改后保存"
+                    />
+                    <div className="editor-hint">{transcript.length} / 2000</div>
+                  </>
+                )}
+                {transcriptFailed && <p className="form-warn">{transcriptFailed}</p>}
                 <div className="recorder-actions">
                   <button type="button" className="btn secondary sm" onClick={discardAudio}>
                     重新录制
@@ -242,7 +319,7 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
                 </label>
               </div>
             )}
-            <p className="editor-hint">语音将上传并由 AI 转写与分析; 单次录音最长 5 分钟, 文件不超过 10MB。</p>
+            <p className="editor-hint">语音将转码为 WAV 上传并本地转写 (文本可修改); 单次录音最长 3 分钟, 文件不超过 10MB。</p>
           </div>
         )}
 

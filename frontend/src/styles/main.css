@@ -380,6 +380,17 @@ button {
   font-size: 13px;
 }
 
+/* 表单降级提示 (不阻断, 如语音转写失败回落): 与 form-error 同构, 换 warning 色 */
+.form-warn {
+  padding: 9px 13px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--status-warning) 10%, var(--surface-1));
+  border: 1px solid color-mix(in srgb, var(--status-warning) 35%, transparent);
+  color: var(--status-warning);
+  font-size: 13px;
+}
+
 /* 数据刷新时保持旧帧降透明, 不做骨架屏跳变 */
 .is-loading-frame {
   opacity: 0.5;

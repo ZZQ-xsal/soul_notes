@@ -53,6 +53,8 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
 export interface ApiOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: unknown
+  /** multipart 请求体 (与 JSON body 互斥); 不手动设 Content-Type, 浏览器自动带 boundary */
+  formData?: FormData
   params?: Record<string, string | number | null | undefined>
   /** 是否携带 JWT; 登录/注册等匿名接口显式传 false */
   auth?: boolean
@@ -60,7 +62,7 @@ export interface ApiOptions {
 
 /** 调用后端 REST 接口, 成功返回 data, 失败抛出 ApiError */
 export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
-  const { method = 'GET', body, params, auth = true } = options
+  const { method = 'GET', body, formData, params, auth = true } = options
 
   const query = params
     ? '?' +
@@ -72,7 +74,7 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     : ''
 
   const headers: Record<string, string> = {}
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  if (body !== undefined && formData === undefined) headers['Content-Type'] = 'application/json'
   const token = auth ? getToken() : null
   if (token) headers.Authorization = `Bearer ${token}`
 
@@ -81,7 +83,7 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     res = await fetch(BASE + path + query, {
       method,
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: formData ?? (body !== undefined ? JSON.stringify(body) : undefined),
     })
   } catch {
     throw new ApiError('无法连接服务器, 请确认后端已启动 (http://localhost:8080)', null, 0)
