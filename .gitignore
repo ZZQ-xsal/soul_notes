@@ -67,3 +67,7 @@ spike/
 /vosk-*.zip
 
 DEV.md
+
+#* 本机一键启动脚本与运行日志 (机器相关, 不入库).
+/start-backend.ps1
+/quarkus-dev.log
