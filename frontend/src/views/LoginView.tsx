@@ -5,6 +5,7 @@ import type { FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { ApiError } from '../api/http'
+import AgreementModal, { AGREEMENT_STORAGE_KEY } from '../components/auth/AgreementModal'
 
 const DEMO_ACCOUNTS = [
   { username: 'alice', role: '学生' },
@@ -23,12 +24,21 @@ export default function LoginView() {
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  //* 协议同意状态: 同意过写入 localStorage, 同浏览器下次免勾; 未同意禁止登录.
+  const [agreed, setAgreed] = useState(() => localStorage.getItem(AGREEMENT_STORAGE_KEY) === '1')
+  const [showAgreement, setShowAgreement] = useState(false)
+  const [agreeHint, setAgreeHint] = useState(false)
 
   //* 登录成功后回跳来源页, 默认进日记页.
   const from = (location.state as { from?: string } | null)?.from ?? '/diaries'
 
   const handleSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault()
+    //* 未同意协议时点击登录: 按钮不置灰, 点击后给出勾选提醒.
+    if (!agreed) {
+      setAgreeHint(true)
+      return
+    }
     if (!username.trim() || !password || submitting) return
     setSubmitting(true)
     setError('')
@@ -95,6 +105,24 @@ export default function LoginView() {
             />
           </div>
           {error && <p className="form-error">{error}</p>}
+          {agreeHint && !agreed && (
+            <p className="form-warn">请先阅读并勾选同意《AI 服务使用协议与免责声明》, 然后再登录</p>
+          )}
+          <label className="agreement-row">
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={(e) => {
+                setAgreed(e.target.checked)
+                if (e.target.checked) setAgreeHint(false)
+                if (!e.target.checked) localStorage.removeItem(AGREEMENT_STORAGE_KEY)
+              }}
+            />
+            <span>我已阅读并同意</span>
+            <button type="button" className="agreement-link" onClick={() => setShowAgreement(true)}>
+              《AI 服务使用协议与免责声明》
+            </button>
+          </label>
           <button type="submit" className="btn auth-submit" disabled={!username.trim() || !password || submitting}>
             {submitting ? '登录中…' : '登录'}
           </button>
@@ -119,6 +147,16 @@ export default function LoginView() {
           </p>
         </details>
       </div>
+      {showAgreement && (
+        <AgreementModal
+          onAgree={() => {
+            setAgreed(true)
+            setAgreeHint(false)
+            setShowAgreement(false)
+          }}
+          onClose={() => setShowAgreement(false)}
+        />
+      )}
     </div>
   )
 }

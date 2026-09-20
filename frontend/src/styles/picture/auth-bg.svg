@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  登录页背景图 · 云朵星空四角点缀
+  画布 1920×1080, 透明底 (网页用 CSS 渐变换底色, 深浅色模式都适用)
+  构图: 云朵/月牙/星点/小心形分布在四角, 中央 x560-1360 / y200-880 留白给登录卡片
+  在 Inkscape 中可直接打开编辑: 每个元素都是独立群组, 用 F1 选中即可移动/改色
+-->
+
+<svg
+   viewBox="0 0 1920 1080"
+   version="1.1"
+   id="svg23"
+   sodipodi:docname="auth-bg.svg"
+   inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs23" />
+  <sodipodi:namedview
+     id="namedview23"
+     pagecolor="#d7f7ab"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="1.1268519"
+     inkscape:cx="960.19721"
+     inkscape:cy="540"
+     inkscape:window-width="2560"
+     inkscape:window-height="1494"
+     inkscape:window-x="-11"
+     inkscape:window-y="-11"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg23" />
+  <!-- 云朵 (与 WeatherIcon 同款结构: 两个圆 + 圆角矩形, 白色半透明) -->
+  <!-- 左上, 露出一半在画面外 -->
+  <g
+     transform="translate(-60 60) scale(1.15)"
+     opacity="0.5"
+     fill="#ffffff"
+     id="g3">
+    <circle
+       cx="80"
+       cy="120"
+       r="44"
+       id="circle1" />
+    <circle
+       cx="128"
+       cy="96"
+       r="56"
+       id="circle2" />
+    <circle
+       cx="176"
+       cy="120"
+       r="40"
+       id="circle3" />
+    <rect
+       x="40"
+       y="120"
+       width="176"
+       height="32"
+       rx="16"
+       id="rect3" />
+  </g>
+  <!-- 右上, 半朵在画面外 -->
+  <g
+     transform="translate(1790 30) scale(1)"
+     opacity="0.45"
+     fill="#ffffff"
+     id="g6">
+    <circle
+       cx="80"
+       cy="120"
+       r="44"
+       id="circle4" />
+    <circle
+       cx="128"
+       cy="96"
+       r="56"
+       id="circle5" />
+    <circle
+       cx="176"
+       cy="120"
+       r="40"
+       id="circle6" />
+    <rect
+       x="40"
+       y="120"
+       width="176"
+       height="32"
+       rx="16"
+       id="rect6" />
+  </g>
+  <!-- 右下 -->
+  <g
+     transform="translate(1620 890) scale(0.9)"
+     opacity="0.5"
+     fill="#ffffff"
+     id="g9">
+    <circle
+       cx="80"
+       cy="120"
+       r="44"
+       id="circle7" />
+    <circle
+       cx="128"
+       cy="96"
+       r="56"
+       id="circle8" />
+    <circle
+       cx="176"
+       cy="120"
+       r="40"
+       id="circle9" />
+    <rect
+       x="40"
+       y="120"
+       width="176"
+       height="32"
+       rx="16"
+       id="rect9" />
+  </g>
+  <!-- 左下, 小云 -->
+  <g
+     transform="translate(30 780) scale(0.55)"
+     opacity="0.35"
+     fill="#ffffff"
+     id="g12">
+    <circle
+       cx="80"
+       cy="120"
+       r="44"
+       id="circle10" />
+    <circle
+       cx="128"
+       cy="96"
+       r="56"
+       id="circle11" />
+    <circle
+       cx="176"
+       cy="120"
+       r="40"
+       id="circle12" />
+    <rect
+       x="40"
+       y="120"
+       width="176"
+       height="32"
+       rx="16"
+       id="rect12" />
+  </g>
+  <!-- 月牙: 大圆减小圆 (布尔差集), 右上区域, 微微倾斜 -->
+  <g
+     transform="rotate(-20 1500 300)"
+     opacity="0.85"
+     fill="#eda100"
+     id="g13">
+    <path
+       fill-rule="evenodd"
+       d="M1500 230a70 70 0 1 0 0 140a70 70 0 1 0 0 -140zM1528 208a62 62 0 1 0 0 124a62 62 0 1 0 0 -124z"
+       id="path12" />
+  </g>
+  <!-- 四角星点 (品牌亮绿 #74c7ba, 深浅两种底色上都可见) -->
+  <g
+     fill="#74c7ba"
+     id="g20">
+    <path
+       transform="translate(300 430) scale(1.1)"
+       opacity="0.5"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path13" />
+    <path
+       transform="translate(150 700) scale(0.7)"
+       opacity="0.4"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path14" />
+    <path
+       transform="translate(520 170) scale(0.8)"
+       opacity="0.45"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path15" />
+    <path
+       transform="translate(1150 90) scale(0.7)"
+       opacity="0.4"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path16" />
+    <path
+       transform="translate(1680 480) scale(1)"
+       opacity="0.5"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path17" />
+    <path
+       transform="translate(1430 830) scale(0.65)"
+       opacity="0.4"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path18" />
+    <path
+       transform="translate(240 985) scale(0.9)"
+       opacity="0.45"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path19" />
+    <path
+       transform="translate(1760 640) scale(0.6)"
+       opacity="0.35"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path20" />
+  </g>
+  <!-- 小心形 (呼应 logo 的心形路径, 品牌深绿, 低透明度) -->
+  <g
+     fill="#3d7d74"
+     id="g23">
+    <path
+       transform="translate(430 120) scale(0.7)"
+       opacity="0.35"
+       d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
+       id="path21" />
+    <path
+       transform="translate(1400 70) scale(0.6)"
+       opacity="0.3"
+       d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
+       id="path22" />
+    <path
+       transform="translate(900 1030) scale(0.8)"
+       opacity="0.3"
+       d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
+       id="path23" />
+  </g>
+</svg>

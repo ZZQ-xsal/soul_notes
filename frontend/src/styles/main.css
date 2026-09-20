@@ -1328,11 +1328,16 @@ button {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: linear-gradient(
+  /* 背景插画 (styles/picture/auth-bg.svg, Inkscape 绘制): 叠在渐变之上;
+     cover 在窄屏会裁掉部分四角元素, 属预期, 中央留白不受影响 */
+  background-image: url('./picture/auth-bg.svg'), linear-gradient(
     160deg,
     var(--bg) 0%,
     color-mix(in srgb, var(--brand-soft) 60%, var(--bg)) 100%
   );
+  background-size: cover, auto;
+  background-position: center, center;
+  background-repeat: no-repeat, no-repeat;
 }
 
 .auth-card {
@@ -1365,6 +1370,90 @@ button {
 .auth-submit {
   width: 100%;
   margin-top: 4px;
+}
+
+/* 协议勾选行与弹窗 (登录页 AI 免责声明) */
+.agreement-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 14px 0 2px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.agreement-row input[type='checkbox'],
+.agreement-check input {
+  accent-color: var(--brand);
+}
+
+.agreement-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--brand);
+  font-size: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.agreement-link:hover {
+  color: var(--brand-strong);
+}
+
+.agreement-title {
+  margin: 0 30px 4px 0;
+  font-size: 17px;
+}
+
+.agreement-meta {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.agreement-body {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--text-secondary);
+}
+
+.agreement-body h2 {
+  margin: 16px 0 6px;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.agreement-body h2:first-child {
+  margin-top: 0;
+}
+
+.agreement-body p {
+  margin: 4px 0;
+}
+
+.agreement-body ul {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.agreement-body strong {
+  color: var(--text-primary);
+}
+
+.agreement-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.agreement-confirm {
+  width: 100%;
 }
 
 .auth-switch {
