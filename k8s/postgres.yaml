@@ -21,7 +21,7 @@ spec:
             - name: POSTGRES_USER
               value: kurv
             - name: POSTGRES_PASSWORD
-              value: CHANGE_ME_DB_PASSWORD
+              value: soulnotes_dev
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "kurv", "-d", "soulnotes"]

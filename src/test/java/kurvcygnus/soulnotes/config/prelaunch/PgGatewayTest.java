@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import kurvcygnus.soulnotes.support.InfraProbes;
 
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -25,8 +26,10 @@ class PgGatewayTest
     private static final int PORT = 5432;
     private static final String DB = "soulnotes";
     private static final String USER = "kurv";
-    //* 口令经环境变量注入 (CI 传入非敏感临时口令; 本地跑真机用例需先 export SOULNOTES_DB_PASSWORD).
-    private static final String PASSWORD = System.getenv().getOrDefault("SOULNOTES_DB_PASSWORD", "CHANGE_ME_DB_PASSWORD");
+    //* 真机口令经环境变量注入, 兜底为公开占位符: 本机口令曾随仓库泄露并已全历史去敏,
+    //! 任何硬编码真值不允许回归; 本机跑真机用例前 export SOULNOTES_DB_PASSWORD 对齐即可.
+    private static final String PASSWORD =
+        Objects.requireNonNullElse(System.getenv("SOULNOTES_DB_PASSWORD"), "soulnotes_dev");
 
     @Test void probeRealServerReturnsOkWhenSchemaComplete()
     {

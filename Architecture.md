@@ -9,7 +9,7 @@ Soul Notes 是一个**可插拔, 高度可配置的心理健康咨询基础平�
 - **共情非医学化对话**: AI 以"心声树洞"倾听者角色回应, 禁止医学诊断标签; 提示词可整体替换
 - **高危预警 (Red Alert)**: 检测到自伤/自杀倾向时, 在线推送弹窗 + 机构 Webhook 冗余 + 离线热线兜底
 - **平台化可插拔点**: ASR 引擎 (`IAsrEngine`) / 预警通知渠道 (`IAlertNotifier`) / 心理知识包 / 提示词 / 身份品牌, 全部经配置替换
-- **结构化输出预埋 ("副医生")**: 开关开启后 AI 回复附带结构化标签, 后端拆流, 前端仅见共情文本 (默认关闭)
+- **结构化输出预埋 ("副医生")**: 开关开启后 AI 回复附带结构化标签, 后端拆流, 前端仅见共情文本 (默认关闭); 评估落库并提供咨询员工作台消费端 (风险队列/学生时间线/聚合统计/实时推送)
 
 ---
 
@@ -58,7 +58,7 @@ kurvcygnus.soulnotes/
 │   └── GlobalExceptionMapper.java     # StructuredException -> 统一 JSON 响应
 ├── dto/
 │   ├── ApiResponse.java               # 统一响应外壳 {code, message, data}
-│   └── PageRequest.java               # 分页参数 (边界 clamp)
+│   └── PageRequest.java               # 分页参数 (边界 clamp + normalize: @BeanParam 缺席参数收敛默认 第1页/每页20)
 ├── utils/
 │   ├── constants/                     # JwtConstants, ApiEndpointConstants, RedisKeyConstants, AiPromptConstants
 │   ├── enums/                         # UserRole, EmotionWeatherType, WarningLevel, VoiceStatus
@@ -113,12 +113,21 @@ kurvcygnus.soulnotes/
 │   │   ├── dto/                       # VoiceUploadResponse
 │   │   ├── resource/VoiceResource.java# /upload (同步本地转录), /files/{id}
 │   │   └── service/VoiceStorageService.java # 落盘 (worker 池文件 I/O)
+│   ├── clinical/                      # 咨询员工作台 (副医生评估消费端)
+│   │   ├── entity/ClinicalAssessment.java  # 评估实体 (JSONB tags 原文, NONE 不落库; 静态分页 Page.of(offset/limit, limit))
+│   │   ├── dto/                       # AssessmentVo / StatsSummary
+│   │   ├── resource/ClinicalResource.java  # /api/v1/clinical 三端点 (COUNSELOR/ADMIN)
+│   │   ├── service/ClinicalAssessmentService.java # 落库/三视图/清理 + 脱敏统一出口 (REST/WS 共用)
+│   │   ├── RevealPolicy.java          # 风险分级实名解锁 (未解锁 = UUID 前 8 位稳定短码)
+│   │   └── ClinicalRetentionCleaner.java  # 启动时异步保留期清理 (<=0 禁用)
 │   └── crisis/
 │       └── CrisisResource.java        # GET /crisis/hotline (离线兜底)
 └── websocket/
-    ├── WebSocketAuthUpgradeCheck.java # HttpUpgradeCheck JWT 认证网关
+    ├── WebSocketAuthUpgradeCheck.java # HttpUpgradeCheck JWT 认证网关 (/ws/clinical 前缀额外 COUNSELOR/ADMIN 断言 403)
     ├── ChatWebSocket.java             # /ws/chat 流式文本推送
     ├── AlertWebSocket.java            # /ws/alert RED 预警推送 (WebSocketAlertNotifier)
+    ├── ClinicalFeedHub.java           # 工作台推送枢纽 (register/unregister 条件移除防重连竞态, broadcast fire-and-forget)
+    ├── ClinicalFeedWebSocket.java     # /ws/clinical/feed 工作台实时推送端点
     ├── IAlertNotifier.java            # 预警通知渠道端口 (Uni<Void> notify)
     ├── WebSocketAlertNotifier.java    # 在线前端渠道 (总是启用)
     └── WebhookAlertNotifier.java      # 机构服务端渠道 (URL 空 = 禁用, fire-and-forget 3s)
@@ -203,8 +212,9 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 
 ## 8. WebSocket
 
-- `WebSocketAuthUpgradeCheck`: 升级阶段校验 JWT (header 或 `token` 查询参数) + 黑名单, userId 存入 `UserData`
+- `WebSocketAuthUpgradeCheck`: 升级阶段校验 JWT (header 或 `token` 查询参数) + 黑名单, userId 存入 `UserData`; `/ws/clinical` 前缀端点额外断言 COUNSELOR/ADMIN 角色 (403, 以 `request.path()` 判定), 学生端 `/ws/chat` `/ws/alert` 行为不变
 - `ChatWebSocket` (`/ws/chat`): 接收 JSON 消息, 订阅 `ChatService.streamMessage` 逐 token 推送 (逐消息持久化, WS 专用消息上下文)
+- `ClinicalFeedWebSocket` (`/ws/clinical/feed`): 咨询员工作台实时推送 — `ClinicalFeedHub` 维护 counselorId → 连接映射, register/unregister 均携带连接实例, 注销为条件移除 (防旧连接 close 回调晚于重连 register 到达的竞态); `broadcast(String)` fire-and-forget (无在线咨询员静默跳过, 单连接失败仅 WARN), `ClinicalAssessmentService` 落库后广播 `NEW_ASSESSMENT`
 - RED 预警推送渠道接口化为 `IAlertNotifier` (`ChatService` 只依赖接口): `WebSocketAlertNotifier` (在线前端, `/ws/alert`, 总是启用) + `WebhookAlertNotifier` (机构服务端, URL 空 = 禁用, fire-and-forget 3s, 失败仅 WARN), 渠道互为冗余、同构可扩展
 
 ---
@@ -212,7 +222,7 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 ## 9. 数据流全景
 
 ```text
-前端 (React + TypeScript)
+前端 (Vue)
 ├─ 日记 CRUD / 天气  ->  DiaryResource -> DiaryService / EmotionWeatherService -> PostgreSQL (analysis_result JSONB)
 ├─ AI 对话 (SSE/WS)  ->  ChatResource / ChatWebSocket -> ChatService -> EmpatheticChatAgent -> TokenStream (契约开启时经 ClinicalOutputSplitter 拆流)
 ├─ 预警              ->  WarningDetectionAgent (RED) -> IAlertNotifier (AlertWebSocket 在线弹窗 + Webhook 机构服务端)
@@ -246,6 +256,8 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 | `quarkus.redis.hosts` / `SOULNOTES_REDIS_HOSTS`                  | Redis 地址 (容器/K8s 部署必须覆盖)                                                         |
 | `quarkus.langchain4j.openai.*`                         | AI 端点/模型/密钥 (`ai.openai.*` 占位)                                                     |
 | `clinical.tagging` / `SOULNOTES_CLINICAL_TAGGING`      | 结构化输出契约开关 (默认 false, 开启后每请求追加契约段 token)                              |
+| `clinical.reveal-level` / `SOULNOTES_CLINICAL_REVEAL_LEVEL`      | 工作台实名解锁等级 (RED/YELLOW/NEVER, 非法值回落 RED)                                        |
+| `clinical.retention-days` / `SOULNOTES_CLINICAL_RETENTION_DAYS`  | 启动时保留期清理窗口 (默认 90, <=0 禁用)                                                     |
 | `asr.engine` / `asr.runtime.dir` / `asr.lib.url`       | ASR 引擎 (`SOULNOTES_ASR_ENGINE`, 非 vosk 拒绝启动) / 运行时目录 / libvosk 来源 JAR        |
 | `knowledge.pack` / `SOULNOTES_KNOWLEDGE_PACK`          | 心理知识包名 (缺失回退 `default`)                                                          |
 | `alert.webhook.url` / `SOULNOTES_ALERT_WEBHOOK_URL`    | RED 预警机构 Webhook (空 = 渠道禁用); token 键同构 (`SOULNOTES_ALERT_WEBHOOK_TOKEN`)       |
@@ -264,8 +276,9 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 
 ## 12. 测试覆盖
 
-- 单元/集成测试 435 个 (`./gradlew :test`), 覆盖: 异常体系 / 工具类 / DTO 边界 / Service 反射逻辑 / Resource 结构 / Agent 签名 / 知识包加载与回退 / Webhook 负载与禁用态 / issuer 一致性 / ASR 运行时下载与引擎 (无动态库真机用例 assumeTrue 跳过) / FFM 接口层 / URL 解析 / DB 五态映射 (fake gateway) / 模型列表解析 / zip 下载解压 (本地 fixture) / 配置管线 (Pre-Launch 校验与向导)
-- Mock-LLM 全链路 (OpenAI 兼容零依赖 mock, `src/test/.../support/`): `/chat/send` 与 `/chat/stream` (SSE 分块) / 预警链路 (mock 判 RED → `warning_triggered` 落库) / 工具调用 (`@MemoryId` UUID 透传与工具结果回流) / `/ws/chat` WebSocket 流式 / JSONB 原生查询断言 (`jsonb_typeof`) / 结构化输出契约拆流 (on/off/坏格式三态)
+- 单元/集成测试 486 个 (`./gradlew :test`), 覆盖: 异常体系 / 工具类 / DTO 边界 / Service 反射逻辑 / Resource 结构 / Agent 签名 / 知识包加载与回退 / Webhook 负载与禁用态 / issuer 一致性 / ASR 运行时下载与引擎 (无动态库真机用例 assumeTrue 跳过) / FFM 接口层 / URL 解析 / DB 五态映射 (fake gateway) / 模型列表解析 / zip 下载解压 (本地 fixture) / 配置管线 (Pre-Launch 校验与向导)
+- Mock-LLM 全链路 (OpenAI 兼容零依赖 mock, `src/test/.../support/`): `/chat/send` 与 `/chat/stream` (SSE 分块) / 预警链路 (mock 判 RED → `warning_triggered` 落库) / 工具调用 (`@MemoryId` UUID 透传与工具结果回流) / `/ws/chat` WebSocket 流式 / JSONB 原生查询断言 (`jsonb_typeof`) / 结构化输出契约拆流 (on/off/坏格式三态) / 副医生评估落库全链路 (RED 实名解锁 / YELLOW 掩码脱敏 / NONE 不落库)
+- 咨询员工作台单元层: `RevealPolicy` 解锁矩阵 (RED/YELLOW/NEVER, 非法值回落 RED, 短码跨调用稳定) / `ClinicalAssessmentService` 落库与脱敏视图 / `ClinicalResource` 角色与参数校验 (`@BeanParam` 缺席分页收敛默认 第1页/每页20) / `ClinicalFeedWebSocket` 生命周期与网关角色断言 / `ClinicalRetentionCleaner` (<=0 禁用短路, 正数清理)
 - 语音链路以 `FixedAsrEngine` 固定转录文本注入, 不依赖真实模型与动态库
 
 ---
@@ -276,7 +289,7 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 - **密码哈希**: 已落地 PBKDF2WithHmacSHA256 (210k 迭代, OWASP 推荐值, 存储格式 `pbkdf2$<iterations>$<salt>$<hash>`); 原型遗留的 SHA-256 无盐哈希仍可验证, 建议该批用户登录成功后重哈希迁移
 - **ASR 为可插拔能力**: 运行时未就绪仅 WARN 不阻断 (文字链路与离线热线兜底完整可用); `asr.engine` 配置非 `vosk` 值则引擎 Bean 构造即拒绝启动; JVM 模式建议注入 `--enable-native-access=ALL-UNNAMED` 消除 FFM 受限调用告警 (未注入仅告警不影响功能)
 - **`UserContextTool`** 在无 Hibernate 上下文的工具线程执行时降级返回默认文案
-- **结构化输出**: 剥离是主机制, HTML 注释隐形仅是兜底 — 前端若以纯文本渲染, 透传的注释块会以原文可见; 结构化结果本轮仅 DEBUG 日志 (存储/消费延后)
+- **结构化输出**: 剥离是主机制, HTML 注释隐形仅是兜底 — 前端若以纯文本渲染, 透传的注释块会以原文可见; 开启时拆流成功且非 NONE 的评估异步落库并推送工作台 (best-effort, 失败仅 WARN 不影响对话)
 - **限流依赖 Redis**: 聊天 (默认 20) / 登录 (默认 10) / 语音上传 (默认 10) 限流均可经 `SOULNOTES_RATE_LIMIT_*` 环境变量覆盖; Redis 不可用时过滤器降级放行 (fail-open)
 - **集成测试依赖本机基础设施**: `@QuarkusTest` 需本机 PostgreSQL (5432) 与 Redis (6379) 在跑, CI 无库环境需后续以 Testcontainers 补齐
 
@@ -284,4 +297,4 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 
 ## 14. 部署与配置
 
-部署形态 (打包运行 / JVM 镜像 / docker-compose / Kubernetes / Native 镜像), 环境变量总表 (39 项 `SOULNOTES_*`), 配置向导与启动前校验, 以及机构集成 (本地 ASR / Webhook 预警 / 知识包 / 结构化输出) 的**单一权威参考是 [CONFIGURATION.md](./CONFIGURATION.md)** — 本文档不再重复维护, 防双源漂移.
+部署形态 (打包运行 / JVM 镜像 / docker-compose / Kubernetes / Native 镜像), 环境变量总表 (42 项 `SOULNOTES_*`), 配置向导与启动前校验, 以及机构集成 (本地 ASR / Webhook 预警 / 知识包 / 结构化输出) 的**单一权威参考是 [CONFIGURATION.md](./CONFIGURATION.md)** — 本文档不再重复维护, 防双源漂移.

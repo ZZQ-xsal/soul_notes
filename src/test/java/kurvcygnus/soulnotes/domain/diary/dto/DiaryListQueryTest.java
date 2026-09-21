@@ -67,4 +67,38 @@ class DiaryListQueryTest
         assertNull(query.getStartDate());
         assertNull(query.getEndDate());
     }
+
+    @Test void normalize_ZeroFields_ShouldApplyContractDefault()
+    {
+        //* normalize 契约与 PageRequest 同语义: 0 (缺席参数的字段直设值) 视为未传参, 收敛为文档默认 第 1 页/每页 20.
+        final var query = new DiaryListQuery();
+        query.normalize();
+        assertEquals(1, query.getPage());
+        assertEquals(20, query.getSize());
+        assertEquals(0, query.getOffset());
+    }
+
+    @Test void normalize_NegativeFields_ShouldClampToOne()
+    {
+        //* 负值经 setter 钳位: page >= 1, size >= 1, offset 恒 >= 0.
+        final var query = new DiaryListQuery();
+        query.setPage(-5);
+        query.setSize(-5);
+        query.normalize();
+        assertEquals(1, query.getPage());
+        assertEquals(1, query.getSize());
+        assertEquals(0, query.getOffset());
+    }
+
+    @Test void normalize_ValidFields_ShouldBeUntouched()
+    {
+        //* 合法在界值不收敛不改写 (返回 this 链式语义).
+        final var query = new DiaryListQuery();
+        query.setPage(2);
+        query.setSize(15);
+        assertEquals(query, query.normalize());
+        assertEquals(2, query.getPage());
+        assertEquals(15, query.getSize());
+        assertEquals(15, query.getOffset());
+    }
 }

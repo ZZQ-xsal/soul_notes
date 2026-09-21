@@ -22,7 +22,7 @@
 
 ## 1. 配置总览
 
-全部配置遵循 12-factor: 每个业务键都是 `application.properties` 中的 `${SOULNOTES_*:default}` 占位 — 环境变量优先, 未配置时回落内置默认, 无需触碰任何文件即可完成覆盖. 39 个 `SOULNOTES_*` 键中 37 项可经 `--setup` 向导交互式配置, 其余 2 项 (品牌名 / 语音限流) 属部署微调, 保持内置默认即可.
+全部配置遵循 12-factor: 每个业务键都是 `application.properties` 中的 `${SOULNOTES_*:default}` 占位 — 环境变量优先, 未配置时回落内置默认, 无需触碰任何文件即可完成覆盖. 42 个 `SOULNOTES_*` 键中 40 项可经 `--setup` 向导交互式配置, 其余 2 项 (品牌名 / 语音限流) 属部署微调, 保持内置默认即可.
 
 AI 三项 (`ai.openai.*`) 经 LangChain4j 桥接键 (`quarkus.langchain4j.openai.*`) 引用展开值, 单独配置桥接键不生效. `mp.jwt.verify.issuer` 与 TokenService 签发的 iss claim 共用 `SOULNOTES_JWT_ISSUER` 一个键 (双端天然一致), 中途更换将使全部已发 Token 立即失效.
 
@@ -34,7 +34,7 @@ AI 三项 (`ai.openai.*`) 经 LangChain4j 桥接键 (`quarkus.langchain4j.openai
 java -jar build/quarkus-app/quarkus-run.jar --setup
 ```
 
-- **两种模式**: `1. 简单配置 (仅必填项)` / `2. 全面配置 (全部 37 项)`, 回车默认简单配置
+- **两种模式**: `1. 简单配置 (仅必填项)` / `2. 全面配置 (全部 40 项)`, 回车默认简单配置
 - **键位说明**: 折叠清单按 `序号` 跳转 / `Enter` 顺序遍历 (保存即推进下一项); 展开态输入 `esc` 放弃本次修改; 折叠态输入 `q` 进入配置摘要
 - **就地校验**: 非法输入 (URL scheme / 非数字 / 长度不足) 红字重问; 必填项留空不折叠重问; JWT 密钥留空自动生成 64 字符随机密钥
 - **ASR 运行时交互**: 保存 `SOULNOTES_ASR_ENGINE` / `SOULNOTES_ASR_RUNTIME_DIR` 后自动就绪检查, 未就绪现场询问"是否立即下载", 接受后按 [§7](#7-本地语音识别-asr) 的来源拉取模型 zip 与 libvosk (进度行内回显); 下载失败不中断向导, 可稍后手动放置或重试
@@ -111,6 +111,8 @@ java -jar build/quarkus-app/quarkus-run.jar --setup
 | `SOULNOTES_AI_TIMEOUT`                | AI 请求超时 (Quarkus Duration 格式, 如 30s / 1m)       | `30s`                                     |
 | `SOULNOTES_CLINICAL_TAGGING`          | 结构化输出契约开关 (on/true 开启, 默认关闭; 见 §10)    | `false`                                   |
 | `SOULNOTES_PROMPT_CLINICAL_SCHEMA`    | 副医生结构定义 (自然语言, 启动时经 LLM 归一化并缓存; 见 §10.1) | 空 (内置 canonical 结构)          |
+| `SOULNOTES_CLINICAL_REVEAL_LEVEL`     | 工作台实名解锁等级 (RED/YELLOW/NEVER, 非法值回落 RED)  | `RED`                                     |
+| `SOULNOTES_CLINICAL_RETENTION_DAYS`   | 临床评估保留天数 (启动时清理, <=0 禁用)                | `90`                                      |
 | `SOULNOTES_ASR_ENGINE`                | ASR 引擎, 当前仅 `vosk` 可选, 其他值拒绝启动           | `vosk`                                    |
 | `SOULNOTES_ASR_RUNTIME_DIR`           | ASR 运行时目录 (lib/ + model/, 见 §7)                  | `asr-model`                               |
 | `SOULNOTES_ASR_LIB_URL`               | libvosk 来源 JAR 地址 (非动态库直链; 留空用内置默认)   | 空 (aliyun 镜像 vosk-0.3.45 JAR)          |
@@ -277,7 +279,7 @@ Webhook 行为契约:
 
 ## 10. 结构化输出 (临床标签预埋, "副医生")
 
-面向未来"咨询员工作台"的预埋能力: AI 从"主医生"重定位为"副医生", 在共情回复之外产出结构化心理/人格标签供人类专家参考. 当前仅开放产出管线, 存储/消费延后 (路线图).
+面向"咨询员工作台"的预埋能力: AI 从"主医生"重定位为"副医生", 在共情回复之外产出结构化心理/人格标签供人类专家参考. 产出管线, 落库与咨询员消费端均已落地 (消费端见 §10.2).
 
 - **开关**: `SOULNOTES_CLINICAL_TAGGING=on/true` 开启, **默认关闭** — 契约段随每条消息发送, 每请求新增数百 token, 默认关闭以控成本
 - **提示词组合 (钉死)**: 机构自定义提示词在前, 功能契约段在后, 且契约段首行声明"以下输出契约优先级最高" (防机构提示词无意中破坏输出格式)
@@ -309,6 +311,10 @@ Webhook 行为契约:
   | 自定义 + LLM 失败且无缓存 | WARN + 结构化输出增强暂禁 (仅发基础提示词), 等下次启动重试 |
 
 - **`config/clinical-schema-cache.json`**: 本地实例运行时产物, 已被 `.gitignore` 锚定排除; 文件损坏时自动忽略并从头累积, 不影响启动
+
+### 10.2 咨询员消费端 (工作台 API)
+
+拆流产出的结构化评估已落库 (`clinical_assessments` 表, riskLevel 仅 YELLOW/RED — NONE 不落库, best-effort 写入不阻断对话) 并提供咨询员消费端: `GET /api/v1/clinical/assessments` (风险队列) / `GET /api/v1/clinical/students/{userId}/assessments` (学生时间线) / `GET /api/v1/clinical/stats/summary` (聚合统计) / `WS /ws/clinical/feed` (实时推送). REST 与 WS 同门槛: COUNSELOR/ADMIN 角色 (WS 于升级握手期断言, 学生端 `/ws/chat` `/ws/alert` 行为不变); 列表端点分页参数缺席时按契约默认第 1 页 / 每页 20 条. 身份默认脱敏为 8 位稳定短码, 达到 `SOULNOTES_CLINICAL_REVEAL_LEVEL` (默认 RED) 的记录解锁实名; 聊天正文永不暴露. 评估流与预警链路 (`WarningDetectionAgent` → 弹窗/Webhook) 双源不混流: 工作台仅消费副医生评估表, 预警语义不变, 副医生 RED 仅作标记不触发预警动作.
 
 ## 11. 演示账号
 

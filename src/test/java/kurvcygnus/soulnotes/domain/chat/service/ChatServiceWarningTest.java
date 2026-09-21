@@ -48,7 +48,7 @@ class ChatServiceWarningTest
     @SuppressWarnings("ConstantConditions")//! 测试缝: 未用依赖置 null 是纯单测构造服务实例的唯一途径.
     private static ChatService newService(List<IAlertNotifier> notifiers)
     {
-        return new ChatService(null, null, null, null, notifiers, null, 50, false);
+        return new ChatService(null, null, null, null, null, notifiers, null, 50, false);
     }
 
     private static void invokeApplyWarning(ChatService service, AiChatSession session, WarningDetectionResult detection) throws InvocationTargetException, NoSuchMethodException, IllegalAccessException

@@ -8,6 +8,7 @@ import io.smallrye.mutiny.Uni;
 import jakarta.inject.Singleton;
 import kurvcygnus.soulnotes.domain.auth.service.TokenService;
 import kurvcygnus.soulnotes.utils.constants.JwtConstants;
+import kurvcygnus.soulnotes.utils.enums.UserRole;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -22,8 +23,8 @@ import org.slf4j.LoggerFactory;
  *     <li>校验 Redis 黑名单, 防止已注销的 Token 被重用</li>
  * </ul>
  *
- * @implNote 仅对 ChatWebSocket / AlertWebSocket 端点生效 (见 {@link #appliesTo});
- *           任一校验不通过一律拒绝升级并返回 401.
+ * @implNote 仅对 ChatWebSocket / AlertWebSocket / ClinicalFeedWebSocket 端点生效 (见 {@link #appliesTo});
+ *           任一校验不通过一律拒绝升级并返回 401; 工作台端点额外强制 COUNSELOR/ADMIN 角色门槛 (403).
  * @since 1.0
  */
 @Singleton
@@ -31,7 +32,7 @@ public final class WebSocketAuthUpgradeCheck implements HttpUpgradeCheck
 {
     private static final Logger LOG = LoggerFactory.getLogger(WebSocketAuthUpgradeCheck.class);
 
-    //* ChatWebSocket / AlertWebSocket 从 UserData 读取此 Key 获取当前 userId.
+    //* ChatWebSocket / AlertWebSocket / ClinicalFeedWebSocket 从 UserData 读取此 Key 获取当前 userId.
     public static final @NotNull UserData.TypedKey<String> USER_ID_KEY = UserData.TypedKey.forString("userId");
 
     //region 注入
@@ -59,7 +60,8 @@ public final class WebSocketAuthUpgradeCheck implements HttpUpgradeCheck
      * 供 {@code ChatWebSocket} / {@code AlertWebSocket} 在连接期读取.
      *
      * @param context 升级上下文 (HTTP 请求 + UserData)
-     * @return 校验通过为允许升级; 缺少 Token、subject 为空、Token 已注销或验签失败时拒绝升级 (401)
+     * @return 校验通过为允许升级; 缺少 Token、subject 为空、Token 已注销或验签失败时拒绝升级 (401);
+     *         工作台 ({@code /ws/clinical} 前缀) 端点角色非 COUNSELOR/ADMIN 时拒绝升级 (403)
      */
     @Override
     public @NotNull Uni<CheckResult> perform(@NotNull HttpUpgradeContext context)
@@ -102,6 +104,20 @@ public final class WebSocketAuthUpgradeCheck implements HttpUpgradeCheck
                     }
 
                     context.userData().put(USER_ID_KEY, sub);
+
+                    //* 工作台端点角色断言: 咨询员通道与普通用户端点共用网关, 但角色门槛只能在升级期落实.
+                    //  用 path() 而非 uri(): path 不含查询串, /ws/clinical/feed?token=xxx 形态天然命中前缀且不受参数污染.
+                    if(request.path().startsWith("/ws/clinical"))
+                    {
+                        final var groups = jwt.getGroups();
+                        //* 角色字面量引用 UserRole 常量 (ClinicalResource @RolesAllowed 同源, 单一来源防漂移).
+                        if(groups == null || !(groups.contains(UserRole.ROLE_COUNSELOR) || groups.contains(UserRole.ROLE_ADMIN)))
+                        {
+                            LOG.warn("WebSocket 升级拒绝: 工作台端点非咨询员角色");
+                            return CheckResult.rejectUpgrade(403);
+                        }
+                    }
+
                     LOG.debug("WebSocket 升级已授权: userId={}", sub);
                     return CheckResult.permitUpgrade();
                 });
@@ -114,16 +130,16 @@ public final class WebSocketAuthUpgradeCheck implements HttpUpgradeCheck
     }
 
     /**
-     * 限定本网关仅拦截对话与预警两个 WS 端点, 其余端点不做升级认证.
+     * 限定本网关仅拦截对话、预警与工作台三个 WS 端点, 其余端点不做升级认证.
      *
      * @param endpointId 框架分配的端点标识
-     * @return 端点 ID 含 {@code ChatWebSocket} 或 {@code AlertWebSocket} 时为 true
+     * @return 端点 ID 含 {@code ChatWebSocket} / {@code AlertWebSocket} / {@code ClinicalFeedWebSocket} 时为 true
      */
     @Override
     public boolean appliesTo(@NotNull String endpointId)
     {
-        //* 仅对 ChatWebSocket 和 AlertWebSocket 生效.
-        return endpointId.contains("ChatWebSocket") || endpointId.contains("AlertWebSocket");
+        //* 仅对 ChatWebSocket / AlertWebSocket / ClinicalFeedWebSocket 生效.
+        return endpointId.contains("ChatWebSocket") || endpointId.contains("AlertWebSocket") || endpointId.contains("ClinicalFeedWebSocket");
     }
 
     //endregion

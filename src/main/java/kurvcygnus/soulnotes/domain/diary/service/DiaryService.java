@@ -92,7 +92,7 @@ public final class  DiaryService
     /**
      * 分页查询用户日记列表 (创建时间倒序).
      *
-     * @param query  分页查询参数 (page/size 经钳位, 最小 1)
+     * @param query  分页查询参数 (消费前经 {@link DiaryListQuery#normalize} 收敛: 缺席/越界值钳位, 最小 1)
      * @param userId 当前认证用户 ID
      * @return 当前页日记响应列表 (可能为空)
      */
@@ -102,7 +102,9 @@ public final class  DiaryService
         @NotNull UUID userId
     )
     {
-        return MoodDiary.findByUserId(userId).page(query.getPage() - 1, query.getSize()).list().
+        //* @BeanParam 参数值直写字段不走 setter 钳位, 消费前必须 normalize 收敛 (PageRequest#normalize 同款).
+        final var normalized = query.normalize();
+        return MoodDiary.findByUserId(userId).page(normalized.getPage() - 1, normalized.getSize()).list().
             map(
                 list -> list.stream().
                     map(DiaryResponse::fromEntity).

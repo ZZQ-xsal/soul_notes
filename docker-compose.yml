@@ -6,8 +6,8 @@ services:
     environment:
       POSTGRES_DB: soulnotes
       POSTGRES_USER: kurv
-      #* 口令经 .env 注入 (docker compose 自动读取), 不入库明文; 本地模板见 .env.example 或自建 .env.
-      POSTGRES_PASSWORD: ${SOULNOTES_DB_PASSWORD:?SOULNOTES_DB_PASSWORD is required - create .env (see .env.example)}
+      #* 口令经宿主环境/.env 插值 (与 backend 共用 SOULNOTES_DB_PASSWORD 一个来源), 兜底为公开开发占位符 — 严禁写入真实口令.
+      POSTGRES_PASSWORD: ${SOULNOTES_DB_PASSWORD:-soulnotes_dev}
     ports:
       - "5432:5432"
     #* PostgreSQL 卷说明: 数据持久化于命名卷 pgdata, 首次启动为空库 — 后端启动校验对 schema 缺失 BLOCK,
@@ -43,7 +43,8 @@ services:
     environment:
       #* 全部可覆盖项均为 12-factor 环境变量, 与 application.properties 的 ${VAR:default} 对齐 (完整表见 README §7.1).
       SOULNOTES_DB_USER: kurv
-      SOULNOTES_DB_PASSWORD: ${SOULNOTES_DB_PASSWORD:?SOULNOTES_DB_PASSWORD is required - create .env (see .env.example)}
+      #* 与 postgres 服务同源插值: 宿主环境/.env 设置一次 SOULNOTES_DB_PASSWORD 即全局生效.
+      SOULNOTES_DB_PASSWORD: ${SOULNOTES_DB_PASSWORD:-soulnotes_dev}
       SOULNOTES_DB_URL: postgresql://postgres:5432/soulnotes
       SOULNOTES_REDIS_HOSTS: redis://redis:6379
       SOULNOTES_JWT_SECRET: change-me-32-bytes-minimum-secret-key!!

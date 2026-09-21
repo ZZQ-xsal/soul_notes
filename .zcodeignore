@@ -1,0 +1,101 @@
+# Gradle
+.gradle/
+build/
+
+# Eclipse
+.project
+.classpath
+.settings/
+bin/
+
+# IntelliJ
+.idea
+*.ipr
+*.iml
+*.iws
+
+# NetBeans
+nb-configuration.xml
+
+# Visual Studio Code
+.vscode
+.factorypath
+
+# OSX
+.DS_Store
+
+# Vim
+*.swp
+*.swo
+
+# patch
+*.orig
+*.rej
+
+# Local environment
+.env
+
+# Runtime artifacts
+voice_uploads/
+
+# Plugin directory
+/.quarkus/cli/plugins/
+# TLS Certificates
+.certs/
+
+# Agent/工具缓存与工作区 (不属项目源码)
+.codegraph/
+.superpowers/
+docs/superpowers/
+
+#* Setup 向导输出 (本地实例配置, 不入库).
+#* 锚定仓库根: 未锚定的 config/ 会连 src/**/config/ 源码包一起忽略, 新增源文件被静默排除出提交.
+/config/
+.env
+
+#* ZCode CLI 运行时目录 (Task 3 遗留, 不属项目源码).
+.zcode/
+
+#* ASR Spike 工作区 (libvosk.dll/模型/测试音频等二进制资产, 结论已固化为 notes, 不入库).
+spike/
+
+#* ASR 本地运行时 (默认运行时目录, SOULNOTES_ASR_RUNTIME_DIR; 向导下载或手动放置的产物, 不入库).
+/asr-model/
+
+#* 根目录 vosk 下载残留 zip (模型/libvosk JAR 等, 向导下载中途产物或手动下载件).
+#* 点名前缀 + 通配: 只收 vosk-* 系列, 不用全局 *.zip 以免误伤未来有意入库的 zip 资产.
+/vosk-*.zip
+
+DEV.md
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+node_modules/
+bower_components/
+jspm_packages/
+__pycache__/
+site-packages/
+venv/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）

@@ -1,6 +1,7 @@
 package kurvcygnus.soulnotes.domain.chat.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.quarkus.arc.All;
 import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.hibernate.reactive.panache.common.WithTransaction;
@@ -19,6 +20,7 @@ import kurvcygnus.soulnotes.domain.chat.dto.ChatMessageVo;
 import kurvcygnus.soulnotes.domain.chat.dto.ChatSendRequest;
 import kurvcygnus.soulnotes.domain.chat.dto.ChatSessionVo;
 import kurvcygnus.soulnotes.domain.chat.entity.AiChatSession;
+import kurvcygnus.soulnotes.domain.clinical.service.ClinicalAssessmentService;
 import kurvcygnus.soulnotes.exception.ErrorCode;
 import kurvcygnus.soulnotes.exception.IBusinessException;
 import kurvcygnus.soulnotes.utils.JsonUtils;
@@ -36,12 +38,15 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * AI 对话服务, 承载树洞对话的完整链路: 消息收发 (同步 + SSE 流式)、会话历史管理、
- * 预警检测与 RED 预警多渠道推送, 以及结构化输出管线 ("副医生"预埋: 契约提示词组装 + soulnotes 块拆流).
+ * 预警检测与 RED 预警多渠道推送, 以及结构化输出管线 ("副医生"预埋: 契约提示词组装 + soulnotes 块拆流
+ * + 评估落库 best-effort 挂点).
  *
  * @implNote LLM 与预警检测均为阻塞调用, 一律经 {@code vertx.executeBlocking} 在 worker 线程池执行,
  *           结果回到事件循环后再操作 Hibernate reactive Session (规避 HR000068/069).
@@ -63,6 +68,8 @@ public final class ChatService
     private final @NotNull PromptProvider promptProvider;
     //* 临床结构归一化缓存: 自定义结构只有归一化产物才允许进入对话契约.
     private final @NotNull ClinicalSchemaNormalizer schemaNormalizer;
+    //* 临床评估落库: 拆流挂点的 best-effort 消费方 — 失败仅 WARN, 对话可用性 > 评估完整性 (Spec §7).
+    private final @NotNull ClinicalAssessmentService clinicalAssessmentService;
     //* 预警渠道 fan-out: CDI 注入全部 IAlertNotifier 实现 (websocket/webhook), 渠道可插拔.
     //* @All 是 Arc 集合注入的必要限定符: 缺失时注入点退化为对 List 类型 bean 的普通解析, 应用启动即
     //! UnsatisfiedResolutionException (渠道全部缺席时 @All 语义为注入空集合, 不阻断启动).
@@ -80,6 +87,7 @@ public final class ChatService
         @NotNull WarningDetectionAgent warningDetectionAgent,
         @NotNull PromptProvider promptProvider,
         @NotNull ClinicalSchemaNormalizer schemaNormalizer,
+        @NotNull ClinicalAssessmentService clinicalAssessmentService,
         @All @NotNull List<IAlertNotifier> alertNotifiers,
         @NotNull Vertx vertx,
         @ConfigProperty(name = "chat.history.max-messages", defaultValue = "50") int maxHistoryMessages,
@@ -90,6 +98,7 @@ public final class ChatService
         this.warningDetectionAgent = warningDetectionAgent;
         this.promptProvider = promptProvider;
         this.schemaNormalizer = schemaNormalizer;
+        this.clinicalAssessmentService = clinicalAssessmentService;
         this.alertNotifiers = alertNotifiers;
         this.vertx = vertx;
         this.maxHistoryMessages = maxHistoryMessages;
@@ -99,9 +108,11 @@ public final class ChatService
 
     //region 核心业务
     /**
-     * 发送用户消息并返回 AI 回复, 全程单个事务内完成持久化.
+     * 发送用户消息并返回 AI 回复: 主链路收拢为单个 programmatic 事务 (Session 加载/创建经
+     * {@code getOrCreateSession} 的自带事务并入, 与旧 {@code @WithTransaction} 语义等价),
+     * 评估落库在主事务提交后的事件循环链尾 fire (best-effort, 失败仅 WARN).
      * <p>流程: 加载/创建 Session → 追加并截断用户消息 → worker 线程执行 LLM 调用 →
-     * 预警检测 → 持久化 AI 回复.</p>
+     * 预警检测 → 持久化 AI 回复 → 事务提交后 fire 评估落库.</p>
      *
      * <p>LLM 调用失败时不抛出错误: 返回固定兜底文案 (同样落库),
      * 保证前端永远收到可展示的回复 — 离线安全网语义的一部分.</p>
@@ -111,18 +122,25 @@ public final class ChatService
      * @return 助手角色的回复消息; LLM 不可用时为兜底文案
      * @throws IBusinessException 会话 ID 不存在时 (SESSION_NOT_FOUND)
      */
-    @WithTransaction
     public @NotNull Uni<ChatMessageVo> sendMessage(@NotNull ChatSendRequest req, @NotNull UUID userId)
     {
-        return getOrCreateSession(req.sessionId(), userId).
-            flatMap(session ->
-                {
-                    session.addMessage("user", req.content());
-                    session.truncate(maxHistoryMessages);
-                    return callAiAndRespond(session, req.content());
-                }
+        //* 挂点在事务外链尾 fire, 而 Session 实体出事务即脱离持久化上下文 (分离实体再 persist 会退化为
+        //* 同 id 重 INSERT, 集成测试实证 duplicate key 23505) — 加载与持久化必须同事务, 实体经原子引用
+        //* 带出事务供挂点取 id/userId (单链顺序写读, 无并发竞争).
+        final var sessionRef = new AtomicReference<AiChatSession>();
+        return Panache.withTransaction(() ->
+            getOrCreateSession(req.sessionId(), userId).
+                flatMap(session ->
+                    {
+                        sessionRef.set(session);
+                        session.addMessage("user", req.content());
+                        session.truncate(maxHistoryMessages);
+                        return callAiAndRespond(session, req.content());
+                    }
+                )
             ).
-            map(reply -> new ChatMessageVo("assistant", reply, Instant.now()));
+            invoke(outcome -> fireClinicalRecord(Objects.requireNonNull(sessionRef.get(), "Param \"session\" must not be null!"), outcome.clinicalPayload())).
+            map(outcome -> new ChatMessageVo("assistant", outcome.visible(), Instant.now()));
     }
 
     /**
@@ -299,17 +317,27 @@ public final class ChatService
                         response ->
                         //* 回调线程为 langchain4j 流式线程, 无 Vertx 上下文, 直接执行响应式事务会失败;
                         //* 经 executeBlocking 切至 Vertx worker 线程 (与 callAiAndRespond 同一模式) 阻塞等待持久化完成.
-                        vertx.executeBlocking(
-                            () -> appendAssistantReply(session.id, content, splitForStore(fullReply.toString())).await().atMost(Duration.ofSeconds(60)),
-                            false
-                        ).subscribe().with(
-                            v -> emitter.complete(),
-                            t ->
-                            {
-                                LOG.warn("流式回复持久化失败: {}", t.getMessage());
-                                emitter.complete();
-                            }
-                        )
+                        {
+                            final var split = splitForStore(fullReply.toString());
+                            vertx.executeBlocking(
+                                () ->
+                                {
+                                    appendAssistantReply(session.id, content, split.text()).await().atMost(Duration.ofSeconds(60));
+                                    //* 评估落库与持久化同 worker 上下文串联 (前一事务已完成, 无嵌套冲突);
+                                    //* 失败已内部归一为正常完成 (仅 WARN), await 仅保证上下文存活.
+                                    recordClinicalAssessment(session, split.payload()).await().atMost(Duration.ofSeconds(60));
+                                    return null;
+                                },
+                                false
+                            ).subscribe().with(
+                                v -> emitter.complete(),
+                                t ->
+                                {
+                                    LOG.warn("流式回复持久化失败: {}", t.getMessage());
+                                    emitter.complete();
+                                }
+                            );
+                        }
                     ).
                     onError(
                         error ->
@@ -339,35 +367,34 @@ public final class ChatService
         ).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
     }
 
+    //* 单轮 AI 回复的完整产物: visible 供前端/历史, clinicalPayload 供拆流挂点评估落库 (null 即直通).
+    private record AiReplyOutcome(@NotNull String visible, @Nullable JsonNode clinicalPayload) {}
+
     //* 调用 EmpatheticChatAgent 获取 AI 回复, 持久化并检测预警.
     //! HR000068/069: vertx.executeBlocking 在 worker 线程执行阻塞 AI 调用, 结果在事件循环回调,
     //! 之后的 session.persist() 才能安全使用请求上下文中的 Hibernate reactive Session.
-    private @NotNull Uni<String> callAiAndRespond(@NotNull AiChatSession session, @NotNull String content)
+    private @NotNull Uni<AiReplyOutcome> callAiAndRespond(@NotNull AiChatSession session, @NotNull String content)
     {
         final var history = buildConversationHistory(session);
         return vertx.executeBlocking(() -> empatheticChatAgent.chatSync(buildSystemPrompt(), session.userId.toString(), history, content), false).
             onItem().transformToUni(
                 reply ->
                 {
-                    //* 拆流在持久化之前: 落库与返回前端均用剥离后正文 (ChatMessageVo 形状不变, 前端零改动),
-                    //* messages JSONB 存剥离后文本, 历史回喂不再携带契约块.
-                    final var visible = splitForStore(reply);
-                    session.addMessage("assistant", visible);
+                    final var split = splitForStore(reply);
+                    session.addMessage("assistant", split.text());
                     session.truncate(maxHistoryMessages);
-                    //* 预警检测在 worker 线程池异步执行, 完成后才持久化, 确保 warningTriggered 被一并落库.
                     return detectWarning(content).
                         onItem().invoke(detection -> applyWarning(session, detection)).
-                        flatMap(v -> session.persist().replaceWith(visible));
+                        flatMap(v -> session.persist().replaceWith(new AiReplyOutcome(split.text(), split.payload())));
                 }
             ).
             onFailure().recoverWithUni(
                 failure ->
                 {
                     LOG.warn("AI 对话失败: {}", failure.getMessage());
-                    //* 失败时返回友好兜底消息, 避免前端展示错误.
                     session.addMessage("assistant", FALLBACK_REPLY);
                     session.truncate(maxHistoryMessages);
-                    return session.persist().replaceWith(FALLBACK_REPLY);
+                    return session.persist().replaceWith(new AiReplyOutcome(FALLBACK_REPLY, null));
                 }
             );
     }
@@ -412,20 +439,53 @@ public final class ChatService
 
     /**
      * 落库前拆流: {@code clinical.tagging=on} 时剥离回复末尾的 soulnotes 结构化块,
-     * 防止契约块在多轮历史间重复累积 (省 token); off 时原样透传不拆.
+     * 防止契约块在多轮历史间重复累积 (省 token); off 时原样透传不拆 (payload 恒 null).
      *
      * @param reply LLM 原始回复
-     * @return 供落库与回传前端的剥离后正文; 结构化 payload 本轮仅 DEBUG 日志可观测, 存储/消费明确延后
+     * @return 剥离后正文与结构化载荷; payload 为 null 表示 tagging off / 无块 / 解析失败,
+     *         评估落库挂点对 null 零开销直通
      * @since 1.1.0
      */
-    private @NotNull String splitForStore(@NotNull String reply)
+    private @NotNull ClinicalOutputSplitter.SplitResult splitForStore(@NotNull String reply)
     {
         if(!clinicalTagging)
-            return reply;
+            return new ClinicalOutputSplitter.SplitResult(reply, null);
         final var result = ClinicalOutputSplitter.split(reply);
         if(result.payload() != null)
             LOG.debug("soulnotes 结构化负载: {}", result.payload());
-        return result.text();
+        return result;
+    }
+
+    //* fire-and-forget 落库: 拆流 payload 为 null (tagging off / 无块 / 解析失败) 时零开销直通;
+    //* 失败仅 WARN — 对话可用性 > 评估完整性 (Spec §7 best-effort 边界).
+    //* send 挂点经此出口订阅即弃 (响应映射不等落库); stream 挂点直接 await 记录 Uni 保活 worker 上下文.
+    private void fireClinicalRecord(@NotNull AiChatSession session, @Nullable JsonNode payload)
+    {
+        recordClinicalAssessment(session, payload).subscribe().with(v -> {});
+    }
+
+    //* 落库 Uni 构造 (两挂点共享, 各自恰好订阅一次): 失败在内部归一为正常完成 — 订阅方无需失败分支.
+    private @NotNull Uni<Void> recordClinicalAssessment(@NotNull AiChatSession session, @Nullable JsonNode payload)
+    {
+        if(payload == null)
+            return Uni.createFrom().voidItem();
+        return clinicalAssessmentService.recordAsync(session.userId, session.id, payload, currentSchemaHash()).
+            onFailure().invoke(f -> LOG.warn("临床评估落库失败: userId={}, session={}, {}", session.userId, session.id, f.getMessage())).
+            onFailure().recoverWithItem(() -> null);
+    }
+
+    //* 当前下发契约的归一化指纹: 语义必须与 buildSystemPrompt 的下发判定严格一致 —
+    //* canonical 或 "结构增强暂禁" (未命中缓存) 均未下发自定义结构 → null; 仅已下发的自定义结构才有指纹.
+    private @Nullable String currentSchemaHash()
+    {
+        if(!clinicalTagging)
+            return null;
+        final var effective = promptProvider.clinicalSchema();
+        if(AiPromptConstants.CLINICAL_OUTPUT_SCHEMA_DEFAULT.equals(effective))
+            return null;
+        //* 指纹只算一次: 三目两侧各调一次 sha256Hex 是纯重复计算 (与 resolveSchemaForContract 下发判定的重复不同, 那处跨方法边界).
+        final var hash = ClinicalSchemaNormalizer.sha256Hex(effective);
+        return schemaNormalizer.cachedFor(hash) == null ? null : hash;
     }
 
     //* 对用户最新消息执行预警等级检测.

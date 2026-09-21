@@ -28,7 +28,8 @@ import java.util.concurrent.Executors;
  * <p>JDK 内置 {@code com.sun.net.httpserver} 零依赖实现, 随机端口启动, 供 {@link MockLlmProfile}
  * 将 LangChain4j base-url 指向本机. 四种可编程模式:</p>
  * <ul>
- *     <li>① 非流式纯文本 — {@link #respondWithText(String)}</li>
+ *     <li>① 非流式纯文本 — {@link #respondWithText(String)}; 变体 {@link #respondWithClinical(String, String)}
+ *     在正文尾部追加 soulnotes 契约块 (拆流落库全链路测试用)</li>
  *     <li>② 流式 SSE — {@link #respondWithChunks(String...)}, 请求 {@code stream=true} 时按 chunk 序列下发并以 {@code [DONE]} 收尾</li>
  *     <li>③ 工具调用 — {@link #respondWithToolCall(String)}, 首轮返回 {@code tool_calls};
  *     次轮 (请求携带 {@code role=tool} 消息) 回显工具结果文本; {@code stream=true} 的工具轮请求显式 500 拒绝
@@ -150,6 +151,13 @@ public final class MockLlmServer
         }
         mode = Mode.TEXT;
         replyText = text;
+    }
+
+    //* 副医生模式变体: 非流式正文 + 尾部 soulnotes 契约块, 供拆流落库全链路用例布防.
+    //* 经 respondWithText 委托落地, 远程域转发与 reset() 复位语义天然继承 (mode/replyText 同一状态槽).
+    public void respondWithClinical(String text, String clinicalJson)
+    {
+        respondWithText(text + "\n<!--soulnotes " + clinicalJson + "-->");
     }
 
     //* ② 模式: 流式 SSE chunk 序列 (顺序保真, 逐 chunk 独立事件下发).

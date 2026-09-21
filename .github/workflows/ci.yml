@@ -11,13 +11,12 @@ jobs:
 
     # Mock-LLM 全链路 @QuarkusTest 强依赖 postgres + redis; GitHub Actions 的 service 容器
     # 在 hosted runner 上直接绑定 localhost (同网络命名空间), 与本地开发容器同形, 测试无需改动.
-    # CI postgres 是随 job 销毁的临时容器, 口令使用非敏感固定值 (不引用任何真实环境口令).
     services:
       postgres:
         image: postgres:16
         env:
           POSTGRES_USER: kurv
-          POSTGRES_PASSWORD: ci-test-only-password
+          POSTGRES_PASSWORD: soulnotes_dev
           POSTGRES_DB: soulnotes
         ports:
           - 5432:5432
@@ -57,14 +56,11 @@ jobs:
         run: |
           set -e
           for f in src/main/resources/db/schema/*.sql; do
-            PGPASSWORD=ci-test-only-password psql -h localhost -U kurv -d soulnotes -v ON_ERROR_STOP=1 -f "$f"
+            PGPASSWORD=soulnotes_dev psql -h localhost -U kurv -d soulnotes -v ON_ERROR_STOP=1 -f "$f"
           done
 
       - name: Run unit tests
         run: ./gradlew :test --console=plain
-        env:
-          #* 测试代码经该环境变量读取口令 (与上方临时 postgres 口令一致), 不引用真实口令.
-          SOULNOTES_DB_PASSWORD: ci-test-only-password
 
   build:
     needs: test

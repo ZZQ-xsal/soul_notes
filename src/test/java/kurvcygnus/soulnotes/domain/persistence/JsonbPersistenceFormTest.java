@@ -25,6 +25,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -45,7 +46,10 @@ class JsonbPersistenceFormTest
     private static final int PORT = 5432;
     private static final String DB = "soulnotes";
     private static final String USER = "kurv";
-    private static final String PASSWORD = "CHANGE_ME_DB_PASSWORD";
+    //* 真机口令经环境变量注入, 兜底为公开占位符: 本机口令曾随仓库泄露并已全历史去敏,
+    //! 任何硬编码真值不允许回归; 本机跑真机用例前 export SOULNOTES_DB_PASSWORD 对齐即可.
+    private static final String PASSWORD =
+        Objects.requireNonNullElse(System.getenv("SOULNOTES_DB_PASSWORD"), "soulnotes_dev");
 
     private static Mutiny.SessionFactory factory;
 

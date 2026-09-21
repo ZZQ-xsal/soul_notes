@@ -4,6 +4,7 @@ import io.quarkus.test.junit.QuarkusTestProfile;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -32,7 +33,9 @@ public final class MockLlmProfile implements QuarkusTestProfile
         overrides.put("quarkus.hibernate-orm.active", "true");
         overrides.put("quarkus.datasource.reactive.url", "postgresql://localhost:5432/soulnotes");
         overrides.put("quarkus.datasource.username", "kurv");
-        overrides.put("quarkus.datasource.password", System.getenv().getOrDefault("SOULNOTES_DB_PASSWORD", "CHANGE_ME_DB_PASSWORD"));
+        //* 数据源口令经环境变量注入, 兜底为公开占位符: 本机口令曾随仓库泄露并已全历史去敏, 硬编码真值不允许回归.
+        overrides.put("quarkus.datasource.password",
+            Objects.requireNonNullElse(System.getenv("SOULNOTES_DB_PASSWORD"), "soulnotes_dev"));
         //* 随机测试端口: 避免 8081 固定端口被占用时应用启动直接失败; @TestHTTPResource 注入实际端口.
         overrides.put("quarkus.http.test-port", "0");
         return Map.copyOf(overrides);

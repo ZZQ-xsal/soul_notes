@@ -22,4 +22,6 @@ public final class ApiEndpointConstants
     public static final @NotNull String VOICE_BASE  = "/api/v1/voice";
     /** 危机干预域基础路径 (热线信息查询). */
     public static final @NotNull String CRISIS_BASE = "/api/v1/crisis";
+    /** 咨询员工作台基础路径 (临床评估消费端: 队列/学生时间线/聚合统计). */
+    public static final @NotNull String CLINICAL_BASE = "/api/v1/clinical";
 }
