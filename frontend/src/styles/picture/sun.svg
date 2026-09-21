@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  登录页右上角装饰太阳 (配合 CSS 动画: 整体旋转 = 光线转动, 光晕呼吸)
+  画布 200×200, 透明底; 颜色 #eda100 与天气图标太阳一致
+  图层顺序: 光晕 (底层) -> 八角星光芒 -> 太阳本体 (顶层)
+  在 Inkscape 中可直接打开编辑
+-->
+
+<svg
+   viewBox="0 0 200 200"
+   version="1.1"
+   id="svg2"
+   sodipodi:docname="sun.svg"
+   inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs2" />
+  <sodipodi:namedview
+     id="namedview2"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="6.085"
+     inkscape:cx="99.917831"
+     inkscape:cy="100"
+     inkscape:window-width="2560"
+     inkscape:window-height="1494"
+     inkscape:window-x="-11"
+     inkscape:window-y="-11"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg2" />
+  <!-- 光晕: 大圆低透明度, 被 CSS 呼吸动画驱动 -->
+  <circle
+     cx="100"
+     cy="100"
+     r="75"
+     fill="#eda100"
+     opacity="0.25"
+     id="circle1"
+     style="fill:#ede800;fill-opacity:1" />
+  <!-- 光芒: 八角星 (外径 95, 内径 34), 旋转动画让它看起来在转动 -->
+  <polygon
+     fill="#eda100"
+     points="131.4,87 195,100 131.4,113 167.2,167.2 113,131.4 100,195 87,131.4 32.8,167.2 68.6,113 5,100 68.6,87 32.8,32.8 87,68.6 100,5 113,68.6 167.2,32.8 "
+     id="polygon1"
+     style="fill:#eded00;fill-opacity:1"
+     transform="translate(-0.98603145,0.65735352)" />
+  <!-- 太阳本体: 正圆, 盖住星形中心 -->
+  <ellipse
+     style="fill:#f2fa37;fill-opacity:0.975694;stroke-width:1.16756"
+     id="path2"
+     cx="101.88988"
+     cy="104.60146"
+     rx="54.889072"
+     ry="54.642567" />
+</svg>

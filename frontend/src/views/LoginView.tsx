@@ -67,6 +67,22 @@ export default function LoginView() {
 
   return (
     <div className="auth-page">
+      <div className="sun-corner" aria-hidden="true">
+        <div className="sun-spin" />
+      </div>
+      <div className="sky-decor" aria-hidden="true">
+        <div className="cloud cloud-c1" />
+        <div className="cloud cloud-c2" />
+        <div className="cloud cloud-c3" />
+        <div className="star star-s1" />
+        <div className="star star-s2" />
+        <div className="star star-s3" />
+        <div className="star star-s4" />
+        <div className="star star-s5" />
+        <div className="star star-s6" />
+        <div className="star star-s7" />
+        <div className="star star-s8" />
+      </div>
       <div className="auth-card card">
         <div className="auth-brand">
           <svg className="brand-logo auth-logo" viewBox="0 0 64 64" aria-hidden="true">

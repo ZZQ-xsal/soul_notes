@@ -12,6 +12,9 @@
    id="svg23"
    sodipodi:docname="auth-bg.svg"
    inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
+   inkscape:export-filename="login.svg"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -20,22 +23,57 @@
      id="defs23" />
   <sodipodi:namedview
      id="namedview23"
-     pagecolor="#d7f7ab"
+     pagecolor="#f6f4f0"
      bordercolor="#000000"
      borderopacity="0.25"
      inkscape:showpageshadow="2"
      inkscape:pageopacity="0.0"
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
-     inkscape:zoom="1.1268519"
-     inkscape:cx="960.19721"
-     inkscape:cy="540"
+     inkscape:zoom="1.05625"
+     inkscape:cx="960"
+     inkscape:cy="539.1716"
      inkscape:window-width="2560"
      inkscape:window-height="1494"
      inkscape:window-x="-11"
      inkscape:window-y="-11"
      inkscape:window-maximized="1"
      inkscape:current-layer="svg23" />
+  <rect
+     style="fill:#d7f7ab;fill-opacity:1;stroke-width:1.00411"
+     id="rect5"
+     width="1920"
+     height="1080"
+     x="2.8402367"
+     y="3.7869823" />
+  <rect
+     style="fill:#d7f7ab;fill-opacity:1;stroke-width:1.00411"
+     id="rect7"
+     width="1920"
+     height="1080"
+     x="2.8402367"
+     y="3.7869823" />
+  <rect
+     style="fill:#d7f7ab;fill-opacity:1;stroke-width:1.00411"
+     id="rect2"
+     width="1920"
+     height="1080"
+     x="2.8402367"
+     y="3.7869823" />
+  <rect
+     style="fill:#d7f7ab;fill-opacity:1;stroke-width:1.00411"
+     id="rect4"
+     width="1920"
+     height="1080"
+     x="2.8402367"
+     y="3.7869823" />
+  <rect
+     style="fill:#d7f7ab;fill-opacity:1;stroke-width:1.00411"
+     id="rect1"
+     width="1920"
+     height="1080"
+     x="2.8402367"
+     y="3.7869823" />
   <!-- 云朵 (与 WeatherIcon 同款结构: 两个圆 + 圆角矩形, 白色半透明) -->
   <!-- 左上, 露出一半在画面外 -->
   <g
@@ -228,5 +266,413 @@
        opacity="0.3"
        d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
        id="path23" />
+  </g>
+  <rect
+     style="fill:#d7f7ab;fill-opacity:1;stroke-width:1.00411"
+     id="rect8"
+     width="1920"
+     height="1080"
+     x="2.8402367"
+     y="3.7869823" />
+  <g
+     transform="translate(1620 890) scale(0.9)"
+     opacity="0.5"
+     fill="#ffffff"
+     id="g15">
+    <circle
+       cx="80"
+       cy="120"
+       r="44"
+       id="circle13" />
+    <circle
+       cx="128"
+       cy="96"
+       r="56"
+       id="circle14" />
+    <circle
+       cx="176"
+       cy="120"
+       r="40"
+       id="circle15" />
+    <rect
+       x="40"
+       y="120"
+       width="176"
+       height="32"
+       rx="16"
+       id="rect15" />
+  </g>
+  <g
+     transform="rotate(-20 1500 300)"
+     opacity="0.85"
+     fill="#eda100"
+     id="g24">
+    <path
+       fill-rule="evenodd"
+       d="M1500 230a70 70 0 1 0 0 140a70 70 0 1 0 0 -140zM1528 208a62 62 0 1 0 0 124a62 62 0 1 0 0 -124z"
+       id="path24" />
+  </g>
+  <g
+     fill="#74c7ba"
+     id="g32">
+    <path
+       transform="translate(300 430) scale(1.1)"
+       opacity="0.5"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path25" />
+    <path
+       transform="translate(150 700) scale(0.7)"
+       opacity="0.4"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path26" />
+    <path
+       transform="translate(520 170) scale(0.8)"
+       opacity="0.45"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path27" />
+    <path
+       transform="translate(1150 90) scale(0.7)"
+       opacity="0.4"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path28" />
+    <path
+       transform="translate(1680 480) scale(1)"
+       opacity="0.5"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path29" />
+    <path
+       transform="translate(1430 830) scale(0.65)"
+       opacity="0.4"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path30" />
+    <path
+       transform="translate(240 985) scale(0.9)"
+       opacity="0.45"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path31" />
+    <path
+       transform="translate(1760 640) scale(0.6)"
+       opacity="0.35"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path32" />
+  </g>
+  <g
+     fill="#3d7d74"
+     id="g35">
+    <path
+       transform="translate(430 120) scale(0.7)"
+       opacity="0.35"
+       d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
+       id="path33" />
+    <path
+       transform="translate(1400 70) scale(0.6)"
+       opacity="0.3"
+       d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
+       id="path34" />
+    <path
+       transform="translate(900 1030) scale(0.8)"
+       opacity="0.3"
+       d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
+       id="path35" />
+  </g>
+  <rect
+     style="fill:#d7f7ab;fill-opacity:1;stroke-width:1.00411"
+     id="rect35"
+     width="1920"
+     height="1080"
+     x="2.8402367"
+     y="3.7869823" />
+  <g
+     transform="translate(1620 890) scale(0.9)"
+     opacity="0.5"
+     fill="#ffffff"
+     id="g37">
+    <circle
+       cx="80"
+       cy="120"
+       r="44"
+       id="circle35" />
+    <circle
+       cx="128"
+       cy="96"
+       r="56"
+       id="circle36" />
+    <circle
+       cx="176"
+       cy="120"
+       r="40"
+       id="circle37" />
+    <rect
+       x="40"
+       y="120"
+       width="176"
+       height="32"
+       rx="16"
+       id="rect37" />
+  </g>
+  <g
+     transform="rotate(-20 1500 300)"
+     opacity="0.85"
+     fill="#eda100"
+     id="g38">
+    <path
+       fill-rule="evenodd"
+       d="M1500 230a70 70 0 1 0 0 140a70 70 0 1 0 0 -140zM1528 208a62 62 0 1 0 0 124a62 62 0 1 0 0 -124z"
+       id="path37" />
+  </g>
+  <g
+     fill="#74c7ba"
+     id="g45">
+    <path
+       transform="translate(300 430) scale(1.1)"
+       opacity="0.5"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path38" />
+    <path
+       transform="translate(150 700) scale(0.7)"
+       opacity="0.4"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path39" />
+    <path
+       transform="translate(520 170) scale(0.8)"
+       opacity="0.45"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path40" />
+    <path
+       transform="translate(1150 90) scale(0.7)"
+       opacity="0.4"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path41" />
+    <path
+       transform="translate(1680 480) scale(1)"
+       opacity="0.5"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path42" />
+    <path
+       transform="translate(1430 830) scale(0.65)"
+       opacity="0.4"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path43" />
+    <path
+       transform="translate(240 985) scale(0.9)"
+       opacity="0.45"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path44" />
+    <path
+       transform="translate(1760 640) scale(0.6)"
+       opacity="0.35"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path45" />
+  </g>
+  <g
+     fill="#3d7d74"
+     id="g48">
+    <path
+       transform="translate(430 120) scale(0.7)"
+       opacity="0.35"
+       d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
+       id="path46" />
+    <path
+       transform="translate(1400 70) scale(0.6)"
+       opacity="0.3"
+       d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
+       id="path47" />
+    <path
+       transform="translate(900 1030) scale(0.8)"
+       opacity="0.3"
+       d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
+       id="path48" />
+  </g>
+  <rect
+     style="fill:#d7f7ab;fill-opacity:1;stroke-width:1.00411"
+     id="rect48"
+     width="1920"
+     height="1080"
+     x="2.8402367"
+     y="3.7869823" />
+  <g
+     transform="translate(1620 890) scale(0.9)"
+     opacity="0.5"
+     fill="#ffffff"
+     id="g50">
+    <circle
+       cx="80"
+       cy="120"
+       r="44"
+       id="circle48" />
+    <circle
+       cx="128"
+       cy="96"
+       r="56"
+       id="circle49" />
+    <circle
+       cx="176"
+       cy="120"
+       r="40"
+       id="circle50" />
+    <rect
+       x="40"
+       y="120"
+       width="176"
+       height="32"
+       rx="16"
+       id="rect50" />
+  </g>
+  <g
+     transform="rotate(-20 1500 300)"
+     opacity="0.85"
+     fill="#eda100"
+     id="g51">
+    <path
+       fill-rule="evenodd"
+       d="M1500 230a70 70 0 1 0 0 140a70 70 0 1 0 0 -140zM1528 208a62 62 0 1 0 0 124a62 62 0 1 0 0 -124z"
+       id="path50" />
+  </g>
+  <g
+     fill="#74c7ba"
+     id="g58">
+    <path
+       transform="translate(300 430) scale(1.1)"
+       opacity="0.5"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path51" />
+    <path
+       transform="translate(150 700) scale(0.7)"
+       opacity="0.4"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path52" />
+    <path
+       transform="translate(520 170) scale(0.8)"
+       opacity="0.45"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path53" />
+    <path
+       transform="translate(1150 90) scale(0.7)"
+       opacity="0.4"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path54" />
+    <path
+       transform="translate(1680 480) scale(1)"
+       opacity="0.5"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path55" />
+    <path
+       transform="translate(1430 830) scale(0.65)"
+       opacity="0.4"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path56" />
+    <path
+       transform="translate(240 985) scale(0.9)"
+       opacity="0.45"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path57" />
+    <path
+       transform="translate(1760 640) scale(0.6)"
+       opacity="0.35"
+       d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"
+       id="path58" />
+  </g>
+  <g
+     fill="#3d7d74"
+     id="g61">
+    <path
+       transform="translate(430 120) scale(0.7)"
+       opacity="0.35"
+       d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
+       id="path59" />
+    <path
+       transform="translate(1400 70) scale(0.6)"
+       opacity="0.3"
+       d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
+       id="path60" />
+    <path
+       transform="translate(900 1030) scale(0.8)"
+       opacity="0.3"
+       d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
+       id="path61" />
+  </g>
+  <g
+     transform="matrix(0.9,0,0,0.9,47.455621,31.301775)"
+     opacity="0.5"
+     fill="#ffffff"
+     id="g18">
+    <circle
+       cx="80"
+       cy="120"
+       r="44"
+       id="circle16" />
+    <circle
+       cx="128"
+       cy="96"
+       r="56"
+       id="circle17" />
+    <circle
+       cx="176"
+       cy="120"
+       r="40"
+       id="circle18" />
+    <rect
+       x="40"
+       y="120"
+       width="176"
+       height="32"
+       rx="16"
+       id="rect18" />
+  </g>
+  <g
+     transform="matrix(0.9,0,0,0.9,65.443787,470.59172)"
+     opacity="0.5"
+     fill="#ffffff"
+     id="g21">
+    <circle
+       cx="80"
+       cy="120"
+       r="44"
+       id="circle19" />
+    <circle
+       cx="128"
+       cy="96"
+       r="56"
+       id="circle20" />
+    <circle
+       cx="176"
+       cy="120"
+       r="40"
+       id="circle21" />
+    <rect
+       x="40"
+       y="120"
+       width="176"
+       height="32"
+       rx="16"
+       id="rect21" />
+  </g>
+  <g
+     transform="matrix(0.9,0,0,0.9,756.56805,66.331365)"
+     opacity="0.5"
+     fill="#ffffff"
+     id="g25">
+    <circle
+       cx="80"
+       cy="120"
+       r="44"
+       id="circle22" />
+    <circle
+       cx="128"
+       cy="96"
+       r="56"
+       id="circle23" />
+    <circle
+       cx="176"
+       cy="120"
+       r="40"
+       id="circle24" />
+    <rect
+       x="40"
+       y="120"
+       width="176"
+       height="32"
+       rx="16"
+       id="rect24" />
   </g>
 </svg>

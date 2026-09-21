@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  登录页装饰星点 (从 auth-bg.svg 中提取, 四角星形, 品牌亮绿 #74c7ba)
+  透明底; 配合 CSS 变大变小脉冲动画
+  在 Inkscape 中可直接打开编辑
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -12 24 24">
+  <path fill="#74c7ba" d="M0-12C1.5-3.5 3.5-1.5 12 0C3.5 1.5 1.5 3.5 0 12C-1.5 3.5 -3.5 1.5 -12 0C-3.5-1.5 -1.5-3.5 0-12Z"/>
+</svg>

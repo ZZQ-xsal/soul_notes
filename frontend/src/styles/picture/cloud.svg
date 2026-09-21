@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  登录页装饰云朵 (从 auth-bg.svg 中提取, 与 WeatherIcon 同款结构: 两个圆 + 圆角矩形)
+  白色填充, 透明底; 配合 CSS 左右漂移动画
+  在 Inkscape 中可直接打开编辑
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="36 40 180 112">
+  <g fill="#ffffff">
+    <circle cx="80" cy="120" r="44"/>
+    <circle cx="128" cy="96" r="56"/>
+    <circle cx="176" cy="120" r="40"/>
+    <rect x="40" y="120" width="176" height="32" rx="16"/>
+  </g>
+</svg>
