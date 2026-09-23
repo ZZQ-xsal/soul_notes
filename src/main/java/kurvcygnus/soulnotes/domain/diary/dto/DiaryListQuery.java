@@ -39,6 +39,7 @@ public final class DiaryListQuery
      * 就地规范化分页参数: 0 视为未传参, 收敛为类文档承诺的默认值 (第 1 页 / 每页 20 条, 与字段 {@code @DefaultValue} 同源);
      * 其余越界值 (负值等) 经 setter 钳位收敛 (page >= 1, size >= 1).
      * @return {@code this} (链式调用)
+     * @since 1.2.0
      */
     public @NotNull DiaryListQuery normalize() { setPage(page == 0 ? 1 : page); setSize(size == 0 ? 20 : size); return this; }
 

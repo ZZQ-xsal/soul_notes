@@ -18,6 +18,7 @@ import kurvcygnus.soulnotes.utils.PrintUtils;
 import kurvcygnus.soulnotes.utils.constants.ApiEndpointConstants;
 import kurvcygnus.soulnotes.utils.enums.UserRole;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
@@ -65,15 +66,20 @@ public final class DiaryResource
     }
 
     /**
-     * 分页查询当前用户的日记列表 (创建时间倒序).
+     * 分页查询当前用户的日记列表 (创建时间倒序, 支持可选日期范围筛选).
      *
-     * @param query 分页/过滤参数 (page 默认 1, size 默认 20, 非法值钳位)
+     * @param query 分页/过滤参数 (page 默认 1, size 默认 20, 非法值钳位; startDate/endDate 可选)
      * @return 当前页日记响应列表 (可能为空)
+     * @throws IBusinessException startDate/endDate 非法日期格式时 (BAD_REQUEST, 统一错误负载;
+     *                            与 {@link #getWeather} 的日期负载同语义)
+     * @since 1.2.0 变更: startDate/endDate 自 1.0 起声明却从未被消费 (前端筛选失效), 本版接入过滤链路
      */
     @GET
     public @NotNull Uni<ApiResponse<List<DiaryResponse>>> list(@BeanParam @NotNull DiaryListQuery query)
     {
-        return diaryService.listByUser(query, currentUserId()).
+        final var start = parseOptionalDate("startDate", query.getStartDate());
+        final var end   = parseOptionalDate("endDate", query.getEndDate());
+        return diaryService.listByUser(query, start, end, currentUserId()).
             map(ApiResponse::success);
     }
 
@@ -146,6 +152,31 @@ public final class DiaryResource
                 PrintUtils.quickFormat("日期格式无效: \"{}\" / \"{}\", 须为 yyyy-MM-dd", startDate, endDate),
                 msg -> new DateTimeParseException(msg, startDate, 0),
                 "DIARY_WEATHER_DATE_INVALID"
+            ).asException();
+        }
+    }
+
+    /**
+     * 解析可选的单个日期查询参数 (列表筛选场景: startDate/endDate 均可缺席).
+     *
+     * @param name 参数名 (仅用于错误消息定位)
+     * @param raw  参数原文 (null/空白 = 未传, 直通 {@code null})
+     * @return 解析后的日期; 未传时为 {@code null}
+     * @throws IBusinessException 非法日期格式时 (BAD_REQUEST, 统一错误负载, 同 {@link #parseDateRange} 语义)
+     * @since 1.2.0
+     */
+    static @Nullable LocalDate parseOptionalDate(@NotNull String name, @Nullable String raw)
+    {
+        if(raw == null || raw.isBlank())
+            return null;
+        try { return LocalDate.parse(raw); }
+        catch(DateTimeParseException e)
+        {
+            throw IBusinessException.of(
+                ErrorCode.BAD_REQUEST,
+                PrintUtils.quickFormat("日期格式无效: {}=\"{}\", 须为 yyyy-MM-dd", name, raw),
+                msg -> new DateTimeParseException(msg, raw, 0),
+                "DIARY_LIST_DATE_INVALID"
             ).asException();
         }
     }

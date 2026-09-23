@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <b>{@link MoodAnalysisAgent} 接口签名验证</b>
  *
  * @author Claude Code
- * @since 2.0
+ * @since 1.1.0
  */
 class MoodAnalysisAgentTest
 {

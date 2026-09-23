@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * <b>{@link ClinicalSchemaNormalizer} 归一化与指纹缓存单元测试</b>
  * <p>LLM 调用经构造注入的替身函数注入, 缓存文件路径指向临时目录, 全程无网络依赖.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 class ClinicalSchemaNormalizerTest
 {

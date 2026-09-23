@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * <p>验证两层语义: 新写入必须落为真 JSON (jsonb_typeof = array/object), 而非字符串标量的双重编码形态;
  * 存量字符串标量行读取后仍是可被 JsonUtils 解析的 JSON 文本 (迁移安全, 不做数据回填).</p>
  * <p>所有用例在单事务内完成写入与断言并以 markForRollback 收尾, 对开发库零足迹.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 class JsonbPersistenceFormTest
 {

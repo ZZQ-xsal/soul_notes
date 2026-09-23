@@ -43,7 +43,7 @@ import java.util.concurrent.Executors;
  * (static 字段随类加载复制, 单例字段不可跨域共享). 因此 {@link #shared()} 以 JVM 全局 System property
  * 仲裁端口唯一归属: 先到的域启动真实服务器, 后到的域得到指向同一端口的远程句柄, 编程/查询经
  * {@code /__mock/*} 控制端点转发, 保证所有域看到同一份状态与录制.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 public final class MockLlmServer
 {

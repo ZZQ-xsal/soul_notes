@@ -88,16 +88,68 @@ class DiaryListContractTest
             body("data.size()", equalTo(1));
     }
 
+    //* 回归 (前端对接反馈实锤, 实测 RED): DiaryListQuery 的 startDate/endDate 自 1.0 起声明却从未被
+    //! Service 消费 (listByUser 只取分页) — 前端传日期返回全量, "日期筛选用不了".
+    //* 语义: 双参过滤 (区间含端点, end 按上海时区取次日零点前) → 30 天前的旧日记必须被滤掉.
+    @Test void list_DateRangeFilter_ShouldConsumeStartAndEnd()
+    {
+        final var account = PipelineUsers.register();
+        seedDiaryAt(account.userId(), Instant.now().minus(Duration.ofDays(30)));
+        seedDiaryAt(account.userId(), Instant.now());
+
+        given().header("Authorization", PipelineUsers.bearer(account.token())).
+            queryParam("startDate", java.time.LocalDate.now().minusDays(1).toString()).
+            queryParam("endDate", java.time.LocalDate.now().plusDays(1).toString()).
+        when().get(ApiEndpointConstants.DIARY_BASE).
+        then().statusCode(200).
+            body("code", equalTo(0)).
+            body("data.size()", equalTo(1));
+    }
+
+    //* 单边过滤: 只传 startDate 时从该日 (含) 起返回 — 可选参数的不对称形态同样必须生效.
+    @Test void list_StartDateOnly_ShouldFilterFrom()
+    {
+        final var account = PipelineUsers.register();
+        seedDiaryAt(account.userId(), Instant.now().minus(Duration.ofDays(30)));
+        seedDiaryAt(account.userId(), Instant.now());
+
+        given().header("Authorization", PipelineUsers.bearer(account.token())).
+            queryParam("startDate", java.time.LocalDate.now().minusDays(1).toString()).
+        when().get(ApiEndpointConstants.DIARY_BASE).
+        then().statusCode(200).
+            body("code", equalTo(0)).
+            body("data.size()", equalTo(1));
+    }
+
+    //* 非法日期格式统一负载 (与 /diaries/weather 的 parseDateRange 同语义): 修前参数被忽略返回 200 全量.
+    @Test void list_InvalidDateFormat_ShouldReturnUnifiedError()
+    {
+        final var account = PipelineUsers.register();
+        seedDiary(account.userId());
+
+        given().header("Authorization", PipelineUsers.bearer(account.token())).
+            queryParam("startDate", "2026/09/01").
+        when().get(ApiEndpointConstants.DIARY_BASE).
+        then().statusCode(400).
+            body("code", equalTo(400000));
+    }
+
     /**
      * 为该用户真库直插一条日记: 不经 {@code POST /diaries} 的创建链路 (其异步 AI 分析与本题无关),
      * 与 {@code ClinicalResourceTest#recordAssessment} 同款只造行不走路由的取舍.
      */
     private void seedDiary(String userId)
     {
+        seedDiaryAt(userId, Instant.now());
+    }
+
+    //* 指定 createdAt 的造数变体: 日期过滤用例需要跨区间的时间分布 (seedDiary 的恒 now 无法构造过滤判别力).
+    private void seedDiaryAt(String userId, Instant createdAt)
+    {
         final var diary = new MoodDiary();
         diary.userId    = UUID.fromString(userId);
         diary.content   = "契约测试日记 " + UUID.randomUUID();
-        diary.createdAt = Instant.now();
+        diary.createdAt = createdAt;
         sessionFactory.withTransaction((session, tx) -> diary.persist()).await().atMost(AWAIT);
     }
 }

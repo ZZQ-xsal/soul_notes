@@ -10,7 +10,7 @@ import static io.restassured.RestAssured.given;
  * <b>全链路测试注册脚手架</b>
  * <p>经 {@code /api/v1/auth/register} 注册随机用户并返回 JWT, 供各集成测试类复用.
  * 注册走真实 HTTP 面 (无事务回滚), 用户名含随机段避免开发库唯一约束冲突.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 public final class PipelineUsers
 {

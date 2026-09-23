@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>经 JDK 内置 HttpServer 回环接收 RED 预警负载, 覆盖负载字段形状与 hotline 主号码解析,
  * Bearer 鉴权头的携带与省略, 禁用态 (url 空) 零请求, 以及 5xx/读超时/连接拒绝/热线解析失败/
  * 非法地址五类故障全部降级为日志绝不抛出 (主预警链路安全), 不触真实网络.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 class WebhookAlertNotifierTest
 {

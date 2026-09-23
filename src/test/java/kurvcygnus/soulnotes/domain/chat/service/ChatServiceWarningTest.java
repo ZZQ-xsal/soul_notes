@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>经反射驱动私有 {@code applyWarning} (private, 不便 {@code @link} 引用), 以 fake 渠道替身断言
  * RED 等级逐渠道分发 (websocket + webhook 双渠道 fire-and-forget), YELLOW 仅标记会话
  * 不触渠道, NONE/无检测结果完全静默.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 class ChatServiceWarningTest
 {

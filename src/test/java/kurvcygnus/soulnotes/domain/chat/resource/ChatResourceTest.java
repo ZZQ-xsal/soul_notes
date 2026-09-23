@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <b>{@link ChatResource} 结构单元测试</b>
  *
  * @author Claude Code
- * @since 2.0
+ * @since 1.1.0
  */
 class ChatResourceTest
 {

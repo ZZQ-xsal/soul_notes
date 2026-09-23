@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <b>{@link WebSocketAlertNotifier} 行为单元测试</b>
  * <p>覆盖渠道标识与 {@code pushAlert} 委托 (参数逐字透传), 以及离线用户路径静默完成
  * (AlertWebSocket 连接注册表为空, 在线推送语义保持不变).</p>
- * @since 2.0
+ * @since 1.1.0
  */
 class WebSocketAlertNotifierTest
 {

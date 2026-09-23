@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 逐条断言 tips.md 解析结果与检索行为和它全等, 保证迁移零行为漂移.</p>
  *
  * @author Claude Code
- * @since 2.0
+ * @since 1.1.0
  */
 class PsychologyTipsRetrieverTest
 {

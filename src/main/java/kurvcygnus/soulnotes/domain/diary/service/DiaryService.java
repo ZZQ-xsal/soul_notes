@@ -10,7 +10,9 @@ import kurvcygnus.soulnotes.domain.diary.entity.MoodDiary;
 import kurvcygnus.soulnotes.domain.voice.service.VoiceStorageService;
 import kurvcygnus.soulnotes.exception.ErrorCode;
 import kurvcygnus.soulnotes.exception.IBusinessException;
+import kurvcygnus.soulnotes.utils.TimeUtils;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.ByteArrayInputStream;
 import java.time.Instant;
@@ -90,21 +92,30 @@ public final class  DiaryService
     }
 
     /**
-     * 分页查询用户日记列表 (创建时间倒序).
+     * 分页查询用户日记列表 (创建时间倒序, 支持可选日期范围筛选).
      *
      * @param query  分页查询参数 (消费前经 {@link DiaryListQuery#normalize} 收敛: 缺席/越界值钳位, 最小 1)
+     * @param start  筛选起始日期 (含, 可空 = 不限; 按上海时区取当日零点)
+     * @param end    筛选结束日期 (含, 可空 = 不限; 按上海时区取次日零点前 — 端点日全天纳入)
      * @param userId 当前认证用户 ID
      * @return 当前页日记响应列表 (可能为空)
+     * @since 1.2.0 变更: startDate/endDate 自 1.0 起声明却从未被消费 (前端筛选失效), 本版接入过滤链路
      */
     @WithTransaction
     public @NotNull Uni<List<DiaryResponse>> listByUser(
         @NotNull DiaryListQuery query,
+        @Nullable java.time.LocalDate start,
+        @Nullable java.time.LocalDate end,
         @NotNull UUID userId
     )
     {
         //* @BeanParam 参数值直写字段不走 setter 钳位, 消费前必须 normalize 收敛 (PageRequest#normalize 同款).
         final var normalized = query.normalize();
-        return MoodDiary.findByUserId(userId).page(normalized.getPage() - 1, normalized.getSize()).list().
+        //* 日期边界语义与 EmotionWeatherService 同源: 上海时区, end 含端点日全天 (次日零点为开上界).
+        final var startInstant = start == null ? null : start.atStartOfDay(TimeUtils.ZONE_ASIA_SHANGHAI).toInstant();
+        final var endInstant   = end == null ? null : end.plusDays(1).atStartOfDay(TimeUtils.ZONE_ASIA_SHANGHAI).toInstant();
+        return MoodDiary.findByUserFiltered(userId, startInstant, endInstant).
+            page(normalized.getPage() - 1, normalized.getSize()).list().
             map(
                 list -> list.stream().
                     map(DiaryResponse::fromEntity).

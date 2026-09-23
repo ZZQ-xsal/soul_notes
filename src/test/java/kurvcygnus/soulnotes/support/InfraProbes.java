@@ -15,7 +15,7 @@ import java.net.Socket;
  *     应用启动期即失败, {@code assumeTrue} 来不及救 — 必须在 JUnit 执行条件层拦截</li>
  * </ul>
  * <p>不标注 JetBrains 注解: 该库为 compileOnly, 测试源集不可见 (先例: 全部测试类).</p>
- * @since 2.0
+ * @since 1.1.0
  */
 public final class InfraProbes
 {

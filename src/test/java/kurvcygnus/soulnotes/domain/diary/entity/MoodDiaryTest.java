@@ -73,11 +73,13 @@ class MoodDiaryTest
     }
 
     @Test
-    void findByUserId_ShouldExistAsStaticMethod()
+    void findByUserFiltered_ShouldExistAsStaticMethod()
     {
+        //* 验证静态查询方法的签名存在 (不会抛出 NoSuchMethodError).
+        //* findByUserId 已随日期筛选接入拆除 (其唯一消费方 listByUser 改走 findByUserFiltered(null, null) 全量形态).
         final var methods = MoodDiary.class.getDeclaredMethods();
         assertTrue(
-            java.util.Arrays.stream(methods).anyMatch(m -> m.getName().equals("findByUserId"))
+            java.util.Arrays.stream(methods).anyMatch(m -> m.getName().equals("findByUserFiltered"))
         );
     }
 }

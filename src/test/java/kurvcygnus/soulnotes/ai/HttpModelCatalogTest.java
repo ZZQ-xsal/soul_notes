@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>经 JDK 内置 HttpServer 回环伺服 OpenAI 兼容 {@code /models} 响应, 覆盖 URL 启发式
  * ( {@code /v1} 结尾与否则拼路径 / 规范化 ), Bearer 头, 扩展字段从宽映射, 401/403 与其余非 200
  * 的异常分型, 以及连接拒绝/读超时的网络失败路径, 不触真实网络.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 class HttpModelCatalogTest
 {

@@ -12,7 +12,7 @@ import java.util.Set;
  * <p>应用启动前把 LangChain4j base-url 指向 {@link MockLlmServer#shared()} (JVM 内跨类加载器域唯一),
  * 密钥给哑值, 并重开测试资源默认关闭的 Hibernate Reactive + 数据源 (指向本机开发容器, 需 Redis 同样在跑).</p>
  * <p>{@code clinical.tagging=true}: 结构化输出契约段注入 + 落库拆流链路在本 profile 下恒开.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 public final class MockLlmProfile implements QuarkusTestProfile
 {

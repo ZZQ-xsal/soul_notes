@@ -46,7 +46,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * </ul>
  * <p>基建守卫: 强依赖本机 postgres + redis (CI 由 service 容器提供), 缺席时应用启动即失败,
  * {@code assumeTrue} 来不及救 — 以 {@code @EnabledIf} 在 JUnit 执行条件层整类跳过 (本地开发者双保险).</p>
- * @since 2.0
+ * @since 1.1.0
  */
 @QuarkusTest
 @TestProfile(MockLlmProfile.class)

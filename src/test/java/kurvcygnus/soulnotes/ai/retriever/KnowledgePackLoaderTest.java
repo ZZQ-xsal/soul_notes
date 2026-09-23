@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>tips.md 块格式: {@code ### 标题} 行开块 → {@code keywords: a,b,c} 行 → 正文至下一块.</p>
  *
  * @author Claude Code
- * @since 2.0
+ * @since 1.1.0
  */
 class KnowledgePackLoaderTest
 {

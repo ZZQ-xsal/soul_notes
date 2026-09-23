@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 日记来源 RED 预警逐渠道 fan-out (websocket + webhook 双渠道 fire-and-forget, 与 ChatService 同构).</p>
  *
  * @author Claude Code
- * @since 2.0
+ * @since 1.1.0
  */
 class EmotionAnalysisServiceTest
 {

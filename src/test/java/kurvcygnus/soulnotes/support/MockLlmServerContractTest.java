@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <b>{@link MockLlmServer} OpenAI 兼容契约测试</b>
  * <p>纯 JUnit 环境钉死 mock 服务器自身的行为契约: 非流式文本 / 流式 SSE / 工具调用两轮 /
  * 关键词预警 JSON / 请求录制. 集成链路测试 ({@code ChatPipelineTest}) 依赖这些契约成立.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 class MockLlmServerContractTest
 {

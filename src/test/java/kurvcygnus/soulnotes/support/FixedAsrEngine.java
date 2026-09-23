@@ -14,7 +14,7 @@ import java.nio.file.Path;
  * <p>以 CDI {@code @Alternative} 替换生产 {@code VoskAsrEngine} (MockLlmProfile 启用):
  * 转录不依赖本地模型与动态库, 文本固定供响应断言. 相比 QuarkusMock, 替身机制对
  * final 实现类无要求, 且替身随 profile 装配, 无逐用例安装步骤.</p>
- * @since 2.0
+ * @since 1.1.0
  */
 @Alternative
 @Priority(1)

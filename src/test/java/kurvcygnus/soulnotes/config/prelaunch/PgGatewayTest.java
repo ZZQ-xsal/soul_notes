@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * <b>PgGateway 真机冒烟</b>: 依赖本机 postgres 开发容器 (与 application-dev.properties 同源的本地凭据).
  * <p>CI 等无库环境经 {@code assumeTrue} 自动跳过 (先例: VoskFFMTest). 只覆盖只读探测路径与连接失败映射,
  * createDatabase/applySchema 属真写操作, 不在本套件触达 (其分支逻辑由 DbValidationTaskTest 的 fake 覆盖).</p>
- * @since 2.0
+ * @since 1.1.0
  */
 class PgGatewayTest
 {

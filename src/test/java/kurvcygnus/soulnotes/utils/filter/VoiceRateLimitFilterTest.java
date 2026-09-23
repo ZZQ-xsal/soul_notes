@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>以 {@link Proxy} 伪造 Redis 数据源 / JWTParser / JAX-RS 请求上下文 (大接口仅需少数方法),
  * 覆盖路径匹配 / 未超限放行 / 超限 429 / Redis 故障降级放行 / 无鉴权头放行 五路径.</p>
  *
- * @since 2.0
+ * @since 1.1.0
  */
 class VoiceRateLimitFilterTest
 {

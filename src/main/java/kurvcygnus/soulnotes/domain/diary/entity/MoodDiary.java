@@ -6,8 +6,10 @@ import jakarta.persistence.*;
 import kurvcygnus.soulnotes.config.ReactiveJsonStringJdbcType;
 import org.hibernate.annotations.JdbcType;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.UUID;
 
 /**
@@ -70,11 +72,38 @@ public final class MoodDiary extends PanacheEntityBase
     }
 
     /**
-     * 按用户构建全量分页查询 (创建时间倒序).
+     * 按用户与可选时间范围构建查询 (创建时间倒序).
      *
      * @param userId 用户 ID
+     * @param start  开始时间 (含, 可空 = 不限起点)
+     * @param end    结束时间 (含, 可空 = 不限终点)
      * @return 分页查询对象, 由调用方继续指定 page/list 等终止操作
+     * @implNote 动态拼接 (ClinicalAssessment#findRecent 同款): 日记列表筛选的 startDate/endDate
+     *           均为可选参数, 四种组合走单方法避免静态查询变体爆炸; 双参皆空即全量形态
+     *           (原 {@code findByUserId} 已被本方法吸收, 零警告政策不留无消费方的查询变体).
+     * @since 1.2.0
      */
-    public static @NotNull PanacheQuery<MoodDiary> findByUserId(@NotNull UUID userId) { return find("userId = ?1 ORDER BY createdAt DESC", userId); }
+    public static @NotNull PanacheQuery<MoodDiary> findByUserFiltered(
+        @NotNull UUID userId,
+        @Nullable Instant start,
+        @Nullable Instant end
+    )
+    {
+        final var query  = new StringBuilder("userId = ?1");
+        final var params = new ArrayList<Object>();
+        params.add(userId);
+        if(start != null)
+        {
+            query.append(" AND createdAt >= ?").append(params.size() + 1);
+            params.add(start);
+        }
+        if(end != null)
+        {
+            query.append(" AND createdAt <= ?").append(params.size() + 1);
+            params.add(end);
+        }
+        query.append(" ORDER BY createdAt DESC");
+        return find(query.toString(), params.toArray());
+    }
     //endregion
 }
