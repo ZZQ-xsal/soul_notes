@@ -83,6 +83,7 @@ export default function LoginView() {
         <div className="star star-s7" />
         <div className="star star-s8" />
       </div>
+      <div className="tree-corner" aria-hidden="true" />
       <div className="auth-card card">
         <div className="auth-brand">
           <svg className="brand-logo auth-logo" viewBox="0 0 64 64" aria-hidden="true">

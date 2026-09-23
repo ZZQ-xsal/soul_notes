@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  登录页左侧装饰树 (v2 更形象): 弯树干 + 枝杈 + 六圆树冠 + 地面阴影 + 草簇
+  画布 220×320, 透明底; 品牌绿三阶 #3d7d74/#2f6a62/#74c7ba, 在 Inkscape 中可直接打开编辑
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 320">
+
+  <!-- 地面阴影 -->
+  <ellipse cx="110" cy="308" rx="82" ry="10" fill="#3d7d74" opacity="0.15" />
+
+  <!-- 树干: 略带弧度的收腰形 -->
+  <path d="M98 306 C98 268 90 248 92 208 L128 208 C130 248 122 268 122 306 Z" fill="#52514e" />
+
+  <!-- 枝杈: 向左上方伸出 -->
+  <path d="M94 246 Q80 232 74 212" stroke="#52514e" stroke-width="10" stroke-linecap="round" fill="none" />
+
+  <!-- 树冠: 六圆叠成的圆润树形 (深浅三阶, 亮绿为受光面) -->
+  <circle cx="74" cy="150" r="46" fill="#2f6a62" />
+  <circle cx="146" cy="150" r="46" fill="#74c7ba" />
+  <circle cx="110" cy="130" r="58" fill="#3d7d74" />
+  <circle cx="88" cy="102" r="42" fill="#3d7d74" />
+  <circle cx="132" cy="98" r="40" fill="#2f6a62" />
+  <circle cx="110" cy="70" r="36" fill="#74c7ba" />
+
+  <!-- 草簇 -->
+  <path d="M52 310 L44 294 L60 298 Z" fill="#2f6a62" />
+  <path d="M70 310 L64 290 L78 298 Z" fill="#3d7d74" />
+  <path d="M150 310 L144 294 L160 298 Z" fill="#2f6a62" />
+  <path d="M168 310 L164 288 L174 296 Z" fill="#3d7d74" />
+
+</svg>
