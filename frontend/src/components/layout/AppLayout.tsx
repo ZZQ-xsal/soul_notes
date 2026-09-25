@@ -16,6 +16,8 @@ interface NavItem {
   to: string
   label: string
   icon: ReactNode
+  /** 可见角色; 学生业务页与咨询员工作台互斥 (后端接口同样按角色隔离) */
+  roles: UserRole[]
 }
 
 //* 内联 SVG 导航图标 (20x20, 跟随 currentColor)
@@ -48,16 +50,27 @@ const ICON_CRISIS = (
   </svg>
 )
 
+const ICON_CLINICAL = (
+  <svg viewBox="0 0 20 20" aria-hidden="true">
+    <path d="M5.5 3h9v14h-9z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    <path d="M8 7h4M8 10h4M8 13h2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <path d="M3 5.5v9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>
+)
+
 const NAV_ITEMS: NavItem[] = [
-  { to: '/diaries', label: '心情日记', icon: ICON_DIARY },
-  { to: '/weather', label: '情绪天气', icon: ICON_WEATHER },
-  { to: '/chat', label: '树洞对话', icon: ICON_CHAT },
-  { to: '/crisis', label: '求助资源', icon: ICON_CRISIS },
+  { to: '/diaries', label: '心情日记', icon: ICON_DIARY, roles: ['STUDENT'] },
+  { to: '/weather', label: '情绪天气', icon: ICON_WEATHER, roles: ['STUDENT'] },
+  { to: '/chat', label: '树洞对话', icon: ICON_CHAT, roles: ['STUDENT'] },
+  { to: '/clinical', label: '咨询员工作台', icon: ICON_CLINICAL, roles: ['COUNSELOR', 'ADMIN'] },
+  { to: '/crisis', label: '求助资源', icon: ICON_CRISIS, roles: ['STUDENT', 'COUNSELOR', 'ADMIN'] },
 ]
 
 export default function AppLayout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  //* 导航按角色过滤: 学生看不到工作台, 咨询师看不到学生业务页 (后端同样按角色拒绝).
+  const navItems = NAV_ITEMS.filter((item) => item.roles.includes(user?.role ?? 'STUDENT'))
 
   const handleLogout = async (): Promise<void> => {
     await logout()
@@ -79,7 +92,7 @@ export default function AppLayout() {
           </div>
         </div>
         <nav className="app-nav" aria-label="主导航">
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
               <span className="nav-icon">{item.icon}</span>
               <span>{item.label}</span>

@@ -1,5 +1,7 @@
-//* 预警 WebSocket: 浏览器 WebSocket 无法自定义请求头, 故经 token 查询参数认证.
+//* 实时推送 WebSocket: 浏览器 WebSocket 无法自定义请求头, 故经 token 查询参数认证.
 //* 后端 WebSocketAuthUpgradeCheck 支持 Authorization 头与 token 查询参数两种提取方式.
+
+import type { AssessmentVo } from '../types'
 
 export interface AlertPayload {
   type: string
@@ -13,11 +15,21 @@ export interface AlertSocketOptions {
   onStatus?: (connected: boolean) => void
 }
 
-/** 连接 /ws/alert, 断线自动重连 (3s 起步退避至 30s 上限); 返回断开函数 */
-export function connectAlertSocket(options: AlertSocketOptions): () => void {
-  const { token, onAlert, onStatus } = options
+export interface ClinicalFeedOptions {
+  token: string
+  onAssessment: (assessment: AssessmentVo) => void
+  onStatus?: (connected: boolean) => void
+}
+
+/** 通用推送连接: 断线自动重连 (3s 起步退避至 30s 上限); 返回断开函数 */
+function connectSocket(
+  path: string,
+  token: string,
+  onMessage: (payload: unknown) => void,
+  onStatus?: (connected: boolean) => void,
+): () => void {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const url = `${proto}://${window.location.host}/ws/alert?token=${encodeURIComponent(token)}`
+  const url = `${proto}://${window.location.host}${path}?token=${encodeURIComponent(token)}`
 
   let ws: WebSocket | null = null
   let closed = false
@@ -33,8 +45,7 @@ export function connectAlertSocket(options: AlertSocketOptions): () => void {
     }
     ws.onmessage = (ev) => {
       try {
-        const payload = JSON.parse(String(ev.data)) as AlertPayload
-        if (payload.type === 'RED_ALERT') onAlert(payload)
+        onMessage(JSON.parse(String(ev.data)))
       } catch {
         //* 忽略无法解析的消息, 不中断连接
       }
@@ -58,4 +69,32 @@ export function connectAlertSocket(options: AlertSocketOptions): () => void {
     if (timer !== null) window.clearTimeout(timer)
     ws?.close()
   }
+}
+
+/** 连接 /ws/alert (RED 预警弹窗通道) */
+export function connectAlertSocket(options: AlertSocketOptions): () => void {
+  const { token, onAlert, onStatus } = options
+  return connectSocket(
+    '/ws/alert',
+    token,
+    (payload) => {
+      const p = payload as AlertPayload
+      if (p.type === 'RED_ALERT') onAlert(p)
+    },
+    onStatus,
+  )
+}
+
+/** 连接 /ws/clinical/feed (咨询员工作台: 新评估到达即推); 升级时后端校验 COUNSELOR/ADMIN */
+export function connectClinicalFeed(options: ClinicalFeedOptions): () => void {
+  const { token, onAssessment, onStatus } = options
+  return connectSocket(
+    '/ws/clinical/feed',
+    token,
+    (payload) => {
+      const p = payload as { type?: string; assessment?: AssessmentVo }
+      if (p.type === 'NEW_ASSESSMENT' && p.assessment) onAssessment(p.assessment)
+    },
+    onStatus,
+  )
 }

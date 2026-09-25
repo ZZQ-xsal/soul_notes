@@ -66,6 +66,33 @@ export interface ChatMessage {
   timestamp?: string | null
 }
 
+/** 风险等级: 后端只持久化这两档 (NONE 与越界值在写入时即被丢弃) */
+export type RiskLevel = 'YELLOW' | 'RED'
+
+/** AssessmentVo: 预警队列条目 (REST 与 WS 推送共用同一形态) */
+export interface AssessmentVo {
+  id: string
+  /** 已过 RevealPolicy 脱敏: 解锁时为完整 UUID, 掩码时为 8 位短码 (不可反查) */
+  userId: string
+  displayName: string
+  riskLevel: RiskLevel
+  summary: string
+  /** 情绪标签: 契约里是字符串数组 (AiPromptConstants 的 canonical schema);
+   *  后端 JsonNode 原样透传不做校验, 宽松 schema 下也可能是对象, 故保留联合类型. */
+  tags: string[] | Record<string, unknown> | null
+  sessionId: string
+  createdAt: string
+}
+
+/** StatsSummary: 管理驾驶舱聚合数据 */
+export interface StatsSummary {
+  /** 等级 → 条数 (仅含出现过的等级) */
+  byLevel: Record<string, number>
+  /** 按日分组, 日期升序; 无记录的日期不出现 */
+  byDay: { date: string; yellow: number; red: number }[]
+  totalStudents: number
+}
+
 /** CrisisResource 返回的热线信息 */
 export interface HotlineInfo {
   name: string
