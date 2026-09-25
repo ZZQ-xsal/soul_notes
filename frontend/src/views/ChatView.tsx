@@ -1,8 +1,8 @@
-//* 树洞对话页: 会话列表 + SSE 流式对话 (失败降级非流式).
+//* 树洞对话页: 会话列表 (历史回放 / 删除) + SSE 流式对话 (失败降级非流式).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import { listSessions, sendMessage, streamMessage } from '../api/chat'
+import { deleteSession, listMessages, listSessions, sendMessage, streamMessage } from '../api/chat'
 import { ApiError } from '../api/http'
 import { toast } from '../utils/toast'
 import { formatDateTime } from '../utils/format'
@@ -55,18 +55,44 @@ export default function ChatView() {
     if (el) el.scrollTop = el.scrollHeight
   }, [messages])
 
-  const openSession = (s: ChatSessionVo): void => {
+  //* 加载序号: 快速连点多个会话时只认最后一次请求, 先发的慢响应直接丢弃.
+  const historySeqRef = useRef(0)
+
+  const openSession = async (s: ChatSessionVo): Promise<void> => {
     setActiveId(s.sessionId)
     setMessages([])
-    //! 后端未提供会话历史消息接口, 仅能展示预览; 后续消息从当前会话继续.
-    setSessionNote(`该会话共有 ${s.messageCount} 条历史消息, 最近一条: ${s.preview}`)
+    setSessionNote('正在加载历史消息…')
+    const seq = ++historySeqRef.current
+    try {
+      const history = await listMessages(s.sessionId)
+      if (seq !== historySeqRef.current) return
+      setMessages(history)
+      setSessionNote(null)
+    } catch (err) {
+      if (seq !== historySeqRef.current) return
+      setSessionNote('历史消息加载失败, 可直接继续对话')
+      toast(err instanceof ApiError ? err.message : '历史消息加载失败', 'error')
+    }
   }
 
   const startNewChat = (): void => {
+    historySeqRef.current += 1 //* 令在途的历史加载失效.
     setActiveId(null)
     setMessages([])
     setSessionNote(null)
     setInput('')
+  }
+
+  const handleDeleteSession = async (s: ChatSessionVo): Promise<void> => {
+    if (!window.confirm('确定删除这个会话吗? 删除后无法恢复。')) return
+    try {
+      await deleteSession(s.sessionId)
+      toast('会话已删除', 'success')
+      if (s.sessionId === activeId) startNewChat()
+      await loadSessions()
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : '删除会话失败', 'error')
+    }
   }
 
   //! 新会话的后端 SSE 流不返回 sessionId, 首轮回复后经会话列表回查最新会话实现续聊 (启发式).
@@ -156,17 +182,23 @@ export default function ChatView() {
         <div className="chat-sessions-list">
           {sortedSessions.length === 0 && <p className="chat-sessions-empty">暂无历史会话</p>}
           {sortedSessions.map((s) => (
-            <button
-              key={s.sessionId}
-              type="button"
-              className={`session-item${s.sessionId === activeId ? ' active' : ''}`}
-              onClick={() => openSession(s)}
-            >
-              <span className="session-preview line-clamp-2">{s.preview}</span>
-              <span className="session-meta tabular">
-                {s.messageCount} 条 · {formatDateTime(s.lastUpdateTime)}
-              </span>
-            </button>
+            <div key={s.sessionId} className={`session-item${s.sessionId === activeId ? ' active' : ''}`}>
+              <button type="button" className="session-open" onClick={() => void openSession(s)}>
+                <span className="session-preview line-clamp-2">{s.preview}</span>
+                <span className="session-meta tabular">
+                  {s.messageCount} 条 · {formatDateTime(s.lastUpdateTime)}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="session-del"
+                title="删除会话"
+                aria-label={`删除会话: ${s.preview || '无预览'}`}
+                onClick={() => void handleDeleteSession(s)}
+              >
+                ×
+              </button>
+            </div>
           ))}
         </div>
       </aside>

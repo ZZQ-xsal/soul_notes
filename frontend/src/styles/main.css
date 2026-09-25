@@ -2089,15 +2089,9 @@ button {
 }
 
 .session-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: none;
-  background: transparent;
-  padding: 10px 12px;
+  display: flex;
+  align-items: flex-start;
   border-radius: var(--radius-md);
-  cursor: pointer;
-  color: var(--text-primary);
   margin-bottom: 4px;
 }
 
@@ -2107,6 +2101,32 @@ button {
 
 .session-item.active {
   background: var(--brand-soft);
+}
+
+.session-open {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 10px 4px 10px 12px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.session-del {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 10px 10px 10px 4px;
+  cursor: pointer;
+}
+
+.session-del:hover {
+  color: var(--status-critical-ink);
 }
 
 .session-preview {

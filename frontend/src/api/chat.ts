@@ -1,10 +1,19 @@
-//* 树洞对话接口: /api/v1/chat/* (非流式 / SSE 流式 / 会话列表)
+//* 树洞对话接口: /api/v1/chat/* (非流式 / SSE 流式 / 会话列表 / 历史消息 / 删除会话)
 
 import { api, ApiError, getToken } from './http'
 import type { ApiResponse, ChatMessage, ChatSessionVo } from '../types'
 
 export function listSessions(): Promise<ChatSessionVo[]> {
   return api<ChatSessionVo[]>('/chat/sessions')
+}
+
+//! 历史消息 DTO 仅含 role/content, 不含 timestamp (ChatMessage.timestamp 在此路径恒为 undefined).
+export function listMessages(sessionId: string): Promise<ChatMessage[]> {
+  return api<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`)
+}
+
+export function deleteSession(sessionId: string): Promise<void> {
+  return api<void>(`/chat/sessions/${sessionId}`, { method: 'DELETE' })
 }
 
 export function sendMessage(sessionId: string | null, content: string): Promise<ChatMessage> {

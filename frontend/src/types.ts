@@ -51,7 +51,7 @@ export interface WeatherDay {
   entryCount: number
 }
 
-/** ChatSessionVo: 会话概览 (后端不提供历史消息拉取接口) */
+/** ChatSessionVo: 会话概览 (历史消息另经 GET /chat/sessions/{id}/messages 拉取) */
 export interface ChatSessionVo {
   sessionId: string
   messageCount: number

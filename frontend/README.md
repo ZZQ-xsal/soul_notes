@@ -48,7 +48,7 @@ npm run preview  # 本地预览构建产物
 
 ## 与后端契约相关的已知边界
 
-1. **会话历史无拉取接口**: 后端 `GET /chat/sessions` 仅返回预览。打开旧会话时只显示预览, 从新消息开始展示; 前端本地维护当次消息流。
+1. **会话历史**: 经 `GET /chat/sessions/{id}/messages` 拉取并回放 (该 DTO 只有 role/content, 无时间戳); 删除会话走 `DELETE /chat/sessions/{id}`。历史气泡不带时间, 仅在线新消息带。
 2. **流式接口不返回 sessionId**: 新会话首轮回复后, 前端经会话列表回查最近会话实现"续聊" (启发式, 见 `ChatView.tsx`)。
 3. **日记列表无总条数**: 后端 `GET /diaries` 只返回数组, 分页的"下一页"以本页是否满页推断。
 4. **AI 占位符**: 后端 `ai.openai.api-key=placeholder` 时所有 LLM 调用走降级 (日记无 analysisResult, 聊天返回兜底文案), 前端已按此展示提示。
