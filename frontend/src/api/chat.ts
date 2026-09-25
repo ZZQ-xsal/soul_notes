@@ -56,10 +56,11 @@ export async function streamMessage(options: StreamOptions): Promise<void> {
     buffer += decoder.decode(value, { stream: true })
     let idx: number
     while ((idx = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, idx).trim()
+      const line = buffer.slice(0, idx).replace(/\r$/, '')
       buffer = buffer.slice(idx + 1)
       //! SSE 规范行: "data: <内容>"; 后端只发 data 行, 其余行 (event/id) 忽略.
-      if (line.startsWith('data:')) onChunk(line.slice(5).trim())
+      //! 只剥 "data:" 后的一个规范空格与行尾 \r, 不能 trim: 分块边界处的空格是正文的一部分 (否则英文粘词).
+      if (line.startsWith('data:')) onChunk(line.slice(5).replace(/^ /, ''))
     }
   }
 }

@@ -124,6 +124,8 @@ export default function ChatView() {
           toast(err2 instanceof ApiError ? err2.message : '消息发送失败', 'error')
         }
       } else {
+        //* 流式中断但有部分内容: 服务端已建会话, 新会话同样要回查 sessionId, 否则下一条消息另起会话.
+        if (!activeId) void resolveNewSession()
         toast(err instanceof ApiError ? err.message : '流式中断, 已显示部分回复', 'warning')
       }
     } finally {

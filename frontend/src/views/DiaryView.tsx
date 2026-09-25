@@ -107,7 +107,9 @@ export default function DiaryView() {
       await deleteDiary(diary.id);
       toast("日记已删除", "success");
       if (detail?.id === diary.id) setDetail(null);
-      void load(page);
+      //* 本页删空且不在第一页时回退一页 (页码变化经 effect 触发加载), 避免停在空页上.
+      if (items.length === 1 && page > 1) setPage(page - 1);
+      else void load(page);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "删除失败", "error");
     }
