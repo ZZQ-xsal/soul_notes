@@ -54,7 +54,6 @@ public record DiaryResponse(
 
     private static final Logger LOG = LoggerFactory.getLogger(DiaryResponse.class);
 
-    @SuppressWarnings("unused")
     private static @Nullable OfAnalysisResult parseAnalysisResult(@Nullable String analysisResultJson)
     {
         if(analysisResultJson == null || analysisResultJson.isBlank())

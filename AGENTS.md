@@ -144,6 +144,7 @@ This project does not use a formatter. Follow this code style when writing and e
 * All interfaces must use `I` as a prefix.
 * Prefer sealed inheritance over open inheritance. `Impl` or `Implementation` must not appear in any filename.
 * Strict Allman-Style is required.\
+  Allman governs brace placement, not vertical space: single-statement bodies (delegating constructors, compact one-liners, guard throws) should stay on a single line as `{ ... }` — e.g. `private PrintUtils() { throw new IllegalAccessError("..."); }` or `public Foo(Bar bar) { this.bar = bar; }` are idiomatic; expanding such bodies to multiple lines is over-application of the style.\
   Example:
   ```java
   public final class Main extends IFoo

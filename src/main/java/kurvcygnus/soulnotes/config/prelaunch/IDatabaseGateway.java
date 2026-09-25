@@ -11,7 +11,7 @@ import java.util.function.Consumer;
  * @implNote 签名为同步阻塞式 — Pre-Launch 阶段运行于 CDI 启动之前, 无事件循环可挂靠, 阻塞是安全且有意的.
  * @since 1.1.0
  */
-public interface IDatabaseGateway
+@SuppressWarnings("NullableProblems") public interface IDatabaseGateway
 {
     /**
      * 五态探测 (只读, 零写入).

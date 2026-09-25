@@ -1,6 +1,5 @@
 package kurvcygnus.soulnotes.config.prelaunch;
 
-import kurvcygnus.soulnotes.utils.PrintUtils;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgBuilder;
@@ -8,16 +7,12 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgException;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -85,8 +80,9 @@ public final class PgGateway implements IDatabaseGateway
                     "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'").execute()).
                     forEach(row -> found.add(row.getString(0).toLowerCase(Locale.ROOT)));
                 final var missing = EXPECTED_TABLES.stream().filter(t -> !found.contains(t)).toList();
-                return missing.isEmpty() ? new ProbeResult(ProbeResult.State.OK, List.of())
-                    : new ProbeResult(ProbeResult.State.SCHEMA_MISSING, missing);
+                return missing.isEmpty() ?
+                       new ProbeResult(ProbeResult.State.OK, List.of()) :
+                       new ProbeResult(ProbeResult.State.SCHEMA_MISSING, missing);
             }
             finally { closeQuietly(pool); }
         }
@@ -110,10 +106,7 @@ public final class PgGateway implements IDatabaseGateway
         try
         {
             final var pool = buildPool(vertx, connectOptions(maintenance));
-            try
-            {
-                awaitPlain(pool.query("CREATE DATABASE " + quotedIdentifier(target.database())).execute());
-            }
+            try { awaitPlain(pool.query("CREATE DATABASE " + quotedIdentifier(target.database())).execute()); }
             catch(IllegalStateException e)
             {
                 final var cause = e.getCause();
@@ -149,7 +142,6 @@ public final class PgGateway implements IDatabaseGateway
      * @throws IllegalStateException 单脚本失败即中止并携带脚本名 (简单查询协议保证整脚本处于同一隐式事务批)
      * @since 1.1.0
      */
-    @SuppressWarnings("SqlSourceToSinkFlow")//! 脚本为版本库内嵌资源非外部输入, 注入告警不适用.
     @Override public void applySchema(@NotNull DbTarget target, @NotNull Consumer<String> scriptProgress)
     {
         Objects.requireNonNull(target, "Param \"target\" must not be null!");
@@ -276,7 +268,7 @@ public final class PgGateway implements IDatabaseGateway
      */
     private static @NotNull String readScript(@NotNull String name)
     {
-        try(InputStream in = Thread.currentThread().getContextClassLoader().getResourceAsStream(SCHEMA_DIR + name))
+        try(final var in = Thread.currentThread().getContextClassLoader().getResourceAsStream(SCHEMA_DIR + name))
         {
             if(in == null)
                 throw new IllegalStateException(PrintUtils.quickFormat(
@@ -296,10 +288,7 @@ public final class PgGateway implements IDatabaseGateway
     {
         try { pool.close().toCompletionStage().toCompletableFuture().get(AWAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS); }
         catch(InterruptedException e) { Thread.currentThread().interrupt(); }
-        catch(ExecutionException | TimeoutException e)
-        {
-            //! 有意吞掉: 关闭失败不改变探测/写入结论, 上抛反而掩盖原始异常.
-        }
+        catch(ExecutionException | TimeoutException e) {/*! 有意吞掉: 关闭失败不改变探测/写入结论, 上抛反而掩盖原始异常. */}
     }
 
     //* Vertx 非 AutoCloseable, 统一在此收口关闭; 探测线程池为非守护线程, 不关闭会拖住 JVM 退出.
@@ -313,10 +302,7 @@ public final class PgGateway implements IDatabaseGateway
     {
         try { vertx.close().toCompletionStage().toCompletableFuture().get(AWAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS); }
         catch(InterruptedException e) { Thread.currentThread().interrupt(); }
-        catch(ExecutionException | TimeoutException e)
-        {
-            //! 有意吞掉: 理由同 closeQuietly, 此处失败不改变业务结论.
-        }
+        catch(ExecutionException | TimeoutException e) {/*! 有意吞掉: 理由同 closeQuietly, 此处失败不改变业务结论. */}
     }
 
     //endregion

@@ -132,7 +132,7 @@ public class VoskFFM
     public @NotNull MemorySegment modelOpen(@NotNull String modelDir)
     {
         Objects.requireNonNull(modelDir, "Param \"modelDir\" must not be null!");
-        try(var arena = Arena.ofConfined())
+        try(final var arena = Arena.ofConfined())
         {
             final var pathSegment = arena.allocateFrom(modelDir);
             final var result = (MemorySegment) call(modelNewHandle, pathSegment);
@@ -205,10 +205,8 @@ public class VoskFFM
             throw new IllegalStateException("vosk_recognizer_final_result 返回 NULL");
         //* 0 长度指针段无 getString 边界, reinterpret 为固定窗口段读取 (窗口语义见类常量处注释);
         //* reinterpret 仅重解读地址不拷贝内存, confined arena 随作用域关闭, cleanup 回调传 null 即无附加释放.
-        try(var arena = Arena.ofConfined())
-        {
-            return resultPtr.reinterpret(RESULT_JSON_WINDOW_BYTES, arena, null).getString(0, StandardCharsets.UTF_8);
-        }
+        try(final var arena = Arena.ofConfined())
+            { return resultPtr.reinterpret(RESULT_JSON_WINDOW_BYTES, arena, null).getString(0, StandardCharsets.UTF_8); }
     }
 
     /**

@@ -4,7 +4,6 @@ import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -64,15 +63,17 @@ public final class ConfigView
         final var props = new Properties();
         final var file = workDir.resolve("config").resolve("application.properties");
         if(Files.isRegularFile(file))
-        {
-            try(InputStream in = Files.newInputStream(file))
+            try(final var in = Files.newInputStream(file))
             {
                 //* UTF-8 与 ConfigWriter 写入及 Quarkus 运行时读取契约对齐: Properties.load(InputStream) 默认
                 //* ISO-8859-1, 会把非 ASCII 显式值 (如品牌名) 读成乱码, 与运行时行为分叉.
                 props.load(new InputStreamReader(in, StandardCharsets.UTF_8));
             }
-            catch(Exception e) { throw new IllegalStateException(PrintUtils.quickFormat("读取 {} 失败", file), e); }//! 文件损坏属用户可修复错误, 明确报错优于静默.
-        }
+            catch(Exception e)
+            {
+                //! 文件损坏属用户可修复错误, 明确报错优于静默.
+                throw new IllegalStateException(PrintUtils.quickFormat("读取 {} 失败", file), e);
+            }
         return new ConfigView(snapshotSysProps(), Map.copyOf(System.getenv()), props);
     }
 
@@ -80,12 +81,10 @@ public final class ConfigView
     private static @NotNull Map<String, String> snapshotSysProps()
     {
         final var snapshot = new HashMap<String, String>();
+        //! Hashtable 理论上可被外部塞入非 String 键值, instanceof 过滤同时规避了 null 值被 String.valueOf 变成 "null" 的问题.
         for(final var entry: System.getProperties().entrySet())
-        {
-            //! Hashtable 理论上可被外部塞入非 String 键值, instanceof 过滤同时规避了 null 值被 String.valueOf 变成 "null" 的问题.
             if(entry.getKey() instanceof String key && entry.getValue() instanceof String value)
                 snapshot.put(key, value);
-        }
         return Map.copyOf(snapshot);
     }
 

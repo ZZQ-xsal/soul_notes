@@ -31,7 +31,12 @@ public final class DbValidationTask implements IPreLaunchTask
      * @since 1.1.0
      */
     public DbValidationTask(@NotNull IDatabaseGateway gateway)
-    { this.gateway = Objects.requireNonNull(gateway, "Param \"gateway\" must not be null!"); }
+    {
+        this.gateway = Objects.requireNonNull(
+            gateway,
+            "Param \"gateway\" must not be null!"
+        );
+    }
 
     /** @return 固定为 "数据库连通性". */
     @Override public @NotNull String name() { return "数据库连通性"; }
@@ -71,8 +76,7 @@ public final class DbValidationTask implements IPreLaunchTask
 
         final DbTarget target;
         try { target = DbTarget.parse(url, user, password); }
-        catch(IllegalStateException e)
-            { return block(PrintUtils.quickFormat("数据库地址结构非法, 无法解析: {}", e.getMessage())); }
+        catch(IllegalStateException e) { return block(PrintUtils.quickFormat("数据库地址结构非法, 无法解析: {}", e.getMessage())); }
 
         final var probe = gateway.probe(target);
         return switch(probe.state())
@@ -81,9 +85,12 @@ public final class DbValidationTask implements IPreLaunchTask
             case UNREACHABLE -> block("数据库不可达 (连接被拒绝或超时), 请确认 PostgreSQL 实例已运行且 host:port / 防火墙配置正确");
             case AUTH_FAILED -> block("数据库账号或密码被拒绝, 请检查 SOULNOTES_DB_USER / SOULNOTES_DB_PASSWORD");
             case DB_MISSING -> block("目标数据库不存在, 可经配置向导自动创建 (或手动执行 CREATE DATABASE)");
-            case SCHEMA_MISSING -> block(PrintUtils.quickFormat(
-                "数据库 schema 未就绪 (期望表缺失), 可经配置向导执行初始化脚本: {}",
-                String.join(", ", probe.missingTables())));
+            case SCHEMA_MISSING -> block(
+                PrintUtils.quickFormat(
+                    "数据库 schema 未就绪 (期望表缺失), 可经配置向导执行初始化脚本: {}",
+                    String.join(", ", probe.missingTables())
+                )
+            );
         };
     }
 
@@ -92,5 +99,5 @@ public final class DbValidationTask implements IPreLaunchTask
 
     /** 按配置键从条目元数据中定位条目; 无匹配 (键被删) 时为 empty. */
     private static @NotNull Optional<PropertyMetaParser.ConfigItemMeta> meta(@NotNull PreLaunchContext ctx, @NotNull String key)
-    { return ctx.items().stream().filter(item -> key.equals(item.key())).findFirst(); }
+        { return ctx.items().stream().filter(item -> key.equals(item.key())).findFirst(); }
 }

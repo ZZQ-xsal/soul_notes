@@ -78,8 +78,7 @@ public final class VoskAsrEngine implements IAsrEngine
      * @param engineName 引擎选择 (SOULNOTES_ASR_ENGINE), 非 vosk 即拒绝启动
      * @param runtime    运行时管理器 (SOULNOTES_ASR_RUNTIME_DIR / SOULNOTES_ASR_LIB_URL)
      */
-    @Inject
-    public VoskAsrEngine(
+    @Inject public VoskAsrEngine(
         @ConfigProperty(name = "asr.engine", defaultValue = "vosk") @NotNull String engineName,
         @NotNull AsrRuntimeManager runtime
     ) { this(engineName, runtime, null); }
@@ -113,31 +112,29 @@ public final class VoskAsrEngine implements IAsrEngine
 
     //region IAsrEngine
 
-    @Override
-    public @NotNull String name() { return ENGINE_NAME; }
+    @Override public @NotNull String name() { return ENGINE_NAME; }
 
     /**
      * 转录一个 WAV 文件: 参数校验在订阅线程, 文件存在性/就绪探测/识别全链路在 worker 池执行.
      * <p>失败形态即错误文案: 文件不存在、运行时未就绪 (附 runtimeDir 诊断)、WAV 结构非法
-     * 与任何识别期异常 (Throwable 兜底) 都转为 {@link AsrResult#error} 文本并 WARN 记录,
+     * 与任何识别期异常 (Throwable 兜底) 都转为 {@link AsrResult#ofError(String)} 文本并 WARN 记录,
      * Uni 永不以异常完成.</p>
      */
-    @Override
-    public @NotNull Uni<@NotNull AsrResult> transcribe(@NotNull Path wavFile)
+    @Override public @NotNull Uni<@NotNull AsrResult> transcribe(@NotNull Path wavFile)
     {
         Objects.requireNonNull(wavFile, "Param \"wavFile\" must not be null!");
         //* 就绪探测 (Files.list) 与文件存在性检查同属阻塞 IO, 一并放进 worker 池;
         //* 订阅者线程只做参数校验, 不做任何文件系统访问.
         return Uni.createFrom().item(
             () ->
-                {
-                    if(!Files.isRegularFile(wavFile))
-                        return AsrResult.ofError(PrintUtils.quickFormat("音频文件不存在: {}", wavFile));
-                    if(!runtime.ready())
-                        return AsrResult.ofError(PrintUtils.quickFormat("{} (runtimeDir={})", NOT_READY_MESSAGE, runtime.runtimeDir()));
-                    return doTranscribe(wavFile);
-                }
-            ).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
+            {
+                if(!Files.isRegularFile(wavFile))
+                    return AsrResult.ofError(PrintUtils.quickFormat("音频文件不存在: {}", wavFile));
+                if(!runtime.ready())
+                    return AsrResult.ofError(PrintUtils.quickFormat("{} (runtimeDir={})", NOT_READY_MESSAGE, runtime.runtimeDir()));
+                return doTranscribe(wavFile);
+            }
+        ).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
     }
 
     //endregion
@@ -147,8 +144,7 @@ public final class VoskAsrEngine implements IAsrEngine
     /**
      * 释放进程内单例模型 (容器关闭时回调); 模型未曾加载时为 no-op.
      */
-    @PreDestroy
-    void close()
+    @PreDestroy void close()
     {
         final var current = model;
         if(current == null)
@@ -173,7 +169,7 @@ public final class VoskAsrEngine implements IAsrEngine
             final var pcm = readWavPcm(wavFile);
 
             //* Arena per-call + try-with-resources: native 音频缓冲随单次识别结束即释放.
-            try(var arena = Arena.ofShared())
+            try(final var arena = Arena.ofShared())
             {
                 final var recognizer = ffm.recognizerNew(model, SAMPLE_RATE);
                 if(recognizer.address() == 0)
@@ -182,7 +178,7 @@ public final class VoskAsrEngine implements IAsrEngine
                 try
                 {
                     final var pcmSegment = arena.allocateFrom(ValueLayout.JAVA_BYTE, pcm);
-                    for(int offset = 0; offset < pcm.length; offset += CHUNK_BYTES)
+                    for(var offset = 0; offset < pcm.length; offset += CHUNK_BYTES)
                     {
                         final var chunkLength = Math.min(CHUNK_BYTES, pcm.length - offset);
                         if(!ffm.acceptWaveform(recognizer, pcmSegment.asSlice(offset, chunkLength), chunkLength))
@@ -297,8 +293,8 @@ public final class VoskAsrEngine implements IAsrEngine
             !"RIFF".equals(new String(all, 0, 4, StandardCharsets.US_ASCII)) ||
             !"WAVE".equals(new String(all, 8, 4, StandardCharsets.US_ASCII))
         ) throw new IOException(PrintUtils.quickFormat("非 RIFF/WAVE 文件: {}", wavFile));
-
-        int offset = 12;
+        
+        var offset = 12;
         while(offset + 8 <= all.length)
         {
             final var chunkId = new String(all, offset, 4, StandardCharsets.US_ASCII);

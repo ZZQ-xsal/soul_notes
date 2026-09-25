@@ -1,6 +1,6 @@
 # 心灵札记 (Soul Notes) — 配置与运维参考
 
-本文是部署者与运维者的单一权威参考: 环境变量总表, `--setup` 配置向导, 启动前校验, 部署形态与机构集成 (本地语音识别 / Webhook 预警 / 知识包 / 结构化输出). 架构与代码导读见 [Architecture.md](./Architecture.md), 产品概览见 [README.md](./README.md).
+本文是部署者与运维者的单一权威参考: 环境变量总表, `--setup` 配置向导, 启动前校验, 部署形态与机构集成 (本地语音识别 / 预警渠道矩阵 / 知识包 / 结构化输出). 架构与代码导读见 [Architecture.md](./Architecture.md), 产品概览见 [README.md](./README.md).
 
 ---
 
@@ -13,7 +13,7 @@
 - [5. 环境变量总表](#5-环境变量总表)
 - [6. 部署](#6-部署)
 - [7. 本地语音识别 (ASR)](#7-本地语音识别-asr)
-- [8. 机构对接 (Webhook 预警通道)](#8-机构对接-webhook-预警通道)
+- [8. 机构对接 (预警通知渠道矩阵)](#8-机构对接-预警通知渠道矩阵)
 - [9. 知识包自定义 (心理小知识)](#9-知识包自定义-心理小知识)
 - [10. 结构化输出 (临床标签预埋, "副医生")](#10-结构化输出-临床标签预埋-副医生)
 - [11. 演示账号](#11-演示账号)
@@ -22,7 +22,7 @@
 
 ## 1. 配置总览
 
-全部配置遵循 12-factor: 每个业务键都是 `application.properties` 中的 `${SOULNOTES_*:default}` 占位 — 环境变量优先, 未配置时回落内置默认, 无需触碰任何文件即可完成覆盖. 42 个 `SOULNOTES_*` 键中 40 项可经 `--setup` 向导交互式配置, 其余 2 项 (品牌名 / 语音限流) 属部署微调, 保持内置默认即可.
+全部配置遵循 12-factor: 每个业务键都是 `application.properties` 中的 `${SOULNOTES_*:default}` 占位 — 环境变量优先, 未配置时回落内置默认, 无需触碰任何文件即可完成覆盖. 51 个 `SOULNOTES_*` 键中 49 项可经 `--setup` 向导交互式配置, 其余 2 项 (品牌名 / 语音限流) 属部署微调, 保持内置默认即可.
 
 AI 三项 (`ai.openai.*`) 经 LangChain4j 桥接键 (`quarkus.langchain4j.openai.*`) 引用展开值, 单独配置桥接键不生效. `mp.jwt.verify.issuer` 与 TokenService 签发的 iss claim 共用 `SOULNOTES_JWT_ISSUER` 一个键 (双端天然一致), 中途更换将使全部已发 Token 立即失效.
 
@@ -34,7 +34,7 @@ AI 三项 (`ai.openai.*`) 经 LangChain4j 桥接键 (`quarkus.langchain4j.openai
 java -jar build/quarkus-app/quarkus-run.jar --setup
 ```
 
-- **两种模式**: `1. 简单配置 (仅必填项)` / `2. 全面配置 (全部 40 项)`, 回车默认简单配置
+- **两种模式**: `1. 简单配置 (仅必填项)` / `2. 全面配置 (全部 49 项)`, 回车默认简单配置
 - **键位说明**: 折叠清单按 `序号` 跳转 / `Enter` 顺序遍历 (保存即推进下一项); 展开态输入 `esc` 放弃本次修改; 折叠态输入 `q` 进入配置摘要
 - **就地校验**: 非法输入 (URL scheme / 非数字 / 长度不足) 红字重问; 必填项留空不折叠重问; JWT 密钥留空自动生成 64 字符随机密钥
 - **ASR 运行时交互**: 保存 `SOULNOTES_ASR_ENGINE` / `SOULNOTES_ASR_RUNTIME_DIR` 后自动就绪检查, 未就绪现场询问"是否立即下载", 接受后按 [§7](#7-本地语音识别-asr) 的来源拉取模型 zip 与 libvosk (进度行内回显); 下载失败不中断向导, 可稍后手动放置或重试
@@ -66,6 +66,7 @@ java -jar build/quarkus-app/quarkus-run.jar --setup
 - ASR 运行时未就绪 (缺本地模型或动态库): 语音转写暂不可用, 可经 Setup 向导下载或手动放置
 - prod 使用默认 CORS 白名单: 请按部署环境收紧
 - dev 使用内置默认/弱 JWT 密钥: 勿用于生产环境
+- 短信渠道五键部分配置 (AccessKey/Secret/签名/模板/手机号缺一): 渠道暂不生效; 值班手机号非 1 开头的 11 位数字时逐号 WARN (该号码不会收到预警短信)
 
 **退出码与 TTY 行为**:
 
@@ -122,6 +123,15 @@ java -jar build/quarkus-app/quarkus-run.jar --setup
 | `SOULNOTES_CORS_ORIGINS`              | CORS 白名单, 多个来源用逗号分隔                        | `http://localhost:5173`                   |
 | `SOULNOTES_ALERT_WEBHOOK_URL`         | RED 预警机构 Webhook 地址 (空 = 渠道禁用, 见 §8)       | 空                                        |
 | `SOULNOTES_ALERT_WEBHOOK_TOKEN`       | Webhook 鉴权令牌 (非空时携带 `Authorization: Bearer`)  | 空                                        |
+| `SOULNOTES_ALERT_SMS_ACCESS_KEY`      | 阿里云短信 AccessKey ID (五键齐备才启用短信渠道)       | 空                                        |
+| `SOULNOTES_ALERT_SMS_SECRET_KEY`      | 阿里云短信 AccessKey Secret, 严禁入库与提交            | 空                                        |
+| `SOULNOTES_ALERT_SMS_SIGN_NAME`       | 阿里云已报审的短信签名名称                             | 空                                        |
+| `SOULNOTES_ALERT_SMS_TEMPLATE_CODE`   | 阿里云已报审模板 Code (占位符含 level/hotline/student) | 空                                        |
+| `SOULNOTES_ALERT_SMS_PHONES`          | RED 预警值班手机号列表 (逗号分隔, 逐号校验 11 位号段)  | 空                                        |
+| `SOULNOTES_ALERT_SMS_ENDPOINT`        | 阿里云 SendSms 端点 (保持默认, 仅测试回环覆盖)         | `https://dysmsapi.aliyuncs.com`           |
+| `SOULNOTES_ALERT_DING_WEBHOOK`        | 钉钉群机器人 webhook 地址 (空 = 禁用)                  | 空                                        |
+| `SOULNOTES_ALERT_DING_SECRET`         | 钉钉加签密钥 (空 = 不加签)                             | 空                                        |
+| `SOULNOTES_ALERT_WECOM_WEBHOOK`       | 企业微信群机器人 webhook 地址 (空 = 禁用)              | 空                                        |
 | `SOULNOTES_KNOWLEDGE_PACK`            | 心理知识包名 (对应 classpath `knowledge/{包名}/`, 见 §9) | `default`                              |
 | `SOULNOTES_RATE_LIMIT_CHAT`           | 聊天限流上限 (次/分钟)                                 | `20`                                      |
 | `SOULNOTES_RATE_LIMIT_LOGIN`          | 登录限流上限 (次/分钟)                                 | `10`                                      |
@@ -245,19 +255,33 @@ asr-model/
 - 引擎可插拔: 转录入口统一为 `IAsrEngine` (`Uni<AsrResult> transcribe(path)`), 当前仅内置 `vosk` 实现, `SOULNOTES_ASR_ENGINE` 配置其他值将拒绝启动
 - 运行时未就绪仅 WARN 不阻断启动: 文字链路与离线热线兜底完整可用 (AI 密钥缺失则 BLOCK, 两者不对称是有意的)
 
-## 8. 机构对接 (Webhook 预警通道)
+## 8. 机构对接 (预警通知渠道矩阵)
 
-RED 预警通知渠道接口化为 `IAlertNotifier`, 内置两个互为冗余的实现:
+RED 预警通知渠道接口化为 `IAlertNotifier`, 内置五个互为冗余的实现 — 各渠道配置即启用, 互为冗余:
 
 - `WebSocketAlertNotifier` (总是启用): 面向在线前端, 实时弹窗推送热线
 - `WebhookAlertNotifier` (可选): 面向机构服务端, 配置 `SOULNOTES_ALERT_WEBHOOK_URL` 后启用 (空 = 禁用)
+- `SmsAlertNotifier` (可选): 阿里云短信逐号群发值班咨询员 (学生可能离线, 干预者仍被触达); AccessKey/Secret/签名/模板/手机号五键齐备才启用, 部分配置启动时 WARN
+- `DingTalkAlertNotifier` (可选): 钉钉群机器人 markdown 报文, 配置 `SOULNOTES_ALERT_DING_WEBHOOK` 后启用 (空 = 禁用; 加签密钥可选)
+- `WeComAlertNotifier` (可选): 企业微信群机器人 markdown 报文, 配置 `SOULNOTES_ALERT_WECOM_WEBHOOK` 后启用 (空 = 禁用)
 
 Webhook 行为契约:
 
 - RED 预警时 `POST` JSON 负载: `{type: "RED_ALERT", userId, level: "RED", reason, hotline}`
 - `SOULNOTES_ALERT_WEBHOOK_TOKEN` 非空时请求携带 `Authorization: Bearer <token>`, 空 = 不带鉴权头
-- fire-and-forget: 3s 超时, 网络失败/非 2xx 一律仅记 WARN 日志, 绝不阻塞或影响 WS 主预警链路
-- 未来短信/IM 等渠道与 `IAlertNotifier` 同构接入, 零调用方改动
+
+五渠道共同安全边界 (fire-and-forget): 3s 超时, 网络失败/非 2xx/业务错误码 (钉钉/企微机器人以 HTTP 200 + `errcode` 非 0 表达加签错/密钥失效/限流) 一律仅记 WARN 日志, 绝不阻塞或影响 WS 主预警链路; 预警分发语义: **聊天与日记两条链路**的 RED 均触发五渠道 fan-out (聊天 `ChatService` 检测用户消息, 日记 `EmotionAnalysisService` 检测日记内容), 新增渠道零调用方改动.
+
+触达频度运维注意: 日记链路创建即分析, 无独立限流, 且全链 (聊天 + 日记) 暂无 RED 冷却 — 渠道触达频度受学生日记创建节奏影响; 机构侧应据此评估值班短信/群的承载预期, RED 冷却策略在 roadmap (见设计文档 §12).
+
+短信渠道前置 (阿里云报审指引):
+
+- 短信签名与模板须预先在阿里云控制台报审通过; 模板占位符须含 `level`/`hotline`/`student` 三枚 (发送时自动填充, `student` = 学生 username, 值班视角定位到人)
+- 收件人 `SOULNOTES_ALERT_SMS_PHONES` 逐号独立发送, 逐号校验 11 位手机号号段, 单号失败仅 WARN 不影响其余
+
+IM 渠道报文精简纪律:
+
+- 钉钉/企微报文仅含学生标识 / 热线 / 截断 120 字的事由, 不含 summary 全文 — 群机器人是提醒不是档案, 预警明细在工作台
 
 ## 9. 知识包自定义 (心理小知识)
 
@@ -314,7 +338,7 @@ Webhook 行为契约:
 
 ### 10.2 咨询员消费端 (工作台 API)
 
-拆流产出的结构化评估已落库 (`clinical_assessments` 表, riskLevel 仅 YELLOW/RED — NONE 不落库, best-effort 写入不阻断对话) 并提供咨询员消费端: `GET /api/v1/clinical/assessments` (风险队列) / `GET /api/v1/clinical/students/{userId}/assessments` (学生时间线) / `GET /api/v1/clinical/stats/summary` (聚合统计) / `WS /ws/clinical/feed` (实时推送). REST 与 WS 同门槛: COUNSELOR/ADMIN 角色 (WS 于升级握手期断言, 学生端 `/ws/chat` `/ws/alert` 行为不变); 列表端点分页参数缺席时按契约默认第 1 页 / 每页 20 条. 身份默认脱敏为 8 位稳定短码, 达到 `SOULNOTES_CLINICAL_REVEAL_LEVEL` (默认 RED) 的记录解锁实名; 聊天正文永不暴露. 评估流与预警链路 (`WarningDetectionAgent` → 弹窗/Webhook) 双源不混流: 工作台仅消费副医生评估表, 预警语义不变, 副医生 RED 仅作标记不触发预警动作.
+拆流产出的结构化评估已落库 (`clinical_assessments` 表, riskLevel 仅 YELLOW/RED — NONE 不落库, best-effort 写入不阻断对话) 并提供咨询员消费端: `GET /api/v1/clinical/assessments` (风险队列) / `GET /api/v1/clinical/students/{userId}/assessments` (学生时间线) / `GET /api/v1/clinical/stats/summary` (聚合统计) / `WS /ws/clinical/feed` (实时推送). REST 与 WS 同门槛: COUNSELOR/ADMIN 角色 (WS 于升级握手期断言, 学生端 `/ws/chat` `/ws/alert` 行为不变); 列表端点分页参数缺席时按契约默认第 1 页 / 每页 20 条. 身份默认脱敏为 8 位稳定短码, 达到 `SOULNOTES_CLINICAL_REVEAL_LEVEL` (默认 RED) 的记录解锁实名; 聊天正文永不暴露. 评估流与预警链路 (`WarningDetectionAgent` → 五渠道 fan-out) 双源不混流: 工作台仅消费副医生评估表, 预警语义不变, 副医生 RED 仅作标记不触发预警动作.
 
 ## 11. 演示账号
 

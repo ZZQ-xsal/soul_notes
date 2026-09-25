@@ -107,7 +107,7 @@ import java.util.Objects;
      * (直接放行 / 引导向导 / 报告退出), 放行路径最终交棒 {@link Quarkus#run(String...)}.
      * @param args 命令行参数, 原样透传给 {@code Quarkus.run}
      */
-    public static void main(String... args)
+    static void main(String... args)
     {
         printBanner();
         final var io = TerminalIO.system();
@@ -242,7 +242,7 @@ import java.util.Objects;
      * @since 1.1.0
      */
     static boolean hasBlocks(@NotNull List<IPreLaunchTask.Issue> issues)
-    { return issues.stream().anyMatch(i -> i.level() == IPreLaunchTask.Level.BLOCK); }
+        { return issues.stream().anyMatch(i -> i.level() == IPreLaunchTask.Level.BLOCK); }
 
     //* Pre-Launch 全程处于 CDI 启动之前, AsrRuntimeManager 只能纯构造装配 (ready() 为纯文件检查, 不触网);
     //* 运行时目录与 lib JAR 地址均经向导元数据 + 配置视图解析, 与校验/向导同源 (单一来源 application.properties 的
@@ -257,9 +257,7 @@ import java.util.Objects;
      * @since 1.1.0
      */
     static @NotNull AsrRuntimeManager asrControl(@NotNull ConfigView view, @NotNull List<PropertyMetaParser.ConfigItemMeta> items)
-    {
-        return asrControlForDir(metaValue(view, items, "asr.runtime.dir"), view, items);
-    }
+        { return asrControlForDir(metaValue(view, items, "asr.runtime.dir"), view, items); }
 
     //* 向导会话内 asr.runtime.dir 变更后的重建点: 目录由 SetupWizard 从会话 values 传入 (非本视图解析值),
     //* 保证向导内下载落会话当前目录、回执以新实例 ready() 判定; lib URL 不在 ASR 触发键内, 仍取向导前视图 (已知边界).

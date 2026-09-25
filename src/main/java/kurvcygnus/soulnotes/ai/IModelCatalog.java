@@ -26,8 +26,7 @@ public interface IModelCatalog
      * @param context 上下文长度展示值; 缺失/非标量时为 "-"
      * @param reasoning 思考能力展示值 (✓|✗|-); 无对应扩展字段时为 "-"
      */
-    record ModelInfo(@NotNull String id, @NotNull String context, @NotNull String reasoning)
-    {}
+    record ModelInfo(@NotNull String id, @NotNull String context, @NotNull String reasoning) {}
 
     /**
      * 拉取结果.
@@ -35,18 +34,12 @@ public interface IModelCatalog
      * @param models 模型元数据列表 (顺序即服务端返回顺序, 亦即向导序号顺序)
      * @param normalizedEndpoint 探测成功的 base + /v1 规范形 (langchain4j base-url 所需形态, fetch 与存储分离)
      */
-    record CatalogResult(@NotNull List<ModelInfo> models, @NotNull String normalizedEndpoint)
-    {
-        public CatalogResult { models = List.copyOf(models); }
-    }
+    record CatalogResult(@NotNull List<ModelInfo> models, @NotNull String normalizedEndpoint) { public CatalogResult { models = List.copyOf(models); }}
 
     /**
      * 401/403 专属分型: 密钥被拒与网络失败必须可区分, 向导对前者回重编辑、后者走手动输入兜底.
      */
-    class UnauthorizedException extends Exception
-    {
-        public UnauthorizedException(@NotNull String message) { super(message); }
-    }
+    class UnauthorizedException extends Exception { public UnauthorizedException(@NotNull String message) { super(message); }}
 
     //endregion
 
@@ -75,7 +68,7 @@ public interface IModelCatalog
      */
     static @NotNull String normalizeEndpoint(@NotNull String endpoint)
     {
-        var base = trimTrailingSlashes(endpoint);
+        final var base = trimTrailingSlashes(endpoint);
         return base.endsWith("/v1") ? base : base + "/v1";
     }
 
@@ -102,8 +95,8 @@ public interface IModelCatalog
      * @throws UnauthorizedException HTTP 401/403 (密钥被拒)
      * @throws java.io.IOException 其余非 200 / 连接失败 / 超时 / 响应体不可解析
      */
-    @NotNull CatalogResult fetch(@NotNull String endpoint, @NotNull String apiKey, @NotNull Duration timeout)
-        throws UnauthorizedException, IOException;
+    @SuppressWarnings("NullableProblems")
+    @NotNull CatalogResult fetch(@NotNull String endpoint, @NotNull String apiKey, @NotNull Duration timeout) throws UnauthorizedException, IOException;
 
     //endregion
 }

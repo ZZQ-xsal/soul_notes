@@ -1,10 +1,10 @@
 package kurvcygnus.soulnotes.ai.asr;
 
-import kurvcygnus.soulnotes.utils.PrintUtils;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.infrastructure.Infrastructure;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -27,7 +27,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
-import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
@@ -163,7 +162,7 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
     public @NotNull Path modelDir()
     {
         final var modelRoot = runtimeDir.resolve("model");
-        try(Stream<Path> entries = Files.list(modelRoot))
+        try(final var entries = Files.list(modelRoot))
         {
             final var found = entries.
                 filter(Files::isDirectory).
@@ -276,7 +275,7 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
             extractZip(zipFile, staging);
             //* 暂存区整体落位: 走到这里的运行时必然无任何完整模型 (hasModelMarker 为 false),
             //* 故同名旧目录只可能是上次失败残留, 先删后移即为安全的替换语义.
-            try(Stream<Path> staged = Files.list(staging))
+            try(final var staged = Files.list(staging))
             {
                 for(final var child: staged.filter(Files::isDirectory).sorted().toList())
                 {
@@ -303,13 +302,18 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
         Files.createDirectories(libDir);
         final var libRoot = libDir.normalize();
         final var jarFile = downloadToTemp(libJarUrl, progress);
-        try(var zip = new ZipFile(jarFile.toFile()))
+        try(final var zip = new ZipFile(jarFile.toFile()))
         {
             final var entryDir = platformEntryDir(System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
             if(entryDir == null)
-                throw new IllegalStateException(PrintUtils.quickFormat(
-                    "当前平台 ({}/{}) 在 vosk {} JAR 中无官方动态库构建, 可用 SOULNOTES_ASR_LIB_URL 指向含该平台构建的 JAR",
-                    System.getProperty("os.name"), System.getProperty("os.arch"), VOSK_VERSION));
+                throw new IllegalStateException(
+                    PrintUtils.quickFormat(
+                        "当前平台 ({}/{}) 在 vosk {} JAR 中无官方动态库构建, 可用 SOULNOTES_ASR_LIB_URL 指向含该平台构建的 JAR",
+                        System.getProperty("os.name"),
+                        System.getProperty("os.arch"),
+                        VOSK_VERSION
+                    )
+                );
             var extracted = false;
             final var entries = zip.entries();
             while(entries.hasMoreElements())
@@ -342,7 +346,7 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
     private static void extractLibEntry(@NotNull ZipFile zip, @NotNull ZipEntry entry, @NotNull Path target) throws IOException
     {
         final var temp = Files.createTempFile(target.getParent(), ".lib-", ".part");
-        try(var in = zip.getInputStream(entry))
+        try(final var in = zip.getInputStream(entry))
         {
             Files.copy(in, temp, StandardCopyOption.REPLACE_EXISTING);
             Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
@@ -361,15 +365,15 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
             final var response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
             //! 响应体先于状态码检查进入 try-with-resources: ofInputStream 的 body 不关闭会占住
             //! 连接, 下载反复失败时泄漏堆积 (ofInputStream 的流由 BodySubscriber 异步灌入, 必须显式关闭).
-            try(var in = response.body())
+            try(final var in = response.body())
             {
                 if(response.statusCode() != 200)
                     throw new IOException(PrintUtils.quickFormat("下载失败 HTTP {}: {}", response.statusCode(), url));
                 final var total = response.headers().firstValueAsLong("Content-Length").orElse(-1L);
-                try(var out = Files.newOutputStream(temp))
+                try(final var out = Files.newOutputStream(temp))
                 {
                     final var buffer = new byte[DOWNLOAD_BUFFER_BYTES];
-                    int received = 0;
+                    var received = 0;
                     int read;
                     while((read = in.read(buffer)) != -1)
                     {
@@ -402,7 +406,7 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
      */
     private static void extractZip(@NotNull Path zipFile, @NotNull Path targetDir) throws IOException
     {
-        try(var in = new ZipInputStream(new BufferedInputStream(Files.newInputStream(zipFile))))
+        try(final var in = new ZipInputStream(new BufferedInputStream(Files.newInputStream(zipFile))))
         {
             ZipEntry entry;
             while((entry = in.getNextEntry()) != null)
@@ -470,7 +474,7 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
         final var modelRoot = runtimeDir.resolve("model");
         if(!Files.isDirectory(modelRoot))
             return false;
-        try(Stream<Path> entries = Files.list(modelRoot)) { return entries.filter(Files::isDirectory).anyMatch(AsrRuntimeManager::hasMarker); }
+        try(final var entries = Files.list(modelRoot)) { return entries.filter(Files::isDirectory).anyMatch(AsrRuntimeManager::hasMarker); }
         catch(IOException e) { return false; }
     }
 
@@ -482,7 +486,7 @@ public final class AsrRuntimeManager implements IAsrRuntimeControl
     {
         if(root == null || !Files.exists(root))
             return;
-        try(Stream<Path> stream = Files.walk(root))
+        try(final var stream = Files.walk(root))
         {
             for(final var path: stream.sorted(Comparator.reverseOrder()).toList())
                 Files.deleteIfExists(path);

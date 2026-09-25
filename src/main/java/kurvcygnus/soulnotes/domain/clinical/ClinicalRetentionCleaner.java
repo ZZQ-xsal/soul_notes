@@ -51,7 +51,8 @@ public class ClinicalRetentionCleaner
     @SuppressWarnings("unused")
     void onStart(@Observes @NotNull StartupEvent ev)
     {
-        CompletableFuture.runAsync(() ->
+        CompletableFuture.runAsync(
+            () ->
             cleanOnce(retentionDays).subscribe().with(
                 deleted -> { if(retentionDays > 0) LOG.info(PrintUtils.quickFormat("临床评估启动清理完成 (保留 {} 天)", retentionDays)); },
                 f -> LOG.warn("临床评估启动清理失败: {}", f.getMessage())
@@ -88,12 +89,15 @@ public class ClinicalRetentionCleaner
         //? 残留 Vertx.currentContext() != null, 后续复用该线程的无关任务 (如 ClinicalSchemaNormalizer 的
         //? runAsync) 都会看到该 context — 跨组件隐蔽状态残留. 本仓库 commonPool 消费面仅 normalizer 与
         //? 本类, 均无合法的 commonPool Panache 使用, 残留暂无实害; 若未来 commonPool 出现 Panache 消费方须重新评估.
-        return Uni.createFrom().emitter(emitter ->
-            duplicated.runOnContext((Void ignored) ->
-            {
-                try { service.cleanupOlderThan(days).subscribe().with(emitter::complete, emitter::fail); }
-                catch(RuntimeException e) { emitter.fail(e); }//* 同步建链异常 (上下文/配置解析) 转为失败信号.
-            })
+        return Uni.createFrom().emitter(
+            emitter ->
+            duplicated.runOnContext(
+                _ ->
+                {
+                    try { service.cleanupOlderThan(days).subscribe().with(emitter::complete, emitter::fail); }
+                    catch(RuntimeException e) { emitter.fail(e); }//* 同步建链异常 (上下文/配置解析) 转为失败信号.
+                }
+            )
         );
     }
 }

@@ -75,7 +75,7 @@ public class AlertWebSocket
      * @return 完成信号, 恒成功完成: 用户不在线时静默跳过 (仅 WARN), 发送异常也只记日志 —
      *         预警分发绝不拖垮调用方主流程
      */
-    public @NotNull Uni<Void> pushAlert(@NotNull UUID userId, @NotNull String message)
+    @SuppressWarnings("NullableProblems") public @NotNull Uni<Void> pushAlert(@NotNull UUID userId, @NotNull String message)
     {
         final var conn = connections.get(userId);
         if(conn == null)
@@ -84,7 +84,8 @@ public class AlertWebSocket
             return Uni.createFrom().voidItem();
         }
 
-        return resolveHotline().flatMap(hotline ->
+        return resolveHotline().flatMap(
+            hotline ->
             {
                 final var payload = new LinkedHashMap<String, String>();
                 payload.put("type", "RED_ALERT");
@@ -113,10 +114,7 @@ public class AlertWebSocket
      * @return 主号码; 解析逻辑收编至 {@link IAlertNotifier#primaryHotlineOf},
      *         与 Webhook 渠道共享同一来源, 防止两处漂移
      */
-    private @NotNull Uni<String> resolveHotline()
-    {
-        return redisConfig.getHotline().map(IAlertNotifier::primaryHotlineOf);
-    }
+    private @NotNull Uni<String> resolveHotline() { return redisConfig.getHotline().map(IAlertNotifier::primaryHotlineOf); }
 
     //endregion
 }

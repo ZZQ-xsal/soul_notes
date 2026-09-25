@@ -28,8 +28,5 @@ public record ProbeResult(@NotNull State state, @NotNull List<String> missingTab
     }
 
     /** 紧凑构造: 防御性拷贝缺失表清单为不可变列表. */
-    public ProbeResult
-    {
-        missingTables = List.copyOf(missingTables);
-    }
+    public ProbeResult { missingTables = List.copyOf(missingTables); }
 }

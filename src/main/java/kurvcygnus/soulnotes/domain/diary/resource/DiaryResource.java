@@ -38,7 +38,7 @@ import java.util.UUID;
  * @implNote userId 从 JWT subject 解析 (认证由全局机制保证), 所有读写均限定当前用户自己的日记.
  * @since 1.0
  */
-@Path(ApiEndpointConstants.DIARY_BASE)
+@SuppressWarnings("JavadocDeclaration") @Path(ApiEndpointConstants.DIARY_BASE)
 @RolesAllowed(UserRole.ROLE_STUDENT)
 public final class DiaryResource
 {
@@ -118,7 +118,8 @@ public final class DiaryResource
      * @param startDate 开始日期 (ISO 格式 yyyy-MM-dd, 含)
      * @param endDate   结束日期 (ISO 格式 yyyy-MM-dd, 含)
      * @return 按天排列的天气预报 VO 列表 (无日记的日期不产出条目)
-     * @throws IBusinessException startDate/endDate 非法日期格式时 (DIARY_WEATHER_DATE_INVALID, 统一错误负载)
+     * @throws IBusinessException startDate/endDate 缺席时 (DIARY_WEATHER_DATE_REQUIRED) 或非法日期格式时
+     *                            (DIARY_WEATHER_DATE_INVALID, 统一错误负载)
      */
     @GET @Path("/weather")
     public @NotNull Uni<ApiResponse<List<EmotionWeatherVo>>> getWeather(
@@ -136,10 +137,19 @@ public final class DiaryResource
      * @param startDate 开始日期 (ISO 格式 yyyy-MM-dd)
      * @param endDate   结束日期 (ISO 格式 yyyy-MM-dd)
      * @return 解析后的起止日期
-     * @throws IBusinessException 任一日期非 ISO 格式时 (DIARY_WEATHER_DATE_INVALID)
+     * @throws IBusinessException 参数缺席或任一日期非 ISO 格式时 (DIARY_WEATHER_DATE_REQUIRED / DIARY_WEATHER_DATE_INVALID)
      */
     static @NotNull DateRange parseDateRange(@NotNull String startDate, @NotNull String endDate)
     {
+        //* 缺参显式拦截: @NotNull 在无 Bean Validation 的本项目不生效, RESTEasy Reactive 对缺席
+        //! QueryParam 注入 null, LocalDate.parse(null) 抛 NPE 绕过下方 catch 直达 500 (前端漏传实测).
+        if(startDate == null || startDate.isBlank() || endDate == null || endDate.isBlank())
+            throw IBusinessException.of(
+                ErrorCode.BAD_REQUEST,
+                "weather 查询须同时提供 startDate 与 endDate (yyyy-MM-dd)",
+                IllegalArgumentException::new,
+                "DIARY_WEATHER_DATE_REQUIRED"
+            ).asException();
         try
         {
             return new DateRange(LocalDate.parse(startDate), LocalDate.parse(endDate));

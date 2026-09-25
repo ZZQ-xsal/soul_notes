@@ -23,7 +23,7 @@ import java.util.UUID;
 /**
  * 情感分析服务, 编排 AI {@code MoodAnalysisAgent} 与 {@code WarningDetectionAgent} 的调用,
  * 并将合并结果回写 {@link MoodDiary#analysisResult} JSONB 字段.
- * <p>检测到 RED 级预警时, 经通知渠道 fan-out (websocket/webhook) 推送热线, 与聊天链路共用渠道.</p>
+ * <p>检测到 RED 级预警时, 经通知渠道矩阵 fan-out 推送热线, 与聊天链路共用渠道.</p>
  *
  * @implNote 阻塞 AI 调用统一经 {@code vertx.executeBlocking} 在 worker 线程执行,
  *           结果回事件循环后再操作 Hibernate reactive Session (规避 HR000068/069).
@@ -38,7 +38,7 @@ public final class EmotionAnalysisService
     private final @NotNull MoodAnalysisAgent moodAnalysisAgent;
     private final @NotNull WarningDetectionAgent warningDetectionAgent;
     private final @NotNull PromptProvider promptProvider;
-    //* 预警渠道 fan-out (与 ChatService 同构): 日记来源 RED 与聊天共用 websocket/webhook 双渠道互为冗余.
+    //* 预警渠道 fan-out (与 ChatService 同构): 日记来源 RED 与聊天共用通知渠道矩阵 (配置即启用, 互为冗余).
     //* @All 是 Arc 集合注入的必要限定符: 缺失时注入点退化为对 List 类型 bean 的普通解析, 应用启动即
     //! UnsatisfiedResolutionException (渠道全部缺席时 @All 语义为注入空集合, 不阻断启动).
     private final @NotNull List<IAlertNotifier> alertNotifiers;
@@ -96,7 +96,7 @@ public final class EmotionAnalysisService
                     final var warningResult = warningDetectionAgent.detect(promptProvider.warningDetection(), diary.content);
                     diary.analysisResult = mergeResults(moodResult, warningResult);
 
-                    //* 日记场景在线 RED 预警: 逐渠道 fire-and-forget 推送 (websocket + webhook 互为冗余).
+                    //* 日记场景在线 RED 预警: 逐渠道 fire-and-forget 推送 (通知渠道矩阵互为冗余).
                     if("RED".equals(warningResult.warningLevel()))
                         pushRedAlert(diary.userId, warningResult.reason());
                     return diary;
@@ -122,7 +122,7 @@ public final class EmotionAnalysisService
         for(final var notifier : alertNotifiers)
             notifier.notify(userId, "RED", reason).
                 subscribe().with(
-                    v -> {},
+                    _ -> {},
                     t -> LOG.warn("日记 RED 预警推送执行失败: channel={}, userId={}, {}", notifier.channel(), userId, t.getMessage())
                 );
     }

@@ -59,8 +59,7 @@ public final class TerminalRenderer
      *        OPTIONAL_DEFAULT = 默认值 / REQUIRED_EMPTY 等未填情形 = null
      * @since 1.1.0
      */
-    public record ListItem(@NotNull ItemState state, @NotNull String envName, @NotNull String humanName, @Nullable String echoText)
-    {}
+    public record ListItem(@NotNull ItemState state, @NotNull String envName, @NotNull String humanName, @Nullable String echoText) {}
 
     private static final @NotNull String CIRCLE_EMPTY = "○";
     private static final @NotNull String CIRCLE_FILLED = "●";
@@ -104,32 +103,43 @@ public final class TerminalRenderer
         return switch(item.state())
         {
             case REQUIRED_INVALID ->
-                paint(Style.BAD, PrintUtils.quickFormat("{} {}{}{}{}",
-                                                        CIRCLE_EMPTY,
-                                                        item.envName(),
-                                                        COLUMN_GAP,
-                                                        item.humanName(),
-                                                        plainEcho(echoText)));
+                paint(
+                    Style.BAD,
+                    PrintUtils.quickFormat(
+                        "{} {}{}{}{}",
+                        CIRCLE_EMPTY,
+                        item.envName(),
+                        COLUMN_GAP,
+                        item.humanName(),
+                        plainEcho(echoText)
+                    )
+                );
             case REQUIRED_EMPTY ->
-                PrintUtils.quickFormat("{} {}{}{}",
-                                       CIRCLE_EMPTY,
-                                       item.envName(),
-                                       COLUMN_GAP,
-                                       paint(Style.DIM, item.humanName()));
+                PrintUtils.quickFormat(
+                    "{} {}{}{}",
+                    CIRCLE_EMPTY,
+                    item.envName(),
+                    COLUMN_GAP,
+                    paint(Style.DIM, item.humanName())
+                );
             case CONFIGURED, OPTIONAL_SET ->
-                PrintUtils.quickFormat("{} {}{}{}{}",
-                                       paint(Style.OK, CIRCLE_FILLED),
-                                       item.envName(),
-                                       COLUMN_GAP,
-                                       paint(Style.DIM, item.humanName()),
-                                       styledEcho(Style.VALUE, echoText));
+                PrintUtils.quickFormat(
+                    "{} {}{}{}{}",
+                    paint(Style.OK, CIRCLE_FILLED),
+                    item.envName(),
+                    COLUMN_GAP,
+                    paint(Style.DIM, item.humanName()),
+                    styledEcho(Style.VALUE, echoText)
+                );
             case OPTIONAL_DEFAULT ->
-                PrintUtils.quickFormat("{} {}{}{}{}",
-                                       paint(Style.OPT, CIRCLE_EMPTY),
-                                       item.envName(),
-                                       COLUMN_GAP,
-                                       paint(Style.DIM, item.humanName()),
-                                       styledEcho(Style.DIM, echoText));
+                PrintUtils.quickFormat(
+                    "{} {}{}{}{}",
+                    paint(Style.OPT, CIRCLE_EMPTY),
+                    item.envName(),
+                    COLUMN_GAP,
+                    paint(Style.DIM, item.humanName()),
+                    styledEcho(Style.DIM, echoText)
+                );
         };
     }
 

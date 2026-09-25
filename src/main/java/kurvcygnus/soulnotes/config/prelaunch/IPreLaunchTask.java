@@ -38,8 +38,7 @@ public sealed interface IPreLaunchTask permits ConfigValidationTask, DbValidatio
      * @param message 面向用户的描述文本, 已按展示格式写好
      * @since 1.1.0
      */
-    record Issue(@NotNull Level level, @NotNull String subject, @NotNull String message)
-    {}
+    record Issue(@NotNull Level level, @NotNull String subject, @NotNull String message) {}
 
     /**
      * 单任务的执行结果.

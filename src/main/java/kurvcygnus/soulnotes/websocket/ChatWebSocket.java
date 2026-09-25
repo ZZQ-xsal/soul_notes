@@ -115,21 +115,19 @@ public class ChatWebSocket
             //* SSE REST 路径无此问题, 真因是 RESTEasy Reactive 为每个请求建独立 duplicated context,
             //* 与此处逐消息跳转同机制; SERIAL 仅保证回调启动顺序, 链路完成时长不受控, 不能依赖它隔离.
             final var messageContext = VertxContext.getOrCreateDuplicatedContext(vertx.getDelegate());
-            messageContext.runOnContext((Void ignored) ->
-                chatService.streamMessage(sessionId, content, userId)
-                    .onItem().transformToUni(connection::sendText)
-                    .concatenate()
-                    .subscribe().with(
-                        v -> {},
+            messageContext.runOnContext(
+                _ ->
+                chatService.streamMessage(sessionId, content, userId).
+                    onItem().transformToUni(connection::sendText).
+                    concatenate().
+                    subscribe().with(
+                        _ -> {},
                         failure -> LOG.warn("流式对话发送失败: userId={}, {}", userId, failure.getMessage()),
                         () -> LOG.info("流式对话完成: userId={}", userId)
                     )
             );
         }
-        catch(Exception e)
-        {
-            LOG.warn("对话消息处理失败: userId={}, {}", userId, e.getMessage());
-        }
+        catch(Exception e) { LOG.warn("对话消息处理失败: userId={}, {}", userId, e.getMessage()); }
     }
 
     //endregion

@@ -95,32 +95,34 @@ public final class WebSocketAuthUpgradeCheck implements HttpUpgradeCheck
 
             //* 检查 Redis 黑名单.
             return tokenService.isBlacklisted(jti).
-                flatMap(isBlacklisted ->
-                {
-                    if(isBlacklisted)
+                flatMap(
+                    isBlacklisted ->
                     {
-                        LOG.warn("WebSocket 升级拒绝: Token 已被注销");
-                        return CheckResult.rejectUpgrade(401);
-                    }
-
-                    context.userData().put(USER_ID_KEY, sub);
-
-                    //* 工作台端点角色断言: 咨询员通道与普通用户端点共用网关, 但角色门槛只能在升级期落实.
-                    //  用 path() 而非 uri(): path 不含查询串, /ws/clinical/feed?token=xxx 形态天然命中前缀且不受参数污染.
-                    if(request.path().startsWith("/ws/clinical"))
-                    {
-                        final var groups = jwt.getGroups();
-                        //* 角色字面量引用 UserRole 常量 (ClinicalResource @RolesAllowed 同源, 单一来源防漂移).
-                        if(groups == null || !(groups.contains(UserRole.ROLE_COUNSELOR) || groups.contains(UserRole.ROLE_ADMIN)))
+                        if(isBlacklisted)
                         {
-                            LOG.warn("WebSocket 升级拒绝: 工作台端点非咨询员角色");
-                            return CheckResult.rejectUpgrade(403);
+                            LOG.warn("WebSocket 升级拒绝: Token 已被注销");
+                            return CheckResult.rejectUpgrade(401);
                         }
+    
+                        context.userData().put(USER_ID_KEY, sub);
+    
+                        //* 工作台端点角色断言: 咨询员通道与普通用户端点共用网关, 但角色门槛只能在升级期落实.
+                        //*  用 path() 而非 uri(): path 不含查询串, /ws/clinical/feed?token=xxx 形态天然命中前缀且不受参数污染.
+                        if(request.path().startsWith("/ws/clinical"))
+                        {
+                            final var groups = jwt.getGroups();
+                            //* 角色字面量引用 UserRole 常量 (ClinicalResource @RolesAllowed 同源, 单一来源防漂移).
+                            if(groups == null || !(groups.contains(UserRole.ROLE_COUNSELOR) || groups.contains(UserRole.ROLE_ADMIN)))
+                            {
+                                LOG.warn("WebSocket 升级拒绝: 工作台端点非咨询员角色");
+                                return CheckResult.rejectUpgrade(403);
+                            }
+                        }
+    
+                        LOG.debug("WebSocket 升级已授权: userId={}", sub);
+                        return CheckResult.permitUpgrade();
                     }
-
-                    LOG.debug("WebSocket 升级已授权: userId={}", sub);
-                    return CheckResult.permitUpgrade();
-                });
+                );
         }
         catch(ParseException e)
         {

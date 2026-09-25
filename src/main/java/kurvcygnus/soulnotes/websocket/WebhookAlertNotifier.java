@@ -59,10 +59,7 @@ public final class WebhookAlertNotifier implements IAlertNotifier
         @ConfigProperty(name = "alert.webhook.url") @NotNull Optional<String> webhookUrl,
         @ConfigProperty(name = "alert.webhook.token") @NotNull Optional<String> webhookToken,
         @NotNull RedisStartupConfig redisConfig
-    )
-    {
-        this(webhookUrl.orElse(""), webhookToken.orElse(""), REQUEST_TIMEOUT, redisConfig::getHotline);
-    }
+    ) { this(webhookUrl.orElse(""), webhookToken.orElse(""), REQUEST_TIMEOUT, redisConfig::getHotline); }
 
     //* 测试缝: 直供热线源与请求超时, 避开 CDI 与 Redis 依赖.
     WebhookAlertNotifier(
@@ -127,12 +124,14 @@ public final class WebhookAlertNotifier implements IAlertNotifier
         final var request = builder.POST(HttpRequest.BodyPublishers.ofString(JsonUtils.toJson(payload))).build();
 
         return Uni.createFrom().completionStage(CLIENT.sendAsync(request, HttpResponse.BodyHandlers.discarding())).
-            invoke(response ->
-            {
-                final var status = response.statusCode();
-                if(status < 200 || status >= 300)
-                    LOG.warn("Webhook 预警推送被服务端拒绝: userId={}, status={}", userId, status);
-            }).
+            invoke(
+                response ->
+                {
+                    final var status = response.statusCode();
+                    if(status < 200 || status >= 300)
+                        LOG.warn("Webhook 预警推送被服务端拒绝: userId={}, status={}", userId, status);
+                }
+            ).
             replaceWithVoid();
     }
 

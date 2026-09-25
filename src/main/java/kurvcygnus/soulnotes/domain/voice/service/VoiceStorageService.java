@@ -54,8 +54,7 @@ public final class VoiceStorageService
      * @return 形如 {@code /api/v1/voice/files/{fileId}} 的访问路径
      * @since 1.1.0
      */
-    public static @NotNull String audioUrlOf(@NotNull String fileId)
-    { return "/api/v1/voice/files/" + fileId; }
+    public static @NotNull String audioUrlOf(@NotNull String fileId) { return "/api/v1/voice/files/" + fileId; }
 
     /**
      * 存储语音文件: 以随机 UUID 为目录、过滤后的原始文件名落盘.
@@ -68,25 +67,27 @@ public final class VoiceStorageService
     public @NotNull Uni<StoredVoice> store(@NotNull String fileName, @NotNull InputStream input)
     {
         return Uni.createFrom().item(
-            Unchecked.supplier(() ->
-            {
-                try
+            Unchecked.supplier(
+                () ->
                 {
-                    final var fileId  = UUID.randomUUID().toString();
-                    final var dir     = storagePath.resolve(fileId);
-                    Files.createDirectories(dir);
-                    final var target  = dir.resolve(sanitize(fileName));
-                    Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
-
-                    LOG.info("语音文件已存储: fileId={}, path={}", fileId, target);
-                    return new StoredVoice(fileId, target);
+                    try
+                    {
+                        final var fileId  = UUID.randomUUID().toString();
+                        final var dir     = storagePath.resolve(fileId);
+                        Files.createDirectories(dir);
+                        final var target  = dir.resolve(sanitize(fileName));
+                        Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
+    
+                        LOG.info("语音文件已存储: fileId={}, path={}", fileId, target);
+                        return new StoredVoice(fileId, target);
+                    }
+                    catch(IOException e)
+                    {
+                        LOG.warn("语音文件存储失败: {}", e.getMessage());
+                        throw new RuntimeException("语音文件存储失败", e);
+                    }
                 }
-                catch(IOException e)
-                {
-                    LOG.warn("语音文件存储失败: {}", e.getMessage());
-                    throw new RuntimeException("语音文件存储失败", e);
-                }
-            })
+            )
         ).runSubscriptionOn(Infrastructure.getDefaultWorkerPool());
     }
 
@@ -105,10 +106,11 @@ public final class VoiceStorageService
                 if(!Files.exists(dir))
                     return null;
 
-                try(var files = Files.list(dir))
+                try(final var files = Files.list(dir))
                 {
                     //* 显式检查 deleteIfExists 结果, 避免静默失败.
-                    files.forEach(file ->
+                    files.forEach(
+                        file ->
                         {
                             try { Files.deleteIfExists(file); }
                             catch(IOException e) { LOG.warn("删除语音文件失败: {}", e.getMessage()); }
@@ -133,13 +135,14 @@ public final class VoiceStorageService
      */
     public @NotNull Uni<byte[]> load(@NotNull String fileId)
     {
-        return Uni.createFrom().item(() ->
+        return Uni.createFrom().item(
+            () ->
             {
                 final var dir = storagePath.resolve(fileId);
                 if(!Files.exists(dir))
                     return null;
 
-                try(var files = Files.list(dir))
+                try(final var files = Files.list(dir))
                 {
                     final var file = files.findFirst().orElse(null);
                     if(file == null)

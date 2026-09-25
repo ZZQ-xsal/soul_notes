@@ -3,6 +3,7 @@ package kurvcygnus.soulnotes.config.prelaunch;
 import kurvcygnus.soulnotes.ai.asr.AsrRuntimeManager;
 import kurvcygnus.soulnotes.utils.PrintUtils;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
+import java.util.regex.Pattern;
 
 /**
  * 配置校验任务 (规则矩阵).
@@ -17,7 +19,7 @@ import java.util.function.BooleanSupplier;
  * AI 密钥为空或占位哨兵 placeholder 不分 profile 一律 BLOCK (用户裁决: AI 为应用必配项, 无 dev 放宽);
  * 弱 JWT 按规则矩阵分派: 显式弱值不分 profile 一律 BLOCK (格式级), 仅 dev 的内置默认弱密钥降为 WARN 提醒;
  * 天气阈值域与次序为跨字段规则, 依据 EmotionWeatherService#mapWeather 分支可达性: storm &gt; rainy &gt; overcast 严格递减,
- * sunny 仅校验 [0,1] 域不参与次序.</p>
+ * sunny 仅校验 [0,1] 域不参与次序; 预警外部渠道为健康度警告规则: 短信五键部分配置渠道不生效, 手机号逐号格式校验.</p>
  *
  * <p>Pre-Launch 阶段运行于 CDI 容器启动之前 (Entrance#main 纯构造装配), 无法经容器注入
  * {@link AsrRuntimeManager}, ASR 就绪判定经 {@code BooleanSupplier} 端口传入 (生产传其 ready() 方法引用).</p>
@@ -29,6 +31,9 @@ public final class ConfigValidationTask implements IPreLaunchTask
     private static final @NotNull List<String> DEV_RELAXED =
         List.of("SOULNOTES_DB_USER", "SOULNOTES_DB_PASSWORD", "SOULNOTES_JWT_SECRET");
 
+    //* 短信渠道值班手机号格式 (大陆): 1 开头 11 位且第 2 位限 [3-9] — 启动期逐号校验, 坏号码 WARN 点名而非静默丢发.
+    private static final @NotNull Pattern PHONE_PATTERN = Pattern.compile("1[3-9]\\d{9}");
+
     private final @NotNull BooleanSupplier asrReady;
 
     /**
@@ -38,7 +43,12 @@ public final class ConfigValidationTask implements IPreLaunchTask
      * @since 1.1.0
      */
     public ConfigValidationTask(@NotNull BooleanSupplier asrReady)
-    { this.asrReady = Objects.requireNonNull(asrReady, "Param \"asrReady\" must not be null!"); }
+    {
+        this.asrReady = Objects.requireNonNull(
+            asrReady,
+            "Param \"asrReady\" must not be null!"
+        );
+    }
 
     /** @return 固定为 "配置校验". */
     @Override public @NotNull String name() { return "配置校验"; }
@@ -54,7 +64,8 @@ public final class ConfigValidationTask implements IPreLaunchTask
     {
         final var issues = new ArrayList<Issue>();
         final var byEnv = new HashMap<String, PropertyMetaParser.ConfigItemMeta>();
-        for(final var item: ctx.items()) byEnv.put(item.envName(), item);
+        for(final var item: ctx.items())
+            byEnv.put(item.envName(), item);
 
         for(final var item: ctx.items())
         {
@@ -136,7 +147,7 @@ public final class ConfigValidationTask implements IPreLaunchTask
 
     //* 警告规则: 不阻断启动. (ASR 就绪判定依赖实例端口的就绪探测, 故为实例方法)
     /**
-     * 非 BLOCK 级警告规则: ASR 运行时未就绪 (恒 WARN) + prod 默认 CORS 白名单 + dev 弱 JWT 密钥.
+     * 非 BLOCK 级警告规则: ASR 运行时未就绪 (恒 WARN) + prod 默认 CORS 白名单 + dev 弱 JWT 密钥 + 预警渠道健康度.
      *
      * @param ctx 执行上下文
      * @param byEnv envName 到条目元数据的索引
@@ -169,6 +180,63 @@ public final class ConfigValidationTask implements IPreLaunchTask
                     issues.add(new Issue(Level.WARN, "SOULNOTES_JWT_SECRET", "当前 JWT 密钥为开发默认/弱密钥, 勿用于生产环境"));
             }
         }
+
+        validateAlertChannels(ctx, byEnv, issues);
+    }
+
+    //* 预警外部渠道配置健康度 (spec §4): 短信五键部分配置 → WARN 渠道不生效; 手机号逐个格式校验.
+    //* 钉钉/企微为单键渠道 (webhook 即完整配置, secret 可选), 无组完整性问题.
+    //* WARN 而非 BLOCK 的不对称与 ASR 同理: 渠道为可插拔增强, WebSocket 在线推送与离线热线兜底仍完整可用.
+    /**
+     * 预警外部渠道配置健康度规则: 短信五键 (AccessKey/Secret/签名/模板/手机号) 部分配置时上报 WARN
+     * (渠道暂不生效); 五键齐备时对值班手机号逐个格式校验, 非法号码逐号点名. 钉钉/企微为单键渠道,
+     * webhook 即完整配置 (加签密钥可选), 无组完整性问题.
+     *
+     * @param ctx 执行上下文
+     * @param byEnv envName 到条目元数据的索引
+     * @param issues 问题收集出口
+     */
+    private static void validateAlertChannels(
+        @NotNull PreLaunchContext ctx, @NotNull Map<String, PropertyMetaParser.ConfigItemMeta> byEnv, @NotNull List<Issue> issues
+    )
+    {
+        final var keys = List.of(
+            "SOULNOTES_ALERT_SMS_ACCESS_KEY", "SOULNOTES_ALERT_SMS_SECRET_KEY",
+            "SOULNOTES_ALERT_SMS_SIGN_NAME", "SOULNOTES_ALERT_SMS_TEMPLATE_CODE",
+            "SOULNOTES_ALERT_SMS_PHONES"
+        );
+        final var values = keys.stream().map(env -> resolveValue(ctx, byEnv, env)).toList();
+        final var anySet = values.stream().anyMatch(v -> v != null && !v.isBlank());
+        final var allSet = values.stream().allMatch(v -> v != null && !v.isBlank());
+        if(anySet && !allSet)
+            issues.add(new Issue(Level.WARN, "SOULNOTES_ALERT_SMS_PHONES",
+                "短信渠道配置不完整 (AccessKey/Secret/签名/模板/手机号五键须齐备), 渠道暂不生效"));
+        if(allSet)
+        {
+            //* allSet 谓词已保证末位 (PHONES) 非空, requireNonNull 仅为数据流显式收窄 (零警告).
+            final var phones = Objects.requireNonNull(values.getLast(), "allSet 已保证 PHONES 键非空!");
+            for(final var phone : phones.split(","))
+            {
+                final var normalized = phone.strip();
+                if(!normalized.isEmpty() && !PHONE_PATTERN.matcher(normalized).matches())
+                    issues.add(new Issue(Level.WARN, "SOULNOTES_ALERT_SMS_PHONES",
+                        PrintUtils.quickFormat("值班手机号格式非法: {} (应为 1 开头的 11 位数字), 该号码不会收到预警短信", normalized)));
+            }
+        }
+    }
+
+    /**
+     * 解析预警渠道单键的展开值 (与 {@link #threshold} 同款经 ctx 解析): 条目元数据缺失时为 null.
+     *
+     * @param ctx 执行上下文
+     * @param byEnv envName 到条目元数据的索引
+     * @param env 渠道键的环境变量名
+     * @return 展开值; 元数据缺失时为 null (旧版 properties 未含该键, 渠道本体不存在, 视作未配置)
+     */
+    private static @Nullable String resolveValue(@NotNull PreLaunchContext ctx, @NotNull Map<String, PropertyMetaParser.ConfigItemMeta> byEnv, @NotNull String env)
+    {
+        final var item = byEnv.get(env);
+        return item == null ? null : ctx.view().resolved(item.key(), env, item.defaultValue());
     }
 
     //endregion

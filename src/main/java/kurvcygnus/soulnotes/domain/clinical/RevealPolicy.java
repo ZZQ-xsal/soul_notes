@@ -62,9 +62,7 @@ public final class RevealPolicy
      * @param username 学生实名 (可为 null — 用户被删时掩码兜底)
      * @return 身份标识 (恒非 null)
      */
-    public static @NotNull MaskedIdentity identity(
-        @NotNull RevealLevel level, @NotNull String riskLevel, @NotNull UUID userId, @Nullable String username
-    )
+    public static @NotNull MaskedIdentity identity(@NotNull RevealLevel level, @NotNull String riskLevel, @NotNull UUID userId, @Nullable String username)
     {
         Objects.requireNonNull(level, "Param \"level\" must not be null!");
         Objects.requireNonNull(riskLevel, "Param \"riskLevel\" must not be null!");

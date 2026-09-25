@@ -51,16 +51,15 @@ import java.util.function.Function;
  * @since 1.1.0
  */
 @ApplicationScoped
-@SuppressWarnings("unused")//! @Inject 构造器由 Quarkus CDI 容器在运行时调用, IDE 静态分析误报未使用 (ChatService 同款处理).
 public final class ClinicalSchemaNormalizer
 {
     private static final Logger LOG = LoggerFactory.getLogger(ClinicalSchemaNormalizer.class);
 
     //* 单例复用 (HttpModelCatalog 先例): 连接池/线程复用; 归一化为启动期一次性调用, 读超时放宽到 60s.
-    private static final HttpClient CLIENT = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(10))
-        .followRedirects(HttpClient.Redirect.NORMAL)
-        .build();
+    private static final HttpClient CLIENT = HttpClient.newBuilder().
+        connectTimeout(Duration.ofSeconds(10)).
+        followRedirects(HttpClient.Redirect.NORMAL).
+        build();
 
     //* Jackson 直用而非 JsonUtils 静态桥: 归一化器可能先于 JsonUtils 的 @Startup 初始化被单测直接构造.
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -86,16 +85,14 @@ public final class ClinicalSchemaNormalizer
      * @param normalizedAt 归一完成时刻 ({@link Instant#toString()} 形态), 亦为条目排序与淘汰依据
      * @param model 产出所用的模型名, 仅供审计
      */
-    private record CacheEntry(String promptHash, String schema, String normalizedAt, String model)
-    {}
+    private record CacheEntry(String promptHash, String schema, String normalizedAt, String model) {}
 
     /**
      * 缓存文件根对象: 条目列表的序列化容器.
      *
      * @param entries 按归一时间升序的条目; 文件损坏或字段缺失时调用方按空处理
      */
-    private record CacheFile(List<CacheEntry> entries)
-    {}
+    private record CacheFile(List<CacheEntry> entries) {}
     //endregion
 
     //region 注入
@@ -125,7 +122,14 @@ public final class ClinicalSchemaNormalizer
         @ConfigProperty(name = "quarkus.langchain4j.openai.chat-model.model-name") @NotNull Optional<String> modelName
     )
     {
-        this(promptProvider, baseUrl.orElse(""), apiKey.orElse(""), modelName.orElse(""), Path.of("config", "clinical-schema-cache.json"), null);
+        this(
+            promptProvider,
+            baseUrl.orElse(""),
+            apiKey.orElse(""),
+            modelName.orElse(""),
+            Path.of("config", "clinical-schema-cache.json"),
+            null
+        );
     }
 
     /**
@@ -174,25 +178,21 @@ public final class ClinicalSchemaNormalizer
     void onStart(@Observes @NotNull StartupEvent ev)
     {
         final var startupClassLoader = Thread.currentThread().getContextClassLoader();
-        CompletableFuture.runAsync(() ->
-        {
-            final var worker = Thread.currentThread();
-            final var previous = worker.getContextClassLoader();
-            worker.setContextClassLoader(startupClassLoader);
-            try
+        CompletableFuture.runAsync(
+            () ->
             {
-                if(ensureNormalized() == null)
-                    LOG.warn("启动期临床结构归一化未成功 (LLM 失败且无缓存), 结构化输出增强暂禁, 等下次启动重试");
+                final var worker = Thread.currentThread();
+                final var previous = worker.getContextClassLoader();
+                worker.setContextClassLoader(startupClassLoader);
+                try
+                {
+                    if(ensureNormalized() == null)
+                        LOG.warn("启动期临床结构归一化未成功 (LLM 失败且无缓存), 结构化输出增强暂禁, 等下次启动重试");
+                }
+                catch(RuntimeException e) { LOG.warn("启动期临床结构归一化异常: {}", e.getMessage()); }
+                finally { worker.setContextClassLoader(previous); }
             }
-            catch(RuntimeException e)
-            {
-                LOG.warn("启动期临床结构归一化异常: {}", e.getMessage());
-            }
-            finally
-            {
-                worker.setContextClassLoader(previous);
-            }
-        });
+        );
     }
     //endregion
 
@@ -215,8 +215,7 @@ public final class ClinicalSchemaNormalizer
         final var cached = l1.get(hash);
         if(cached != null)
             return cached;
-        for(int attempt = 1; attempt <= 2; attempt++)
-        {
+        for(var attempt = 1; attempt <= 2; attempt++)
             try
             {
                 final var schema = validateSchemaText(callLlm(buildNormalizationPrompt(effective)));
@@ -227,11 +226,7 @@ public final class ClinicalSchemaNormalizer
                 }
                 LOG.warn("归一化产物形态校验未通过 (第 {} 次): 顶层必须是含 properties 的 JSON 对象", attempt);
             }
-            catch(RuntimeException e)
-            {
-                LOG.warn("归一化 LLM 调用失败 (第 {} 次): {}", attempt, e.getMessage());
-            }
-        }
+            catch(RuntimeException e) { LOG.warn("归一化 LLM 调用失败 (第 {} 次): {}", attempt, e.getMessage()); }
         return null;
     }
 
@@ -294,12 +289,12 @@ public final class ClinicalSchemaNormalizer
      */
     private @NotNull String callLlmHttp(@NotNull String prompt)
     {
-        final var request = HttpRequest.newBuilder(URI.create(stripTrailingSlash(baseUrl) + "/chat/completions"))
-            .timeout(Duration.ofSeconds(60))
-            .header("Authorization", "Bearer " + apiKey)
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(buildRequestBody(prompt), StandardCharsets.UTF_8))
-            .build();
+        final var request = HttpRequest.newBuilder(URI.create(stripTrailingSlash(baseUrl) + "/chat/completions")).
+            timeout(Duration.ofSeconds(60)).
+            header("Authorization", "Bearer " + apiKey).
+            header("Content-Type", "application/json").
+            POST(HttpRequest.BodyPublishers.ofString(buildRequestBody(prompt), StandardCharsets.UTF_8)).
+            build();
         final HttpResponse<String> response;
         try { response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString()); }
         catch(InterruptedException e)
@@ -352,10 +347,7 @@ public final class ClinicalSchemaNormalizer
      * @param effective 用户提供 (或默认) 的自然语言结构描述
      * @return 完整提示词文本
      */
-    private static @NotNull String buildNormalizationPrompt(@NotNull String effective)
-    {
-        return NORMALIZATION_SYSTEM_PROMPT + "\n用户提供的结构描述如下:\n" + effective;
-    }
+    private static @NotNull String buildNormalizationPrompt(@NotNull String effective) { return NORMALIZATION_SYSTEM_PROMPT + "\n用户提供的结构描述如下:\n" + effective; }
 
     //* 形态校验: 必须解析为 JSON 对象且含 properties (JSON Schema 形态的最低门槛);
     //* 宽容剥除 LLM 惯性附带的 Markdown 代码围栏后再校验, 围栏内仍是合法对象即采纳.
@@ -374,10 +366,7 @@ public final class ClinicalSchemaNormalizer
             if(node instanceof ObjectNode object && object.has("properties"))
                 return object.toString();//* 统一为 Jackson 序列化形态, 同一产物多次落盘字节稳定.
         }
-        catch(JsonProcessingException e)
-        {
-            LOG.debug("归一化产物 JSON 解析失败: {}", e.getMessage());
-        }
+        catch(JsonProcessingException e) { LOG.debug("归一化产物 JSON 解析失败: {}", e.getMessage()); }
         return null;
     }
 
@@ -406,10 +395,7 @@ public final class ClinicalSchemaNormalizer
      * @param url 端点基础地址
      * @return 无尾部斜杠的地址
      */
-    private static @NotNull String stripTrailingSlash(@NotNull String url)
-    {
-        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
-    }
+    private static @NotNull String stripTrailingSlash(@NotNull String url) { return url.endsWith("/") ? url.substring(0, url.length() - 1) : url; }
     //endregion
 
     //region 缓存文件
@@ -466,7 +452,7 @@ public final class ClinicalSchemaNormalizer
             final var entries = new ArrayList<>(readEntries());
             entries.removeIf(entry -> hash.equals(entry.promptHash()));
             entries.add(new CacheEntry(hash, schema, Instant.now().toString(), modelName));
-            entries.sort(Comparator.comparing(ClinicalSchemaNormalizer.CacheEntry::normalizedAt));
+            entries.sort(Comparator.comparing(CacheEntry::normalizedAt));
             while(entries.size() > MAX_ENTRIES)
                 entries.removeFirst();
             final var parent = cacheFile.toAbsolutePath().getParent();
@@ -474,10 +460,7 @@ public final class ClinicalSchemaNormalizer
                 Files.createDirectories(parent);
             MAPPER.writerWithDefaultPrettyPrinter().writeValue(cacheFile.toFile(), new CacheFile(List.copyOf(entries)));
         }
-        catch(IOException e)
-        {
-            LOG.warn("临床结构缓存文件写入失败 (L1 已更新): {}", e.getMessage());
-        }
+        catch(IOException e) { LOG.warn("临床结构缓存文件写入失败 (L1 已更新): {}", e.getMessage()); }
     }
     //endregion
 }

@@ -74,9 +74,7 @@ public class ClinicalAssessmentService
      * @param schemaHash 下发契约的归一化指纹 (canonical 为 null)
      * @return 完成信号; NONE 直接完成; 失败由调用方 WARN 兜底 (best-effort, 不拖垮对话)
      */
-    public @NotNull Uni<Void> recordAsync(
-        @NotNull UUID userId, @NotNull UUID sessionId, @NotNull JsonNode payload, @Nullable String schemaHash
-    )
+    public @NotNull Uni<Void> recordAsync(@NotNull UUID userId, @NotNull UUID sessionId, @NotNull JsonNode payload, @Nullable String schemaHash)
     {
         Objects.requireNonNull(userId, "Param \"userId\" must not be null!");
         Objects.requireNonNull(sessionId, "Param \"sessionId\" must not be null!");
@@ -102,16 +100,16 @@ public class ClinicalAssessmentService
         assessment.schemaHash = schemaHash;
         assessment.createdAt = Instant.now();
 
-        return Panache.withTransaction(() ->
-            User.<User>findById(userId).onItem().ifNull().continueWith(() -> null).
-                flatMap(user -> assessment.persist().replaceWith(user))
-        ).
-            invoke(user ->
+        return Panache.withTransaction(
+            () ->
+            User.<User>findById(userId).onItem().ifNull().continueWith(() -> null).flatMap(assessment.persist()::replaceWith)
+        ).invoke(
+            user ->
             {
                 lastPersistedId = assessment.id;
                 broadcastVo(toVo(assessment, user == null ? null : user.username));
-            }).
-            replaceWithVoid();
+            }
+        ).replaceWithVoid();
     }
 
     //* canonical 摘要宽容提取: 自定义结构字段名漂移时取不到 → 空串, 不抛 (Spec §4).
@@ -121,7 +119,7 @@ public class ClinicalAssessmentService
     private void broadcastVo(@NotNull AssessmentVo vo)
     {
         feedHub.broadcast(JsonUtils.toJson(Map.of("type", "NEW_ASSESSMENT", "assessment", vo))).
-            subscribe().with(v -> {}, f -> LOG.warn("工作台评估推送失败: {}", f.getMessage()));
+            subscribe().with(_ -> {}, f -> LOG.warn("工作台评估推送失败: {}", f.getMessage()));
     }
     //endregion
 
@@ -164,25 +162,29 @@ public class ClinicalAssessmentService
     public @NotNull Uni<StatsSummary> statsSummary(int days)
     {
         final var since = days > 0 ? Instant.now().minus(Duration.ofDays(days)) : null;
-        return ClinicalAssessment.listSince(since).map(assessments ->
-        {
-            final var byLevel = assessments.stream().
-                collect(Collectors.groupingBy(a -> a.riskLevel, Collectors.counting()));
-            final var byDay = new LinkedHashMap<String, long[]>();
-            for(final var a : assessments)
+        return ClinicalAssessment.listSince(since).map(
+            assessments ->
             {
-                final var date = LocalDate.ofInstant(a.createdAt, ZONE).toString();
-                final var counters = byDay.computeIfAbsent(date, k -> new long[2]);
-                if("RED".equals(a.riskLevel)) counters[1]++;
-                else counters[0]++;
+                final var byLevel = assessments.stream().
+                    collect(Collectors.groupingBy(a -> a.riskLevel, Collectors.counting()));
+                final var byDay = new LinkedHashMap<String, long[]>();
+                for(final var a: assessments)
+                {
+                    final var date = LocalDate.ofInstant(a.createdAt, ZONE).toString();
+                    final var counters = byDay.computeIfAbsent(date, _ -> new long[2]);
+                    if("RED".equals(a.riskLevel))
+                        counters[1]++;
+                    else
+                        counters[0]++;
+                }
+                final var daily = byDay.entrySet().stream().
+                    sorted(Map.Entry.comparingByKey()).//* listSince 为 DESC / listAll 无序, 按 DTO 契约统一升序输出.
+                    map(e -> new StatsSummary.DailyCount(e.getKey(), e.getValue()[0], e.getValue()[1])).
+                    toList();
+                final var totalStudents = assessments.stream().map(a -> a.userId).distinct().count();
+                return new StatsSummary(byLevel, daily, totalStudents);
             }
-            final var daily = byDay.entrySet().stream().
-                sorted(Map.Entry.comparingByKey()).//* listSince 为 DESC / listAll 无序, 按 DTO 契约统一升序输出.
-                map(e -> new StatsSummary.DailyCount(e.getKey(), e.getValue()[0], e.getValue()[1])).
-                toList();
-            final var totalStudents = assessments.stream().map(a -> a.userId).distinct().count();
-            return new StatsSummary(byLevel, daily, totalStudents);
-        });
+        );
     }
 
     //* 批量身份解析: 一次 IN 查询取 username 映射, 免逐条 N+1; 已删除用户按掩码兜底.
@@ -191,7 +193,8 @@ public class ClinicalAssessmentService
         if(assessments.isEmpty())
             return Uni.createFrom().item(List.of());
         final var ids = assessments.stream().map(a -> a.userId).distinct().toList();
-        return User.<User>find("id in ?1", ids).list().map(users ->
+        return User.<User>find("id in ?1", ids).list().map(
+            users ->
             {
                 final var names = users.stream().
                     collect(Collectors.toMap(u -> u.id, u -> u.username, (a, b) -> a));

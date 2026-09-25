@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <b>{@link EmotionAnalysisService} 单元测试</b>
  * <p>覆盖两块: 反射测试私有静态方法 {@code mergeResults} 的 JSON 合并逻辑;
  * 反射驱动私有 {@code pushRedAlert} (private, 不便 {@code @link} 引用), 以 fake 渠道替身断言
- * 日记来源 RED 预警逐渠道 fan-out (websocket + webhook 双渠道 fire-and-forget, 与 ChatService 同构).</p>
+ * 日记来源 RED 预警逐渠道 fan-out (通知渠道矩阵 fire-and-forget, 与 ChatService 同构).</p>
  *
  * @author Claude Code
  * @since 1.1.0

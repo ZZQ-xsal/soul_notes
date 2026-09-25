@@ -34,7 +34,7 @@ import java.util.NoSuchElementException;
  *           并兼容校验原型阶段遗留的无盐 SHA-256 旧哈希.
  * @since 1.0
  */
-@ApplicationScoped
+@SuppressWarnings("JavadocDeclaration") @ApplicationScoped
 public final class AuthService
 {
     //region 注入

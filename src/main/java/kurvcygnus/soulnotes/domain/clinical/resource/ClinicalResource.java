@@ -110,10 +110,6 @@ public final class ClinicalResource
      * 聚合统计.
      */
     @GET @Path("/stats/summary")
-    public @NotNull Uni<ApiResponse<StatsSummary>> stats(
-        @QueryParam("days") @DefaultValue("7") int days
-    )
-    {
-        return assessmentService.statsSummary(days).map(ApiResponse::success);
-    }
+    public @NotNull Uni<ApiResponse<StatsSummary>> stats(@QueryParam("days") @DefaultValue("7") int days)
+        { return assessmentService.statsSummary(days).map(ApiResponse::success); }
 }

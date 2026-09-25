@@ -75,12 +75,10 @@ public final class ClinicalAssessment extends PanacheEntityBase
      * @param offset 偏移量 (>=0)
      * @return 评估列表 (可能为空, 恒非 null)
      */
-    public static @NotNull Uni<List<ClinicalAssessment>> findRecent(
-        @Nullable String level, @Nullable Instant since, int limit, int offset
-    )
+    public static @NotNull Uni<List<ClinicalAssessment>> findRecent(@Nullable String level, @Nullable Instant since, int limit, int offset)
     {
         final var query = new StringBuilder("1 = 1");
-        final var params = new java.util.ArrayList<Object>();
+        final var params = new java.util.ArrayList<>();
         if(level != null)
         {
             query.append(" AND riskLevel = ?").append(params.size() + 1);
@@ -102,7 +100,7 @@ public final class ClinicalAssessment extends PanacheEntityBase
     public static @NotNull Uni<Long> countRecent(@Nullable String level, @Nullable Instant since)
     {
         final var query = new StringBuilder("1 = 1");
-        final var params = new java.util.ArrayList<Object>();
+        final var params = new java.util.ArrayList<>();
         if(level != null)
         {
             query.append(" AND riskLevel = ?").append(params.size() + 1);
@@ -141,8 +139,6 @@ public final class ClinicalAssessment extends PanacheEntityBase
      * 拉取时间窗内全部评估 (统计聚合的数据源: YELLOW/RED 量级小, Java 侧聚合免 HQL 投影复杂性).
      */
     public static @NotNull Uni<List<ClinicalAssessment>> listSince(@Nullable Instant since)
-    {
-        return since == null ? listAll() : list("createdAt >= ?1 ORDER BY createdAt DESC", since);
-    }
+        { return since == null ? listAll() : list("createdAt >= ?1 ORDER BY createdAt DESC", since); }
     //endregion
 }

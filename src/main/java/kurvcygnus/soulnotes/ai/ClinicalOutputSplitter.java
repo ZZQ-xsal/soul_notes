@@ -38,8 +38,7 @@ public final class ClinicalOutputSplitter
     public record SplitResult(
         @NotNull String text,
         @Nullable JsonNode payload
-    )
-    {}
+    ) {}
 
     /**
      * 从回复中提取最后一个 {@code soulnotes} 注释块.

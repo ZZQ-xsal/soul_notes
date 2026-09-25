@@ -34,7 +34,6 @@ import java.util.UUID;
  * @since 1.0
  */
 @ApplicationScoped
-@SuppressWarnings("unused")//! ReactiveRedisDataSource 为 quarkus-redis-client 生成的 Bean, IDE 静态分析误报未满足依赖.
 public final class TokenService
 {
     private static final Logger LOG = LoggerFactory.getLogger(TokenService.class);

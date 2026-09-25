@@ -88,8 +88,7 @@ public final class SetupWizard
      * @param action 收场动作
      * @since 1.1.0
      */
-    public record SetupResult(@NotNull Map<String, String> values, @NotNull NextAction action)
-    {}
+    public record SetupResult(@NotNull Map<String, String> values, @NotNull NextAction action) {}
 
     //* prefill 产物: values 供交互复用; envNames 记录继承来源 — 密钥类 (SECRET/GENERATE) 继承项落盘时排除
     //* (README prod 指引: 密钥必须环境变量注入, 且摘要屏全掩码, 用户无从察觉明文被物化), 可变集: 本会话重输即移出.
@@ -99,8 +98,7 @@ public final class SetupWizard
      * @param values envName 到预填值的映射 (仅显式已配置项)
      * @param envNames values 中继承自 sysprop/env/既有配置文件的键集 — 密钥类继承项落盘时排除
      */
-    private record Prefill(@NotNull Map<String, String> values, @NotNull Set<String> envNames)
-    {}
+    private record Prefill(@NotNull Map<String, String> values, @NotNull Set<String> envNames) {}
 
     //endregion
 
@@ -172,7 +170,14 @@ public final class SetupWizard
      * @since 1.1.0
      */
     public SetupWizard(@NotNull Path workDir, @Nullable IAsrRuntimeControl asrControl, @Nullable IDatabaseGateway dbGateway)
-    { this(workDir, asrControl, dbGateway, null); }
+    {
+        this(
+            workDir,
+            asrControl,
+            dbGateway,
+            null
+        );
+    }
 
     /**
      * 四端口便利构造: 启用 ASR/数据库/AI 模型拉取三类交互, 无 ASR 目录重建能力.
@@ -188,8 +193,7 @@ public final class SetupWizard
         @Nullable IAsrRuntimeControl asrControl,
         @Nullable IDatabaseGateway dbGateway,
         @Nullable IModelCatalog modelCatalog
-    )
-    { this(workDir, asrControl, dbGateway, modelCatalog, null); }
+    ) { this(workDir, asrControl, dbGateway, modelCatalog, null); }
 
     /**
      * 全量构造入口 (含 ASR 目录重建点), 生产 Entrance 使用.
@@ -236,7 +240,8 @@ public final class SetupWizard
      */
     public @NotNull SetupResult run(
         @NotNull List<PropertyMetaParser.ConfigItemMeta> items,
-        @NotNull ConfigView view, @NotNull TerminalIO io
+        @NotNull ConfigView view,
+        @NotNull TerminalIO io
     )
     {
         Objects.requireNonNull(items, "Param \"items\" must not be null!");
@@ -251,10 +256,10 @@ public final class SetupWizard
         final var visible = items.stream().
             filter(meta -> mode == Mode.FULL || meta.required()).
             toList();
-
-        boolean editing = !visible.isEmpty();
-        Integer expanded = editing ? 0 : null;  //* null = 折叠命令态; 非空 = 展开态下标 (顺序遍历从首项起).
-        int next = 0;                           //* Enter 顺序遍历的光标.
+        
+        var editing = !visible.isEmpty();
+        var expanded = editing ? 0 : null;  //* null = 折叠命令态; 非空 = 展开态下标 (顺序遍历从首项起).
+        var next = 0;                       //* Enter 顺序遍历的光标.
         @Nullable String dbProbeKey = null;     //* DB 交互流重触发凭据: 最近一次探测的三项值指纹, null = 本会话尚未探测过.
         @Nullable String aiFetchKey = null;     //* AI 拉取步重触发凭据: 最近一次拉取的 endpoint+key 值指纹, null = 本会话尚未拉取过.
         while(true)
@@ -270,20 +275,34 @@ public final class SetupWizard
                         case SAVE ->
                         {
                             //* ASR 条目保存后触发运行时就绪检查: EOF 于询问符处沿用向导取消路径.
-                            if(!offerAsrRuntimeIfNotReady(visible.get(expanded), values, io)) return cancelled(io);
+                            if(!offerAsrRuntimeIfNotReady(visible.get(expanded), values, io))
+                                return cancelled(io);
+                            
                             //* 数据库组三项齐备且值指纹变化时触发 DB 探测/修复流: EOF 于询问符处同走取消路径.
                             final var step = runDbFlowIfTriggered(visible.get(expanded), values, dbProbeKey, io);
-                            if(step.outcome() == DbFlowOutcome.CANCEL) return cancelled(io);
-                            if(step.fingerprint() != null) dbProbeKey = step.fingerprint();
+                            
+                            if(step.outcome() == DbFlowOutcome.CANCEL)
+                                return cancelled(io);
+                            
+                            if(step.fingerprint() != null)
+                                dbProbeKey = step.fingerprint();
+                            
                             if(step.outcome() == DbFlowOutcome.REEDIT)
                                 continue;  //* 就地失败: 不推进光标 — 循环回到顶部重绘清单并重新展开当前项 (向导既有编辑态语义).
+                            
                             //* AI 组 endpoint+key 齐备且值指纹变化时触发模型拉取/选择步: EOF 于列表/输入符处同走取消路径.
                             final var aiStep = runAiFlowIfTriggered(visible.get(expanded), values, aiFetchKey, io);
-                            if(aiStep.outcome() == AiFlowOutcome.CANCEL) return cancelled(io);
-                            if(aiStep.fingerprint() != null) aiFetchKey = aiStep.fingerprint();
+                            
+                            if(aiStep.outcome() == AiFlowOutcome.CANCEL)
+                                return cancelled(io);
+                            
+                            if(aiStep.fingerprint() != null)
+                                aiFetchKey = aiStep.fingerprint();
                             if(aiStep.outcome() == AiFlowOutcome.REEDIT)
                                 continue;  //* 密钥被拒: 停在当前项重编辑, 改值保存后经指纹重触发.
+                            
                             next = expanded + 1;
+                            
                             if(next >= visible.size())
                             {
                                 expanded = null;
@@ -297,8 +316,12 @@ public final class SetupWizard
                     continue;
                 }
                 final var cmd = readCommand(visible.size(), next, io);
-                if(cmd == null) return cancelled(io);
-                if(cmd == CMD_FINISH) editing = false;
+                
+                if(cmd == null)
+                    return cancelled(io);
+                
+                if(cmd == CMD_FINISH)
+                    editing = false;
                 else
                 {
                     expanded = cmd;
@@ -331,17 +354,29 @@ public final class SetupWizard
      */
     private static @Nullable Mode askMode(int total, @NotNull TerminalIO io)
     {
-        io.writeOut(PrintUtils.quickFormat("\n{}\n\n", emph("== Soul Notes 配置向导 ==")));
+        io.writeOut(
+            PrintUtils.quickFormat(
+                """
+                
+                {}
+                
+                """,
+                emph("== Soul Notes 配置向导 ==")
+            )
+        );
         io.writeOut("  1. 简单配置 (仅必填项)\n");
         io.writeOut(PrintUtils.quickFormat("  2. 全面配置 (全部 {} 项)\n", total));
         while(true)
         {
             io.writeOut("请选择 [1/2, 回车=1]: ");
             final var raw = io.readLine();
-            if(raw == null) return null;
+            if(raw == null)
+                return null;
             final var t = raw.strip();
-            if(t.isEmpty() || t.equals("1")) return Mode.SIMPLE;
-            if(t.equals("2")) return Mode.FULL;
+            if(t.isEmpty() || t.equals("1"))
+                return Mode.SIMPLE;
+            if(t.equals("2"))
+                return Mode.FULL;
             io.writeOut(PrintUtils.quickFormat("{}\n", bad("✗ 无效选择, 请输入 1 或 2")));
         }
     }
@@ -406,7 +441,7 @@ public final class SetupWizard
     {
         final var env = meta.envName();
         final var explain = meta.explain().isEmpty() ? List.<String>of() : List.of(meta.explain().split("\n"));
-        boolean explainShown = false;  //* 解释只在首个输入行后渲染一次, 重问循环不重复刷屏.
+        var explainShown = false;  //* 解释只在首个输入行后渲染一次, 重问循环不重复刷屏.
         while(true)
         {
             io.writeOut(PrintUtils.quickFormat("  {} {}{}: ", emph("❯"), env, currentHint(meta, values)));
@@ -474,10 +509,18 @@ public final class SetupWizard
             if(t.equalsIgnoreCase("q"))
                 return CMD_FINISH;
             final var idx = parseIndex(t, size);
-            if(idx != null) return idx;
-            io.writeOut(PrintUtils.quickFormat("{}\n", bad(t.matches("[0-9]{1,9}")
-                ? PrintUtils.quickFormat("✗ 序号超出范围 (1-{})", size)
-                : PrintUtils.quickFormat("✗ 无效输入: 序号 (1-{}) / Enter 顺序遍历 / q 完成", size))));
+            if(idx != null)
+                return idx;
+            io.writeOut(
+                PrintUtils.quickFormat(
+                    "{}\n",
+                    bad(
+                        t.matches("[0-9]{1,9}") ?
+                            PrintUtils.quickFormat("✗ 序号超出范围 (1-{})", size) :
+                            PrintUtils.quickFormat("✗ 无效输入: 序号 (1-{}) / Enter 顺序遍历 / q 完成", size)
+                    )
+                )
+            );
         }
     }
 
@@ -600,7 +643,7 @@ public final class SetupWizard
      * @return 消息含 "下载任务进行中" 片段时为 true
      */
     private static boolean isAlreadyDownloading(@NotNull IllegalStateException e)
-    { return e.getMessage() != null && e.getMessage().contains("下载任务进行中"); }
+        { return e.getMessage() != null && e.getMessage().contains("下载任务进行中"); }
 
     //* 进度行内回显 (TerminalRenderer 既有 eraseAbove 约定的唯一例外场景, 见类 javadoc): 单行自刷新.
     //* total 未知 (Content-Length 缺失, -1) 时无百分比可算, 退化为已接收 MB 数.
@@ -614,9 +657,9 @@ public final class SetupWizard
      */
     private static void renderProgress(@NotNull TerminalIO io, @NotNull AtomicBoolean printed, int received, int total)
     {
-        final var line = total > 0
-            ? PrintUtils.quickFormat("  下载中 {}%", (int) Math.min(received * 100L / total, 100))
-            : PrintUtils.quickFormat("  已接收 {}MB", received / (1024 * 1024));
+        final var line = total > 0 ?
+                         PrintUtils.quickFormat("  下载中 {}%", (int) Math.min(received * 100L / total, 100)) :
+                         PrintUtils.quickFormat("  已接收 {}MB", received / (1024 * 1024));
         io.writeOut(PrintUtils.quickFormat("{}{}\n", printed.get() ? TerminalRenderer.eraseAbove(1) : "", line));
         printed.set(true);
     }
@@ -653,9 +696,7 @@ public final class SetupWizard
      * @param outcome 流结局
      */
     private record DbFlowStep(@Nullable String fingerprint, @NotNull DbFlowOutcome outcome)
-    {
-        static final @NotNull DbFlowStep SKIPPED = new DbFlowStep(null, DbFlowOutcome.CONTINUE);
-    }
+        { static final @NotNull DbFlowStep SKIPPED = new DbFlowStep(null, DbFlowOutcome.CONTINUE);}
 
     /**
      * 数据库组条目保存后的探测/修复流入口.
@@ -819,9 +860,7 @@ public final class SetupWizard
      * @param outcome 流结局
      */
     private record AiFlowStep(@Nullable String fingerprint, @NotNull AiFlowOutcome outcome)
-    {
-        static final @NotNull AiFlowStep SKIPPED = new AiFlowStep(null, AiFlowOutcome.CONTINUE);
-    }
+        { static final @NotNull AiFlowStep SKIPPED = new AiFlowStep(null, AiFlowOutcome.CONTINUE);}
 
     /**
      * AI 组条目保存后的模型拉取/选择流入口.
@@ -880,8 +919,18 @@ public final class SetupWizard
         //* fetch 与存储分离: endpoint 存探测成功的规范形 (langchain4j base-url 形态),
         //* 避免 "拉取成功但 chat 调用 404" 的路径不一致; 摘要屏自然呈现规范化后的值.
         values.put(AI_ENDPOINT_ENV, result.normalizedEndpoint());
-        io.writeOut(PrintUtils.quickFormat("{}\n", ok(PrintUtils.quickFormat(
-            "✔ 模型已选定: {} (接口地址已规范化为 {})", chosen.id(), result.normalizedEndpoint()))));
+        io.writeOut(
+            PrintUtils.quickFormat(
+                "{}\n",
+                ok(
+                    PrintUtils.quickFormat(
+                        "✔ 模型已选定: {} (接口地址已规范化为 {})",
+                        chosen.id(),
+                        result.normalizedEndpoint()
+                    )
+                )
+            )
+        );
         return new AiFlowStep(result.normalizedEndpoint() + "\n" + apiKey, AiFlowOutcome.CONTINUE);
     }
 
@@ -895,7 +944,7 @@ public final class SetupWizard
     private static void renderModelList(@NotNull List<IModelCatalog.ModelInfo> models, @NotNull TerminalIO io)
     {
         io.writeOut(PrintUtils.quickFormat("{}\n", dim(PrintUtils.quickFormat("可用模型 ({} 个):", models.size()))));
-        for(int i = 0; i < models.size(); i++)
+        for(var i = 0; i < models.size(); i++)
         {
             final var m = models.get(i);
             io.writeOut(PrintUtils.quickFormat("  {}. {} [上下文: {}] [思考: {}]\n", i + 1, m.id(), m.context(), m.reasoning()));
@@ -920,10 +969,17 @@ public final class SetupWizard
                 return -1;
             final var t = raw.strip();
             final var idx = parseIndex(t, size);
-            if(idx != null) return idx;
-            io.writeOut(PrintUtils.quickFormat("{}\n", bad(t.matches("[0-9]{1,9}")
-                ? PrintUtils.quickFormat("✗ 序号超出范围 (1-{})", size)
-                : PrintUtils.quickFormat("✗ 无效输入, 请输入 1-{} 的序号", size))));
+            if(idx != null)
+                return idx;
+            io.writeOut(
+                PrintUtils.quickFormat(
+                    "{}\n",
+                    bad(t.matches("[0-9]{1,9}") ?
+                        PrintUtils.quickFormat("✗ 序号超出范围 (1-{})", size) :
+                        PrintUtils.quickFormat("✗ 无效输入, 请输入 1-{} 的序号", size)
+                    )
+                )
+            );
         }
     }
 
@@ -1007,10 +1063,13 @@ public final class SetupWizard
         {
             io.writeOut("确认写入? [Y/n] ");
             final var raw = io.readLine();
-            if(raw == null) return null;
+            if(raw == null)
+                return null;
             final var t = raw.strip();
-            if(t.isEmpty() || t.equalsIgnoreCase("y")) return Boolean.TRUE;
-            if(t.equalsIgnoreCase("n")) return Boolean.FALSE;
+            if(t.isEmpty() || t.equalsIgnoreCase("y"))
+                return Boolean.TRUE;
+            if(t.equalsIgnoreCase("n"))
+                return Boolean.FALSE;
             io.writeOut(PrintUtils.quickFormat("{}\n", bad("✗ 无效输入, 请输入 Y 或 n")));
         }
     }

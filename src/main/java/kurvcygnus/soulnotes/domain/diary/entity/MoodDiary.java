@@ -90,7 +90,7 @@ public final class MoodDiary extends PanacheEntityBase
     )
     {
         final var query  = new StringBuilder("userId = ?1");
-        final var params = new ArrayList<Object>();
+        final var params = new ArrayList<>();
         params.add(userId);
         if(start != null)
         {

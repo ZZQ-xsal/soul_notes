@@ -17,7 +17,6 @@ import java.util.UUID;
  * @since 1.1.0
  */
 @ApplicationScoped
-@SuppressWarnings("unused")//! AlertWebSocket 为 Quarkus 运行时生成的 @WebSocket Bean, IDE 静态分析误报未满足依赖.
 public final class WebSocketAlertNotifier implements IAlertNotifier
 {
     private final @NotNull AlertWebSocket alertWebSocket;
@@ -36,8 +35,5 @@ public final class WebSocketAlertNotifier implements IAlertNotifier
      * {@inheritDoc} 将 reason 作为 WS 负载的 message 字段透传;
      * 失败仅日志的契约由 pushAlert 内部保证.
      */
-    @Override public @NotNull Uni<Void> notify(@NotNull UUID userId, @NotNull String level, @NotNull String reason)
-    {
-        return alertWebSocket.pushAlert(userId, reason);
-    }
+    @Override public @NotNull Uni<Void> notify(@NotNull UUID userId, @NotNull String level, @NotNull String reason) { return alertWebSocket.pushAlert(userId, reason); }
 }

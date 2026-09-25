@@ -33,8 +33,8 @@ import java.util.UUID;
  *           保证记录行为永远成功 — 情绪记录是主链路, 分析是增值链路.
  * @since 1.0
  */
-@ApplicationScoped
-public final class  DiaryService
+@SuppressWarnings("JavadocDeclaration") @ApplicationScoped
+public final class DiaryService
 {
     private final @NotNull EmotionAnalysisService emotionAnalysisService;
     private final @NotNull VoiceStorageService voiceStorageService;

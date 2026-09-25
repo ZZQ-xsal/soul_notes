@@ -12,5 +12,4 @@ import java.util.List;
  * @param profile 生效 profile 名 ({@code quarkus.profile} / {@code QUARKUS_PROFILE}, 默认 prod), 必配与警告规则按其分派
  * @since 1.1.0
  */
-public record PreLaunchContext(@NotNull ConfigView view, @NotNull List<PropertyMetaParser.ConfigItemMeta> items, @NotNull String profile)
-{}
+public record PreLaunchContext(@NotNull ConfigView view, @NotNull List<PropertyMetaParser.ConfigItemMeta> items, @NotNull String profile) {}

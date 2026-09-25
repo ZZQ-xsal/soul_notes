@@ -55,13 +55,14 @@ public class ClinicalFeedHub
      * @param json 序列化后的推送负载
      * @return 恒成功完成 (发送失败仅 WARN — fire-and-forget 渠道安全网)
      */
-    public @NotNull Uni<Void> broadcast(@NotNull String json)
+    @SuppressWarnings("NullableProblems") public @NotNull Uni<Void> broadcast(@NotNull String json)
     {
         if(connections.isEmpty())
             return Uni.createFrom().voidItem();
-        Uni<Void> chain = Uni.createFrom().voidItem();
-        for(final var conn : connections.values())
-            chain = chain.chain(v ->
+        var chain = Uni.createFrom().voidItem();
+        for(final var conn: connections.values())
+            chain = chain.chain(
+                _ ->
                 conn.sendText(json).
                     onFailure().invoke(t -> LOG.warn("工作台推送失败: counselorId={}, {}", conn.userData().get(WebSocketAuthUpgradeCheck.USER_ID_KEY), t.getMessage())).
                     onFailure().recoverWithUni(() -> Uni.createFrom().voidItem())//! brief 原文 recoverWithVoid() 在 Mutiny 3.2.0 不存在, 改用 WebhookAlertNotifier 同款 voidItem 恢复.

@@ -75,10 +75,8 @@ public record DbTarget(@NotNull String host, int port, @NotNull String database,
 
         var port = DEFAULT_PORT;
         if(colon >= 0)
-        {
             try { port = Integer.parseInt(hostPort.substring(colon + 1)); }
             catch(NumberFormatException e) { throw new IllegalStateException(PrintUtils.quickFormat("数据库地址端口非法: {}", url), e); }
-        }
 
         return new DbTarget(host, port, database,
             urlUser != null ? urlUser : user,

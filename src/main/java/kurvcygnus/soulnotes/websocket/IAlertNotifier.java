@@ -1,8 +1,11 @@
 package kurvcygnus.soulnotes.websocket;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.smallrye.mutiny.Uni;
+import kurvcygnus.soulnotes.utils.JsonUtils;
 import kurvcygnus.soulnotes.utils.constants.ConfigDefaults;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.UUID;
 
@@ -19,7 +22,7 @@ import java.util.UUID;
  *           由调用方订阅才真正触发推送.
  * @since 1.1.0
  */
-public interface IAlertNotifier
+@SuppressWarnings("NullableProblems") public interface IAlertNotifier
 {
     //region 渠道契约
 
@@ -65,6 +68,34 @@ public interface IAlertNotifier
         }
         return ConfigDefaults.HOTLINE_PRIMARY;
     }
+
+    //endregion
+
+    //region 机器人业务失败判定 (钉钉/企微共用)
+
+    /**
+     * 群机器人业务失败判定: 两家机器人 API 同以 HTTP 200 + {@code {"errcode":非0,"errmsg":..}} 表达业务故障
+     * (加签错 errcode=310000 / key 失效 errcode=40001 / 限流), 仅凭状态码判定会让渠道静默死亡.
+     * errcode = 0 视为成功; 报文不可解析 (代理/网关垃圾响应) 同样按失败告警.
+     *
+     * @param body 响应报文
+     * @return 业务失败时的告警文本 (含 errcode/errmsg); 成功返回 {@code null}
+     * @implNote 静态置于端口而非实现: 钉钉与企微的失败语义判定完全同构, 共用一份避免双处漂移
+     *           (裁决 6 禁的是抽基类, 端口静态助手与 {@link #primaryHotlineOf} 同一先例).
+     */
+    static @Nullable String businessFailureOf(@NotNull String body)
+    {
+        try
+        {
+            final var root = JsonUtils.parseJson(body, JsonNode.class);
+            final var errcode = root.path("errcode").asLong(-1);
+            return errcode == 0 ? null : "errcode=" + errcode + ", errmsg=" + root.path("errmsg").asText("");
+        }
+        catch(RuntimeException e) { return "errcode=unparsable, body=" + truncate(body); }
+    }
+
+    //* 报文截断: 不可解析响应原文进告警日志时防爆量 (告警是留痕不是档案, 与 IM 渠道 REASON_MAX 纪律同源).
+    private static @NotNull String truncate(@NotNull String body) { return body.length() > 200 ? body.substring(0, 200) + "..." : body; }
 
     //endregion
 }

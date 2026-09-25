@@ -46,7 +46,7 @@ import java.util.UUID;
  * 而是 status=FAILED + message 透传原因 (离线安全网: 文字链路与应急热线兜底不因语音失败而崩溃).</p>
  * @since 1.0
  */
-@Path(ApiEndpointConstants.VOICE_BASE)
+@SuppressWarnings("JavadocDeclaration") @Path(ApiEndpointConstants.VOICE_BASE)
 @RolesAllowed(UserRole.ROLE_STUDENT)
 public final class VoiceResource
 {
@@ -104,7 +104,8 @@ public final class VoiceResource
             );
 
         return Uni.createFrom().item(
-                Unchecked.supplier(() ->
+                Unchecked.supplier(
+                    () ->
                     {
                         //! 存储前先做 RIFF/WAVE 头校验: 非 WAV 在落盘前即拒绝, 避免垃圾文件占用存储.
                         try
@@ -114,7 +115,8 @@ public final class VoiceResource
                         }
                         catch(IOException e) { throw new RuntimeException("无法读取上传文件", e); }
                     }
-                )).
+                )
+            ).
             flatMap(input -> voiceStorageService.store(fileName, input)).
             flatMap(stored -> asrEngine.transcribe(stored.path()).map(result -> toResponse(stored, result))).
             map(ApiResponse::success).
@@ -156,12 +158,12 @@ public final class VoiceResource
     //* java.nio.file.Path 以全限定名书写: 与 jakarta.ws.rs.Path (JAX-RS 注解) 简名冲突, 后者在本文件注解中出现频次更高.
     private static void assertWavHeader(@NotNull java.nio.file.Path file) throws IOException
     {
-        try(var in = Files.newInputStream(file))
+        try(final var in = Files.newInputStream(file))
         {
             final var header = in.readNBytes(12);
-            final var isWav = header.length == 12
-                && "RIFF".equals(new String(header, 0, 4, StandardCharsets.US_ASCII))
-                && "WAVE".equals(new String(header, 8, 4, StandardCharsets.US_ASCII));
+            final var isWav = header.length == 12 &&
+                              "RIFF".equals(new String(header, 0, 4, StandardCharsets.US_ASCII)) &&
+                              "WAVE".equals(new String(header, 8, 4, StandardCharsets.US_ASCII));
             if(!isWav)
                 throw IBusinessException.of(
                     ErrorCode.BAD_REQUEST,

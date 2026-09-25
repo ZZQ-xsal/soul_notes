@@ -107,7 +107,7 @@ kurvcygnus.soulnotes/
 │   ├── chat/
 │   │   ├── entity/AiChatSession.java  # JSONB messages + truncate
 │   │   ├── dto/                       # ChatSendRequest / ChatMessageVo / ChatSessionVo
-│   │   ├── resource/ChatResource.java # /chat/send, /stream (SSE), /sessions
+│   │   ├── resource/ChatResource.java # /chat/send, /stream (SSE), /sessions, /sessions/{id}/messages, DELETE /sessions/{id}
 │   │   └── service/ChatService.java   # 对话编排 + 预警推送
 │   ├── voice/
 │   │   ├── dto/                       # VoiceUploadResponse
@@ -130,7 +130,11 @@ kurvcygnus.soulnotes/
     ├── ClinicalFeedWebSocket.java     # /ws/clinical/feed 工作台实时推送端点
     ├── IAlertNotifier.java            # 预警通知渠道端口 (Uni<Void> notify)
     ├── WebSocketAlertNotifier.java    # 在线前端渠道 (总是启用)
-    └── WebhookAlertNotifier.java      # 机构服务端渠道 (URL 空 = 禁用, fire-and-forget 3s)
+    ├── WebhookAlertNotifier.java      # 机构服务端渠道 (URL 空 = 禁用, fire-and-forget 3s)
+    ├── SmsAlertNotifier.java          # 阿里云短信渠道 (五键齐备才启用, 逐号群发值班咨询员)
+    ├── AliyunSmsSigner.java           # 阿里云 RPC 签名纯函数 (零 SDK 直连)
+    ├── DingTalkAlertNotifier.java     # 钉钉群机器人渠道 (markdown 报文, 可选加签)
+    └── WeComAlertNotifier.java        # 企业微信群机器人渠道 (markdown 报文)
 ```
 
 > **说明**: 早期架构中的 `JwtConfig` / `CorsConfig` / `AiModelConfig` / `RedisConfig` 为无消费方的死代码,
@@ -215,7 +219,7 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 - `WebSocketAuthUpgradeCheck`: 升级阶段校验 JWT (header 或 `token` 查询参数) + 黑名单, userId 存入 `UserData`; `/ws/clinical` 前缀端点额外断言 COUNSELOR/ADMIN 角色 (403, 以 `request.path()` 判定), 学生端 `/ws/chat` `/ws/alert` 行为不变
 - `ChatWebSocket` (`/ws/chat`): 接收 JSON 消息, 订阅 `ChatService.streamMessage` 逐 token 推送 (逐消息持久化, WS 专用消息上下文)
 - `ClinicalFeedWebSocket` (`/ws/clinical/feed`): 咨询员工作台实时推送 — `ClinicalFeedHub` 维护 counselorId → 连接映射, register/unregister 均携带连接实例, 注销为条件移除 (防旧连接 close 回调晚于重连 register 到达的竞态); `broadcast(String)` fire-and-forget (无在线咨询员静默跳过, 单连接失败仅 WARN), `ClinicalAssessmentService` 落库后广播 `NEW_ASSESSMENT`
-- RED 预警推送渠道接口化为 `IAlertNotifier` (`ChatService` 只依赖接口): `WebSocketAlertNotifier` (在线前端, `/ws/alert`, 总是启用) + `WebhookAlertNotifier` (机构服务端, URL 空 = 禁用, fire-and-forget 3s, 失败仅 WARN), 渠道互为冗余、同构可扩展
+- RED 预警推送渠道接口化为 `IAlertNotifier` (`ChatService` 只依赖接口, RED 触发五渠道 fan-out): `WebSocketAlertNotifier` (在线前端, `/ws/alert`, 总是启用) / `WebhookAlertNotifier` (机构服务端, URL 空 = 禁用) / `SmsAlertNotifier` (阿里云短信, 五键齐备才启用, 逐号群发值班咨询员) / `DingTalkAlertNotifier` (钉钉群机器人, webhook 空 = 禁用, 可选加签) / `WeComAlertNotifier` (企业微信群机器人, webhook 空 = 禁用), 渠道互为冗余、同构可扩展; 短信与 IM 渠道同为 fire-and-forget 3s (失败仅 WARN), IM 报文仅含学生标识 / 热线 / 截断 120 字事由, 不含 summary 全文
 
 ---
 
@@ -225,7 +229,7 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 前端 (Vue)
 ├─ 日记 CRUD / 天气  ->  DiaryResource -> DiaryService / EmotionWeatherService -> PostgreSQL (analysis_result JSONB)
 ├─ AI 对话 (SSE/WS)  ->  ChatResource / ChatWebSocket -> ChatService -> EmpatheticChatAgent -> TokenStream (契约开启时经 ClinicalOutputSplitter 拆流)
-├─ 预警              ->  WarningDetectionAgent (RED) -> IAlertNotifier (AlertWebSocket 在线弹窗 + Webhook 机构服务端)
+├─ 预警              ->  WarningDetectionAgent (RED) -> IAlertNotifier 五渠道 fan-out (弹窗 + Webhook + 短信 + 钉钉 + 企微)
 ├─ 离线兜底           ->  CrisisResource (/crisis/hotline) <- Redis crisis:hotline <- 静态默认值
 └─ 语音              ->  VoiceResource -> VoiceStorageService -> IAsrEngine (本地 Vosk 同步转录)
 ```
@@ -247,27 +251,28 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 
 `application.properties` 关键项:
 
-| 项                                                     | 说明                                                                                       |
-|--------------------------------------------------------|--------------------------------------------------------------------------------------------|
-| `jwt.secret` / `SOULNOTES_JWT_SECRET`                              | 签名密钥 (≥32 字节, 生产必配)                                                              |
-| `mp.jwt.verify.issuer` / `SOULNOTES_JWT_ISSUER`        | 签发者 (签发与验签同键, 默认 `soul-notes`, 更换使已发 Token 全失效)                        |
-| `app.brand-name` / `SOULNOTES_BRAND_NAME`              | 品牌名 (向导标题/启动 banner 首行, 不进向导清单)                                           |
-| `quarkus.datasource.*`                                 | PostgreSQL, 账号经 `SOULNOTES_DB_USER`/`SOULNOTES_DB_PASSWORD`, 地址经 `SOULNOTES_DB_URL` 覆盖                          |
-| `quarkus.redis.hosts` / `SOULNOTES_REDIS_HOSTS`                  | Redis 地址 (容器/K8s 部署必须覆盖)                                                         |
-| `quarkus.langchain4j.openai.*`                         | AI 端点/模型/密钥 (`ai.openai.*` 占位)                                                     |
-| `clinical.tagging` / `SOULNOTES_CLINICAL_TAGGING`      | 结构化输出契约开关 (默认 false, 开启后每请求追加契约段 token)                              |
-| `clinical.reveal-level` / `SOULNOTES_CLINICAL_REVEAL_LEVEL`      | 工作台实名解锁等级 (RED/YELLOW/NEVER, 非法值回落 RED)                                        |
-| `clinical.retention-days` / `SOULNOTES_CLINICAL_RETENTION_DAYS`  | 启动时保留期清理窗口 (默认 90, <=0 禁用)                                                     |
-| `asr.engine` / `asr.runtime.dir` / `asr.lib.url`       | ASR 引擎 (`SOULNOTES_ASR_ENGINE`, 非 vosk 拒绝启动) / 运行时目录 / libvosk 来源 JAR        |
-| `knowledge.pack` / `SOULNOTES_KNOWLEDGE_PACK`          | 心理知识包名 (缺失回退 `default`)                                                          |
-| `alert.webhook.url` / `SOULNOTES_ALERT_WEBHOOK_URL`    | RED 预警机构 Webhook (空 = 渠道禁用); token 键同构 (`SOULNOTES_ALERT_WEBHOOK_TOKEN`)       |
-| `crisis.hotline.*`                                     | 热线默认值                                                                                 |
-| `voice.storage.directory` / `SOULNOTES_VOICE_DIR`        | 语音文件存储目录                                                                           |
-| `weather.threshold.*`                                  | 天气映射阈值                                                                               |
-| `rate.limit.chat.max-per-minute` / `SOULNOTES_RATE_LIMIT_CHAT`   | 聊天限流上限 (默认 20 次/分钟)                                                             |
-| `rate.limit.login.max-per-minute` / `SOULNOTES_RATE_LIMIT_LOGIN` | 登录限流上限 (默认 10 次/分钟)                                                             |
-| `rate.limit.voice.max-per-minute` / `SOULNOTES_RATE_LIMIT_VOICE` | 语音上传限流上限 (默认 10 次/分钟, 不进向导清单)                                           |
-| `quarkus.native.additional-build-args`                 | native 镜像构建参数: 固定默认时区 `Asia/Shanghai` + 四个静态 HttpClient 持有类 (`AsrRuntimeManager`/`WebhookAlertNotifier`/`HttpModelCatalog`/`ClinicalSchemaNormalizer`) 强制运行时初始化 (防 image heap 固化) + `--enable-native-access` (Vosk FFM 受限调用声明) |
+| 项                                                               | 说明                                                                                                                                                                                                                                                                                                                               |
+|------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `jwt.secret` / `SOULNOTES_JWT_SECRET`                            | 签名密钥 (≥32 字节, 生产必配)                                                                                                                                                                                                                                                                                                      |
+| `mp.jwt.verify.issuer` / `SOULNOTES_JWT_ISSUER`                  | 签发者 (签发与验签同键, 默认 `soul-notes`, 更换使已发 Token 全失效)                                                                                                                                                                                                                                                                |
+| `app.brand-name` / `SOULNOTES_BRAND_NAME`                        | 品牌名 (向导标题/启动 banner 首行, 不进向导清单)                                                                                                                                                                                                                                                                                   |
+| `quarkus.datasource.*`                                           | PostgreSQL, 账号经 `SOULNOTES_DB_USER`/`SOULNOTES_DB_PASSWORD`, 地址经 `SOULNOTES_DB_URL` 覆盖                                                                                                                                                                                                                                     |
+| `quarkus.redis.hosts` / `SOULNOTES_REDIS_HOSTS`                  | Redis 地址 (容器/K8s 部署必须覆盖)                                                                                                                                                                                                                                                                                                 |
+| `quarkus.langchain4j.openai.*`                                   | AI 端点/模型/密钥 (`ai.openai.*` 占位)                                                                                                                                                                                                                                                                                             |
+| `clinical.tagging` / `SOULNOTES_CLINICAL_TAGGING`                | 结构化输出契约开关 (默认 false, 开启后每请求追加契约段 token)                                                                                                                                                                                                                                                                      |
+| `clinical.reveal-level` / `SOULNOTES_CLINICAL_REVEAL_LEVEL`      | 工作台实名解锁等级 (RED/YELLOW/NEVER, 非法值回落 RED)                                                                                                                                                                                                                                                                              |
+| `clinical.retention-days` / `SOULNOTES_CLINICAL_RETENTION_DAYS`  | 启动时保留期清理窗口 (默认 90, <=0 禁用)                                                                                                                                                                                                                                                                                           |
+| `asr.engine` / `asr.runtime.dir` / `asr.lib.url`                 | ASR 引擎 (`SOULNOTES_ASR_ENGINE`, 非 vosk 拒绝启动) / 运行时目录 / libvosk 来源 JAR                                                                                                                                                                                                                                                |
+| `knowledge.pack` / `SOULNOTES_KNOWLEDGE_PACK`                    | 心理知识包名 (缺失回退 `default`)                                                                                                                                                                                                                                                                                                  |
+| `alert.webhook.url` / `SOULNOTES_ALERT_WEBHOOK_URL`              | RED 预警机构 Webhook (空 = 渠道禁用); token 键同构 (`SOULNOTES_ALERT_WEBHOOK_TOKEN`)                                                                                                                                                                                                                                               |
+| `alert.sms.*` / `alert.ding.*` / `alert.wecom.webhook`           | 预警通知短信/IM 九键 (环境变量见 CONFIGURATION.md §5): 短信五键齐备才启用, ding.webhook/ding.secret/wecom.webhook 各自配置即启用                                                                                                                                                                                                   |
+| `crisis.hotline.*`                                               | 热线默认值                                                                                                                                                                                                                                                                                                                         |
+| `voice.storage.directory` / `SOULNOTES_VOICE_DIR`                | 语音文件存储目录                                                                                                                                                                                                                                                                                                                   |
+| `weather.threshold.*`                                            | 天气映射阈值                                                                                                                                                                                                                                                                                                                       |
+| `rate.limit.chat.max-per-minute` / `SOULNOTES_RATE_LIMIT_CHAT`   | 聊天限流上限 (默认 20 次/分钟)                                                                                                                                                                                                                                                                                                     |
+| `rate.limit.login.max-per-minute` / `SOULNOTES_RATE_LIMIT_LOGIN` | 登录限流上限 (默认 10 次/分钟)                                                                                                                                                                                                                                                                                                     |
+| `rate.limit.voice.max-per-minute` / `SOULNOTES_RATE_LIMIT_VOICE` | 语音上传限流上限 (默认 10 次/分钟, 不进向导清单)                                                                                                                                                                                                                                                                                   |
+| `quarkus.native.additional-build-args`                           | native 镜像构建参数: 固定默认时区 `Asia/Shanghai` + 七个静态 HttpClient 持有类 (`AsrRuntimeManager`/`WebhookAlertNotifier`/`HttpModelCatalog`/`ClinicalSchemaNormalizer`/`SmsAlertNotifier`/`DingTalkAlertNotifier`/`WeComAlertNotifier`) 强制运行时初始化 (防 image heap 固化) + `--enable-native-access` (Vosk FFM 受限调用声明) |
 
 `application-dev.properties` (仅 dev profile): 本地 JWT 密钥 / DB 口令 / 均支持 `SOULNOTES_JWT_SECRET`/`SOULNOTES_DB_USER`/`SOULNOTES_DB_PASSWORD` 覆盖;
 提交仓库时由 Git filter (`devsecrets`) 清洗本地密钥为占位符.
@@ -276,7 +281,7 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 
 ## 12. 测试覆盖
 
-- 单元/集成测试 486 个 (`./gradlew :test`), 覆盖: 异常体系 / 工具类 / DTO 边界 / Service 反射逻辑 / Resource 结构 / Agent 签名 / 知识包加载与回退 / Webhook 负载与禁用态 / issuer 一致性 / ASR 运行时下载与引擎 (无动态库真机用例 assumeTrue 跳过) / FFM 接口层 / URL 解析 / DB 五态映射 (fake gateway) / 模型列表解析 / zip 下载解压 (本地 fixture) / 配置管线 (Pre-Launch 校验与向导)
+- 单元/集成测试 531 个 (`./gradlew :test`), 覆盖: 异常体系 / 工具类 / DTO 边界 / Service 反射逻辑 / Resource 结构 / Agent 签名 / 知识包加载与回退 / 五预警渠道行为 (Webhook 负载与禁用态 / 短信逐号群发与回环验真 / 钉钉企微 markdown 报文与加签 / 阿里云签名纯函数 / 五渠道装配证明) / issuer 一致性 / ASR 运行时下载与引擎 (无动态库真机用例 assumeTrue 跳过) / FFM 接口层 / URL 解析 / DB 五态映射 (fake gateway) / 模型列表解析 / zip 下载解压 (本地 fixture) / 配置管线 (Pre-Launch 校验与向导)
 - Mock-LLM 全链路 (OpenAI 兼容零依赖 mock, `src/test/.../support/`): `/chat/send` 与 `/chat/stream` (SSE 分块) / 预警链路 (mock 判 RED → `warning_triggered` 落库) / 工具调用 (`@MemoryId` UUID 透传与工具结果回流) / `/ws/chat` WebSocket 流式 / JSONB 原生查询断言 (`jsonb_typeof`) / 结构化输出契约拆流 (on/off/坏格式三态) / 副医生评估落库全链路 (RED 实名解锁 / YELLOW 掩码脱敏 / NONE 不落库)
 - 咨询员工作台单元层: `RevealPolicy` 解锁矩阵 (RED/YELLOW/NEVER, 非法值回落 RED, 短码跨调用稳定) / `ClinicalAssessmentService` 落库与脱敏视图 / `ClinicalResource` 角色与参数校验 (`@BeanParam` 缺席分页收敛默认 第1页/每页20) / `ClinicalFeedWebSocket` 生命周期与网关角色断言 / `ClinicalRetentionCleaner` (<=0 禁用短路, 正数清理)
 - 语音链路以 `FixedAsrEngine` 固定转录文本注入, 不依赖真实模型与动态库
@@ -297,4 +302,4 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 
 ## 14. 部署与配置
 
-部署形态 (打包运行 / JVM 镜像 / docker-compose / Kubernetes / Native 镜像), 环境变量总表 (42 项 `SOULNOTES_*`), 配置向导与启动前校验, 以及机构集成 (本地 ASR / Webhook 预警 / 知识包 / 结构化输出) 的**单一权威参考是 [CONFIGURATION.md](./CONFIGURATION.md)** — 本文档不再重复维护, 防双源漂移.
+部署形态 (打包运行 / JVM 镜像 / docker-compose / Kubernetes / Native 镜像), 环境变量总表 (51 项 `SOULNOTES_*`), 配置向导与启动前校验, 以及机构集成 (本地 ASR / 预警渠道矩阵 / 知识包 / 结构化输出) 的**单一权威参考是 [CONFIGURATION.md](./CONFIGURATION.md)** — 本文档不再重复维护, 防双源漂移.

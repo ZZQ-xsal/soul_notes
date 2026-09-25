@@ -53,17 +53,11 @@ public final class ReactiveJsonStringJdbcType extends JsonJdbcType
     {
         return new BasicBinder<>(javaType, this)
         {
-            @Override
-            protected void doBind(PreparedStatement st, X value, int index, WrapperOptions options) throws SQLException
-            {
-                st.setObject(index, encodeToJson(javaType.unwrap(value, String.class, options)));
-            }
+            @Override protected void doBind(PreparedStatement st, X value, int index, WrapperOptions options) throws SQLException
+                { st.setObject(index, encodeToJson(javaType.unwrap(value, String.class, options))); }
 
-            @Override
-            protected void doBind(CallableStatement st, X value, String name, WrapperOptions options) throws SQLException
-            {
-                st.setObject(name, encodeToJson(javaType.unwrap(value, String.class, options)));
-            }
+            @Override protected void doBind(CallableStatement st, X value, String name, WrapperOptions options) throws SQLException
+                { st.setObject(name, encodeToJson(javaType.unwrap(value, String.class, options))); }
         };
     }
     //endregion
@@ -78,28 +72,18 @@ public final class ReactiveJsonStringJdbcType extends JsonJdbcType
      * @return 抽取器; ResultSet 与 CallableStatement (按下标/按名) 三条路径同一解码语义
      * @since 1.1.0
      */
-    @Override
-    public <X> ValueExtractor<X> getExtractor(JavaType<X> javaType)
+    @Override public <X> ValueExtractor<X> getExtractor(JavaType<X> javaType)
     {
         return new BasicExtractor<>(javaType, this)
         {
-            @Override
-            protected X doExtract(ResultSet rs, int paramIndex, WrapperOptions options) throws SQLException
-            {
-                return fromString(decodeToJsonText(rs.getObject(paramIndex)), getJavaType(), options);
-            }
+            @Override protected X doExtract(ResultSet rs, int paramIndex, WrapperOptions options) throws SQLException
+                { return fromString(decodeToJsonText(rs.getObject(paramIndex)), getJavaType(), options); }
 
-            @Override
-            protected X doExtract(CallableStatement statement, int index, WrapperOptions options) throws SQLException
-            {
-                return fromString(decodeToJsonText(statement.getObject(index)), getJavaType(), options);
-            }
+            @Override protected X doExtract(CallableStatement statement, int index, WrapperOptions options) throws SQLException
+                { return fromString(decodeToJsonText(statement.getObject(index)), getJavaType(), options); }
 
-            @Override
-            protected X doExtract(CallableStatement statement, String name, WrapperOptions options) throws SQLException
-            {
-                return fromString(decodeToJsonText(statement.getObject(name)), getJavaType(), options);
-            }
+            @Override protected X doExtract(CallableStatement statement, String name, WrapperOptions options) throws SQLException
+                { return fromString(decodeToJsonText(statement.getObject(name)), getJavaType(), options); }
         };
     }
     //endregion
@@ -109,15 +93,16 @@ public final class ReactiveJsonStringJdbcType extends JsonJdbcType
     /**
      * 把实体侧 JSON 文本编码为客户端参数: 首字符为 {@code [}/{@code {} 时分别解析为 Vert.x
      * JsonArray/JsonObject (客户端据此按 jsonb 结构落库), 其余标量文本原样以 String 传递.
-     *
      * @param text 实体字段承载的 JSON 文本
      * @return JsonObject/JsonArray 或原文本, 绝不为 null
      */
     private static @NotNull Object encodeToJson(@NotNull String text)
     {
         final var trimmed = text.stripLeading();
-        if(trimmed.startsWith("[")) { return new JsonArray(trimmed); }
-        if(trimmed.startsWith("{")) { return new JsonObject(trimmed); }
+        if(trimmed.startsWith("["))
+            return new JsonArray(trimmed);
+        if(trimmed.startsWith("{"))
+            return new JsonObject(trimmed);
         return text;
     }
 

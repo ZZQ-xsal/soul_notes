@@ -32,6 +32,17 @@ class ConfigValidationTaskTest
         meta("SOULNOTES_WEATHER_SUNNY", "weather.threshold.sunny", "0.6", PropertyMetaParser.InputType.NUMBER, "", 0, false);
     private static final PropertyMetaParser.ConfigItemMeta AI_KEY =
         meta("SOULNOTES_AI_API_KEY", "ai.openai.api-key", "placeholder", PropertyMetaParser.InputType.SECRET, "", 0, true);
+    //* 短信五键夹具与真实 properties 元数据同构 (默认空 = 渠道未配), 完整性规则按 env 显式注入驱动.
+    private static final PropertyMetaParser.ConfigItemMeta SMS_ACCESS =
+        meta("SOULNOTES_ALERT_SMS_ACCESS_KEY", "alert.sms.access-key", "", PropertyMetaParser.InputType.TEXT, "", 0, false);
+    private static final PropertyMetaParser.ConfigItemMeta SMS_SECRET =
+        meta("SOULNOTES_ALERT_SMS_SECRET_KEY", "alert.sms.secret-key", "", PropertyMetaParser.InputType.SECRET, "", 0, false);
+    private static final PropertyMetaParser.ConfigItemMeta SMS_SIGN =
+        meta("SOULNOTES_ALERT_SMS_SIGN_NAME", "alert.sms.sign-name", "", PropertyMetaParser.InputType.TEXT, "", 0, false);
+    private static final PropertyMetaParser.ConfigItemMeta SMS_TEMPLATE =
+        meta("SOULNOTES_ALERT_SMS_TEMPLATE_CODE", "alert.sms.template-code", "", PropertyMetaParser.InputType.TEXT, "", 0, false);
+    private static final PropertyMetaParser.ConfigItemMeta SMS_PHONES =
+        meta("SOULNOTES_ALERT_SMS_PHONES", "alert.sms.phones", "", PropertyMetaParser.InputType.TEXT, "", 0, false);
 
     @Test void prodMissingJwtSecretBlocks()
     {
@@ -131,4 +142,54 @@ class ConfigValidationTaskTest
         final var issues = task(true).run(ctx).issues();
         assertFalse(issues.stream().anyMatch(i -> "SOULNOTES_ASR_CALLBACK_KEY".equals(i.subject())), "回调架构已拆除, 不得再产出回调密钥 WARN");
     }
+
+    //region 预警渠道健康度 (短信五键)
+
+    //* 注入有效 AI 密钥隔离 AI BLOCK 规则, 独占验证短信渠道自身的 WARN 语义 (既有夹具纪律同款).
+    private static final String AI_OK_ENV = "SOULNOTES_AI_API_KEY";
+    private static final String AI_OK_VAL = "sk-dev-test";
+
+    //* 短信五键部分配置 → WARN "渠道暂不生效" 且不 BLOCK: 渠道为可插拔增强, 文字/WebSocket 在线链路兜底仍完整.
+    @Test void alertSmsPartialConfig_WarnsIncomplete()
+    {
+        final var ctx = new PreLaunchContext(view(Map.of(AI_OK_ENV, AI_OK_VAL, "SOULNOTES_ALERT_SMS_ACCESS_KEY", "ak-test")),
+                                             List.of(SMS_ACCESS, SMS_SECRET, SMS_SIGN, SMS_TEMPLATE, SMS_PHONES, AI_KEY), "prod");
+        final var issues = task(true).run(ctx).issues();
+        assertTrue(issues.stream().anyMatch(i -> "SOULNOTES_ALERT_SMS_PHONES".equals(i.subject()) &&
+                                                 i.level() == IPreLaunchTask.Level.WARN &&
+                                                 i.message().contains("短信渠道配置不完整")), "五键仅配其一时必须产出渠道不完整 WARN");
+    }
+
+    //* 五键齐备但号码非法 → WARN 逐号点名: 预警短信触达是 RED 安全链路的线下冗余, 坏号码必须在启动期暴露而非静默丢失.
+    @Test void alertSmsBadPhone_WarnsInvalid()
+    {
+        final var ctx = new PreLaunchContext(view(Map.of(AI_OK_ENV, AI_OK_VAL,
+                                                         "SOULNOTES_ALERT_SMS_ACCESS_KEY", "ak-test",
+                                                         "SOULNOTES_ALERT_SMS_SECRET_KEY", "sk-secret",
+                                                         "SOULNOTES_ALERT_SMS_SIGN_NAME", "心灵札记",
+                                                         "SOULNOTES_ALERT_SMS_TEMPLATE_CODE", "SMS_12345678",
+                                                         "SOULNOTES_ALERT_SMS_PHONES", "13800138000,12345,13900139000")),
+                                             List.of(SMS_ACCESS, SMS_SECRET, SMS_SIGN, SMS_TEMPLATE, SMS_PHONES, AI_KEY), "prod");
+        final var issues = task(true).run(ctx).issues();
+        assertTrue(issues.stream().anyMatch(i -> i.level() == IPreLaunchTask.Level.WARN &&
+                                                 i.message().contains("12345") &&
+                                                 i.message().contains("非法")), "非法号码必须在 WARN 中被逐号点名");
+        assertFalse(issues.stream().anyMatch(i -> i.message().contains("13800138000")), "合法号码不得被误报");
+    }
+
+    //* 五键齐备且号码全合法 → 无短信相关 WARN: 完整健康配置不得产出噪音告警.
+    @Test void alertSmsCompleteValidPhones_NoWarn()
+    {
+        final var ctx = new PreLaunchContext(view(Map.of(AI_OK_ENV, AI_OK_VAL,
+                                                         "SOULNOTES_ALERT_SMS_ACCESS_KEY", "ak-test",
+                                                         "SOULNOTES_ALERT_SMS_SECRET_KEY", "sk-secret",
+                                                         "SOULNOTES_ALERT_SMS_SIGN_NAME", "心灵札记",
+                                                         "SOULNOTES_ALERT_SMS_TEMPLATE_CODE", "SMS_12345678",
+                                                         "SOULNOTES_ALERT_SMS_PHONES", "13800138000,13900139000")),
+                                             List.of(SMS_ACCESS, SMS_SECRET, SMS_SIGN, SMS_TEMPLATE, SMS_PHONES, AI_KEY), "prod");
+        final var issues = task(true).run(ctx).issues();
+        assertFalse(issues.stream().anyMatch(i -> "SOULNOTES_ALERT_SMS_PHONES".equals(i.subject()) && i.level() == IPreLaunchTask.Level.WARN), "完整配置不得产出任何短信渠道 WARN");
+    }
+
+    //endregion
 }

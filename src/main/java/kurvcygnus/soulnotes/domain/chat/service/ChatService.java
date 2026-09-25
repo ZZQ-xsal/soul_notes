@@ -16,6 +16,7 @@ import kurvcygnus.soulnotes.ai.agent.WarningDetectionAgent;
 import kurvcygnus.soulnotes.ai.dto.WarningDetectionResult;
 import kurvcygnus.soulnotes.config.ClinicalSchemaNormalizer;
 import kurvcygnus.soulnotes.config.PromptProvider;
+import kurvcygnus.soulnotes.domain.chat.dto.ChatHistoryMessage;
 import kurvcygnus.soulnotes.domain.chat.dto.ChatMessageVo;
 import kurvcygnus.soulnotes.domain.chat.dto.ChatSendRequest;
 import kurvcygnus.soulnotes.domain.chat.dto.ChatSessionVo;
@@ -53,8 +54,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *           LLM 失败不向外抛错: send 与 stream 两条路径对称地补发固定兜底文案并正常收尾 (离线安全网).
  * @since 1.0
  */
-@ApplicationScoped
-@SuppressWarnings("unused")//! AI Agent 为 Quarkus 运行时生成 Bean, IDE 静态分析误报未满足依赖; transformToMulti 返回的 Multi 即流, 非误用.
+@SuppressWarnings("JavadocDeclaration") @ApplicationScoped
 public final class ChatService
 {
     private static final Logger LOG = LoggerFactory.getLogger(ChatService.class);
@@ -70,7 +70,7 @@ public final class ChatService
     private final @NotNull ClinicalSchemaNormalizer schemaNormalizer;
     //* 临床评估落库: 拆流挂点的 best-effort 消费方 — 失败仅 WARN, 对话可用性 > 评估完整性 (Spec §7).
     private final @NotNull ClinicalAssessmentService clinicalAssessmentService;
-    //* 预警渠道 fan-out: CDI 注入全部 IAlertNotifier 实现 (websocket/webhook), 渠道可插拔.
+    //* 预警渠道 fan-out: CDI 注入全部 IAlertNotifier 实现 (渠道矩阵, 配置即启用), 渠道可插拔.
     //* @All 是 Arc 集合注入的必要限定符: 缺失时注入点退化为对 List 类型 bean 的普通解析, 应用启动即
     //! UnsatisfiedResolutionException (渠道全部缺席时 @All 语义为注入空集合, 不阻断启动).
     private final @NotNull List<IAlertNotifier> alertNotifiers;
@@ -128,9 +128,11 @@ public final class ChatService
         //* 同 id 重 INSERT, 集成测试实证 duplicate key 23505) — 加载与持久化必须同事务, 实体经原子引用
         //* 带出事务供挂点取 id/userId (单链顺序写读, 无并发竞争).
         final var sessionRef = new AtomicReference<AiChatSession>();
-        return Panache.withTransaction(() ->
+        return Panache.withTransaction(
+            () ->
             getOrCreateSession(req.sessionId(), userId).
-                flatMap(session ->
+                flatMap(
+                    session ->
                     {
                         sessionRef.set(session);
                         session.addMessage("user", req.content());
@@ -139,8 +141,17 @@ public final class ChatService
                     }
                 )
             ).
-            invoke(outcome -> fireClinicalRecord(Objects.requireNonNull(sessionRef.get(), "Param \"session\" must not be null!"), outcome.clinicalPayload())).
-            map(outcome -> new ChatMessageVo("assistant", outcome.visible(), Instant.now()));
+            invoke(outcome ->
+                fireClinicalRecord(
+                    Objects.requireNonNull(
+                        sessionRef.get(),
+                        "Param \"session\" must not be null!"
+                    ),
+                    outcome.clinicalPayload()
+                )
+            ).
+            map(outcome -> new ChatMessageVo("assistant", outcome.visible(), Instant.now())
+        );
     }
 
     /**
@@ -192,9 +203,70 @@ public final class ChatService
                 ).toList()
             );
     }
+
+    /**
+     * 拉取指定会话的完整消息历史 (按对话顺序, 含 LLM 回复).
+     *
+     * @param sessionId 会话 ID
+     * @param userId    当前认证用户 ID (归属校验依据)
+     * @return 消息列表 (role/content 按对话顺序; 空会话为空列表, 恒非 null)
+     * @throws IBusinessException 会话不存在或不属于当前用户时 (SESSION_NOT_FOUND, 同码同文案防枚举)
+     * @implNote 消息 JSONB 仅存 role/content, 历史回放不带时间戳; 损坏 JSON 按空列表降级 (与预览/计数同款容错).
+     * @since 1.2.1
+     */
+    @WithTransaction
+    public @NotNull Uni<List<ChatHistoryMessage>> listMessages(@NotNull UUID sessionId, @NotNull UUID userId)
+        { return loadOwnedSession(sessionId, userId).map(session -> parseHistory(session.messages)); }
+
+    /**
+     * 删除指定会话 (硬删除, 含全部消息历史).
+     *
+     * @param sessionId 会话 ID
+     * @param userId    当前认证用户 ID (归属校验依据)
+     * @return 完成信号
+     * @throws IBusinessException 会话不存在或不属于当前用户时 (SESSION_NOT_FOUND, 同码同文案防枚举)
+     * @implNote 硬删除与日记域先例一致; 关联的 RED 预警已推送记录不受影响 (预警渠道为 fire-and-forget 外呼, 无会话外键).
+     * @since 1.2.1
+     */
+    @WithTransaction
+    public @NotNull Uni<Void> deleteSession(@NotNull UUID sessionId, @NotNull UUID userId) { return loadOwnedSession(sessionId, userId).chain(AiChatSession::delete); }
     //endregion
 
     //region 辅助方法
+    /**
+     * 加载会话并校验归属.
+     *
+     * @implNote 不存在与越权一律以 "不存在" 同码同文案回应, 不泄露资源存在性, 防会话枚举越权.
+     */
+    private static @NotNull Uni<AiChatSession> loadOwnedSession(@NotNull UUID sessionId, @NotNull UUID userId)
+    {
+        return AiChatSession.
+            <AiChatSession>findById(sessionId).
+            onItem().
+            ifNull().
+            failWith(
+                () -> IBusinessException.of(
+                    ErrorCode.SESSION_NOT_FOUND,
+                    "会话不存在",
+                    NoSuchElementException::new,
+                    "CHAT_SESSION_LOOKUP_NOT_FOUND"
+                ).asException()
+            ).
+            flatMap(
+                session ->
+                session.userId.equals(userId) ?
+                    Uni.createFrom().item(session) :
+                    Uni.createFrom().failure(
+                        IBusinessException.of(
+                            ErrorCode.SESSION_NOT_FOUND,
+                            "会话不存在",
+                            NoSuchElementException::new,
+                            "CHAT_SESSION_FOREIGN_ACCESS"
+                        ).asException()
+                    )
+            );
+    }
+
     //* 加载已有 Session, 或创建新的 Session.
     private static @NotNull Uni<AiChatSession> getOrCreateSession(@Nullable UUID sessionId, @NotNull UUID userId)
     {
@@ -208,35 +280,15 @@ public final class ChatService
             session.updatedAt        = Instant.now();
             return Panache.withTransaction(session::persist).replaceWith(session);
         }
-        return AiChatSession.
-            <AiChatSession>findById(sessionId).
-            onItem().
-            ifNull().
-            failWith(
-                () -> IBusinessException.of(
-                    ErrorCode.SESSION_NOT_FOUND,
-                    "会话不存在",
-                    NoSuchElementException::new,
-                    "CHAT_SESSION_LOOKUP_NOT_FOUND"
-                ).asException()
-            ).
-            //* 归属校验: 他人会话一律以"不存在"回应 (同码同文案), 不泄露资源存在性, 防会话枚举越权.
-            flatMap(session -> session.userId.equals(userId)
-                ? Uni.createFrom().item(session)
-                : Uni.createFrom().failure(
-                    IBusinessException.of(
-                        ErrorCode.SESSION_NOT_FOUND,
-                        "会话不存在",
-                        NoSuchElementException::new,
-                        "CHAT_SESSION_FOREIGN_ACCESS"
-                    ).asException()));
+        return loadOwnedSession(sessionId, userId);
     }
 
     //* 在独立事务中追加并持久化用户消息, 返回受管的 Session (含最新历史).
     //* 非 static: 历史截断需引用构造器注入的配置字段 maxHistoryMessages.
     private @NotNull Uni<AiChatSession> appendUserMessage(@NotNull UUID sessionId, @NotNull String content)
     {
-        return Panache.withTransaction(() ->
+        return Panache.withTransaction(
+            () ->
             AiChatSession.
                 <AiChatSession>findById(sessionId).
                 onItem().
@@ -249,7 +301,8 @@ public final class ChatService
                         "CHAT_STREAM_SESSION_NOT_FOUND"
                     ).asException()
                 ).
-                flatMap(s ->
+                flatMap(
+                    s ->
                     {
                         s.addMessage("user", content);
                         s.truncate(maxHistoryMessages);
@@ -265,8 +318,10 @@ public final class ChatService
     //! 非 static: 内部调用实例方法 applyWarning (依赖 alertNotifiers 注入).
     private @NotNull Uni<Void> appendAssistantReply(@NotNull UUID sessionId, @NotNull String userContent, @NotNull String reply)
     {
-        return detectWarning(userContent).flatMap(detection ->
-            Panache.withTransaction(() ->
+        return detectWarning(userContent).flatMap(
+            detection ->
+            Panache.withTransaction(
+                () ->
                 AiChatSession.
                     <AiChatSession>findById(sessionId).
                     onItem().
@@ -300,7 +355,8 @@ public final class ChatService
     private @NotNull Multi<String> streamAiReply(@NotNull AiChatSession session, @NotNull String content)
     {
         final var history = buildConversationHistory(session);
-        return Multi.createFrom().<String>emitter(emitter ->
+        return Multi.createFrom().<String>emitter(
+            emitter ->
             {
                 final var fullReply = new StringBuilder();
                 empatheticChatAgent.chat(buildSystemPrompt(), session.userId.toString(), history, content).
@@ -314,7 +370,7 @@ public final class ChatService
                         }
                     ).
                     onCompleteResponse(
-                        response ->
+                        _ ->
                         //* 回调线程为 langchain4j 流式线程, 无 Vertx 上下文, 直接执行响应式事务会失败;
                         //* 经 executeBlocking 切至 Vertx worker 线程 (与 callAiAndRespond 同一模式) 阻塞等待持久化完成.
                         {
@@ -330,7 +386,7 @@ public final class ChatService
                                 },
                                 false
                             ).subscribe().with(
-                                v -> emitter.complete(),
+                                _ -> emitter.complete(),
                                 t ->
                                 {
                                     LOG.warn("流式回复持久化失败: {}", t.getMessage());
@@ -349,7 +405,7 @@ public final class ChatService
                                 () -> appendAssistantReply(session.id, content, FALLBACK_REPLY).await().atMost(Duration.ofSeconds(60)),
                                 false
                             ).subscribe().with(
-                                v ->
+                                _ ->
                                 {
                                     emitter.emit(FALLBACK_REPLY);
                                     emitter.complete();
@@ -459,10 +515,7 @@ public final class ChatService
     //* fire-and-forget 落库: 拆流 payload 为 null (tagging off / 无块 / 解析失败) 时零开销直通;
     //* 失败仅 WARN — 对话可用性 > 评估完整性 (Spec §7 best-effort 边界).
     //* send 挂点经此出口订阅即弃 (响应映射不等落库); stream 挂点直接 await 记录 Uni 保活 worker 上下文.
-    private void fireClinicalRecord(@NotNull AiChatSession session, @Nullable JsonNode payload)
-    {
-        recordClinicalAssessment(session, payload).subscribe().with(v -> {});
-    }
+    private void fireClinicalRecord(@NotNull AiChatSession session, @Nullable JsonNode payload) { recordClinicalAssessment(session, payload).subscribe().with(v -> {}); }
 
     //* 落库 Uni 构造 (两挂点共享, 各自恰好订阅一次): 失败在内部归一为正常完成 — 订阅方无需失败分支.
     private @NotNull Uni<Void> recordClinicalAssessment(@NotNull AiChatSession session, @Nullable JsonNode payload)
@@ -501,7 +554,7 @@ public final class ChatService
             onFailure().recoverWithItem(() -> null);
     }
 
-    //* 依据检测结果标记会话预警位, RED 等级立即经通知渠道逐渠道 fire-and-forget 推送热线 (websocket + webhook).
+    //* 依据检测结果标记会话预警位, RED 等级立即经通知渠道矩阵逐渠道 fire-and-forget 推送热线 (配置即启用的五渠道).
     //! 必须在持久化前调用 (受管 Session), 确保 warningTriggered 随消息一并落库.
     private void applyWarning(@NotNull AiChatSession session, @Nullable WarningDetectionResult detection)
     {
@@ -510,7 +563,7 @@ public final class ChatService
         if("RED".equals(detection.warningLevel()))
         {
             session.warningTriggered = true;
-            //* 渠道全空的 WARN 哨兵: 双渠道配置全丢时 RED 分发退化为纯标记, 必须留痕而非静默.
+            //* 渠道全空的 WARN 哨兵: 渠道矩阵配置全丢时 RED 分发退化为纯标记, 必须留痕而非静默.
             if(alertNotifiers.isEmpty())
                 LOG.warn("RED 预警无任何通知渠道可用 (IAlertNotifier 实现缺失), 仅标记会话: userId={}", session.userId);
             //* Uni 是惰性的, 必须订阅才真正触发推送; 渠道实现保证失败仅日志 (接口契约),
@@ -546,7 +599,7 @@ public final class ChatService
             final var messages = JsonUtils.parseJson(session.messages, new TypeReference<List<Map<String, String>>>() {});
             final var sb       = new StringBuilder();
             final var start    = Math.max(0, messages.size() - maxHistoryMessages);
-            for(int i = start; i < messages.size(); i++)
+            for(var i = start; i < messages.size(); i++)
             {
                 final var msg     = messages.get(i);
                 final var role    = msg.getOrDefault("role", "unknown");
@@ -559,6 +612,31 @@ public final class ChatService
         {
             LOG.warn("构建对话历史失败: {}", e.getMessage());
             return "";
+        }
+    }
+
+    /**
+     * 解析会话消息 JSON 为历史条目列表 (按对话顺序).
+     *
+     * @param messagesJson 会话消息 JSONB 原文
+     * @return 消息条目列表; 空白/损坏 JSON 按空列表降级 (与预览/计数同款容错)
+     * @since 1.2.1
+     */
+    private static @NotNull List<ChatHistoryMessage> parseHistory(@Nullable String messagesJson)
+    {
+        if(messagesJson == null || messagesJson.isBlank())
+            return List.of();
+        try
+        {
+            return JsonUtils.parseJson(messagesJson, new TypeReference<List<Map<String, String>>>() {}).
+                stream().
+                map(m -> new ChatHistoryMessage(m.getOrDefault("role", "unknown"), m.getOrDefault("content", ""))).
+                toList();
+        }
+        catch(Exception e)
+        {
+            LOG.warn("解析会话消息历史失败: {}", e.getMessage());
+            return List.of();
         }
     }
 

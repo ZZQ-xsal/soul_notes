@@ -31,6 +31,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 
+import static org.hamcrest.Matchers.equalTo;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -60,6 +61,10 @@ class ChatPipelineTest
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
     private static final Duration AWAIT = Duration.ofSeconds(20);
+    //* WS 帧集合/落库轮询的 CI 加固窗口: CI runner 冷链路 (langchain4j 流式客户端首调初始化 + 双流并发)
+    //! 曾在 20s 窗口内帧未到齐 (v1.3.0 tag 构建实测), 本机秒级完成 — 窗口提到 60s/30s 只影响慢环境的等待上限.
+    private static final long FRAME_DEADLINE_MS  = 60_000;
+    private static final long DB_POLL_DEADLINE_MS = 30_000;
 
     @Inject Mutiny.SessionFactory sessionFactory;
 
@@ -214,12 +219,12 @@ class ChatPipelineTest
 
         try
         {
-            joined.get(20, TimeUnit.SECONDS);
+            joined.get(FRAME_DEADLINE_MS, TimeUnit.MILLISECONDS);
         }
         catch(java.util.concurrent.TimeoutException e)
         {
-            fail(PrintUtils.quickFormat("20s 内未集齐流式帧; 已收: {}; mock 请求数: {}; 末请求片段: {}",
-                received, MockLlmProfile.server().requests().size(),
+            fail(PrintUtils.quickFormat("{}ms 内未集齐流式帧; 已收: {}; mock 请求数: {}; 末请求片段: {}",
+                FRAME_DEADLINE_MS, received, MockLlmProfile.server().requests().size(),
                 MockLlmProfile.server().requests().isEmpty() ? "-" : MockLlmProfile.server().requests().getLast().substring(0, Math.min(300, MockLlmProfile.server().requests().getLast().length()))));
         }
         assertEquals(expected, received.toString(), "流式帧拼接应等于 mock 文本");
@@ -256,7 +261,7 @@ class ChatPipelineTest
         webSocket.sendText(PrintUtils.quickFormat("{\"content\":\"{}\"}", "第二条消息"), true).join();
 
         //* 等两条流的帧全部到齐 (字符数守恒), 超时视为丢帧.
-        final var frameDeadline = System.currentTimeMillis() + 20000;
+        final var frameDeadline = System.currentTimeMillis() + FRAME_DEADLINE_MS;
         while(System.currentTimeMillis() < frameDeadline && received.length() < bothStreams.length())
             Thread.sleep(100);
         //* 两条流并发执行, 帧交错序不固定: 以字符多重集等价断言内容完整 (既不少帧也不重复帧).
@@ -264,7 +269,7 @@ class ChatPipelineTest
         assertEquals(sortedChars(bothStreams), sortedChars(received.toString()), PrintUtils.quickFormat("帧内容应恰为两条流的 chunk 多重集; 已收: {}", received));
 
         //* 帧到齐后轮询等落库 (持久化在各自流完成时异步执行): 2 个会话 x [user, assistant] 共 4 条消息.
-        final var dbDeadline = System.currentTimeMillis() + 15000;
+        final var dbDeadline = System.currentTimeMillis() + DB_POLL_DEADLINE_MS;
         var sessionCount = 0;
         var totalMessages = 0;
         while(System.currentTimeMillis() < dbDeadline)
@@ -317,6 +322,114 @@ class ChatPipelineTest
 
         assertTrue(body.contains("404020"), PrintUtils.quickFormat("业务码应为 404020 (会话不存在): {}", body));
         assertTrue(body.contains("会话不存在"), PrintUtils.quickFormat("响应必须以'不存在'回应, 不泄露资源存在性: {}", body));
+    }
+    //endregion
+
+    //region ⑦ 会话消息历史与删除
+    //* 回归 (前端对接反馈, 1.2.1): GET /chat/sessions 仅返回概览 (preview 为末条 50 字截断), 完整 LLM
+    //! 回复无处可取 — 补 /sessions/{id}/messages 端点, 本组用例钉死消息序列/越权同码/非法 ID 同码/删除闭环.
+    @Test
+    void chatHistory_ShouldReturnFullMessagesInOrder()
+    {
+        final var account = PipelineUsers.register();
+        final var sessionId = seedSession(account.userId(),
+            "[{\"role\":\"user\",\"content\":\"今天有点累\"},{\"role\":\"assistant\",\"content\":\"愿意说出来, 已经很有勇气了。\"}]");
+
+        RestAssured.
+            given().
+            header("Authorization", PipelineUsers.bearer(account.token())).
+            when().
+            get(ApiEndpointConstants.CHAT_BASE + "/sessions/" + sessionId + "/messages").
+            then().
+            statusCode(200).
+            body("code", equalTo(0)).
+            body("data.size()", equalTo(2)).
+            body("data[0].role", equalTo("user")).
+            body("data[0].content", equalTo("今天有点累")).
+            body("data[1].role", equalTo("assistant")).
+            body("data[1].content", equalTo("愿意说出来, 已经很有勇气了。"));
+    }
+
+    @Test
+    void chatHistory_ForeignSession_ShouldRejectWithSameCodeAsMissing()
+    {
+        final var owner = PipelineUsers.register();
+        final var sessionId = seedSession(owner.userId(), "[{\"role\":\"user\",\"content\":\"主人的私聊\"}]");
+        final var intruder = PipelineUsers.register();
+
+        final var body = RestAssured.
+            given().
+            header("Authorization", PipelineUsers.bearer(intruder.token())).
+            when().
+            get(ApiEndpointConstants.CHAT_BASE + "/sessions/" + sessionId + "/messages").
+            then().
+            statusCode(404).
+            extract().asString();
+
+        assertTrue(body.contains("404020"), PrintUtils.quickFormat("越权拉取历史应与缺失同码 (防枚举): {}", body));
+    }
+
+    @Test
+    void chatHistory_MalformedSessionId_ShouldRejectAsNotFound()
+    {
+        final var account = PipelineUsers.register();
+
+        final var body = RestAssured.
+            given().
+            header("Authorization", PipelineUsers.bearer(account.token())).
+            when().
+            get(ApiEndpointConstants.CHAT_BASE + "/sessions/not-a-uuid/messages").
+            then().
+            statusCode(404).
+            extract().asString();
+
+        assertTrue(body.contains("404020"), PrintUtils.quickFormat("非法 UUID 应与缺失同码 (防枚举): {}", body));
+    }
+
+    @Test
+    void deleteSession_ShouldRemoveHistoryAndSubsequentReadsReturnNotFound()
+    {
+        final var account = PipelineUsers.register();
+        final var sessionId = seedSession(account.userId(),
+            "[{\"role\":\"user\",\"content\":\"先记一笔\"},{\"role\":\"assistant\",\"content\":\"收到。\"}]");
+
+        RestAssured.
+            given().
+            header("Authorization", PipelineUsers.bearer(account.token())).
+            when().
+            delete(ApiEndpointConstants.CHAT_BASE + "/sessions/" + sessionId).
+            then().
+            statusCode(200).
+            body("code", equalTo(0));
+
+        RestAssured.
+            given().
+            header("Authorization", PipelineUsers.bearer(account.token())).
+            when().
+            get(ApiEndpointConstants.CHAT_BASE + "/sessions/" + sessionId + "/messages").
+            then().
+            statusCode(404);
+
+        RestAssured.
+            given().
+            header("Authorization", PipelineUsers.bearer(account.token())).
+            when().
+            delete(ApiEndpointConstants.CHAT_BASE + "/sessions/" + sessionId).
+            then().
+            statusCode(404);
+    }
+
+    //* 真库直插会话 (指定 messages JSONB): 不经对话链路 (AI 依赖与本题无关), 与 DiaryListContractTest 造数同款取舍.
+    private UUID seedSession(String userId, String messagesJson)
+    {
+        final var session = new AiChatSession();
+        session.id               = UUID.randomUUID();
+        session.userId           = UUID.fromString(userId);
+        session.messages         = messagesJson;
+        session.warningTriggered = false;
+        session.updatedAt        = java.time.Instant.now();
+        sessionFactory.withTransaction((s, tx) -> session.persist()).await().atMost(AWAIT);
+        return session.id;
     }
     //endregion
 

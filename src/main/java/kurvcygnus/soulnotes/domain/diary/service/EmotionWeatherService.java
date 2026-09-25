@@ -161,8 +161,10 @@ public final class EmotionWeatherService
 
     private static double asDouble(@NotNull Object value)
     {
-        if(value instanceof Number n)  return n.doubleValue();
-        if(value instanceof String s) { try { return Double.parseDouble(s); } catch(NumberFormatException e) { return 0.0; } }
+        if(value instanceof Number n)
+            return n.doubleValue();
+        if(value instanceof String s)
+            try { return Double.parseDouble(s); } catch(NumberFormatException e) { return 0.0; }
         return 0.0;
     }
 

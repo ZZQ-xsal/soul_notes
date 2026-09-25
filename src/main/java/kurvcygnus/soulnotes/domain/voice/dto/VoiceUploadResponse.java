@@ -22,5 +22,4 @@ public record VoiceUploadResponse(
     @NotNull VoiceStatus   status,
     @Nullable String       transcribedText,
     @Nullable String       message
-)
-{}
+) {}

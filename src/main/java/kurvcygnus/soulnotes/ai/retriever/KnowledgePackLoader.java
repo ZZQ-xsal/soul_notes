@@ -79,9 +79,9 @@ public final class KnowledgePackLoader
         String title = null;
         String keywords = null;
         final var contentLines = new ArrayList<String>();
-
+        
+        //* 首块之前的行 (文件前言) 忽略, 不影响解析.
         for(final var rawLine: markdown.lines().toList())
-        {
             if(rawLine.startsWith(BLOCK_PREFIX))
             {
                 flushBlock(tips, title, keywords, contentLines, pack);
@@ -89,16 +89,12 @@ public final class KnowledgePackLoader
                 keywords = null;
                 contentLines.clear();
             }
-            else if(title != null)
-            {
-                //* keywords 行必须是标题后的第一行 (格式钉死): contentLines 非空说明已错过位置, 后续 keywords 字样一律计入正文.
-                if(keywords == null && contentLines.isEmpty() && rawLine.startsWith(KEYWORDS_PREFIX))
-                    keywords = rawLine.substring(KEYWORDS_PREFIX.length()).trim();
-                else
-                    contentLines.add(rawLine);
-            }
-            //* 首块之前的行 (文件前言) 忽略, 不影响解析.
-        }
+            else //* keywords 行必须是标题后的第一行 (格式钉死): contentLines 非空说明已错过位置, 后续 keywords 字样一律计入正文.
+                if(title != null)
+                    if(keywords == null && contentLines.isEmpty() && rawLine.startsWith(KEYWORDS_PREFIX))
+                        keywords = rawLine.substring(KEYWORDS_PREFIX.length()).trim();
+                    else
+                        contentLines.add(rawLine);
         flushBlock(tips, title, keywords, contentLines, pack);
         //endregion
 
@@ -114,7 +110,8 @@ public final class KnowledgePackLoader
         @Nullable String title,
         @Nullable String keywords,
         @NotNull List<String> contentLines,
-        @NotNull String pack)
+        @NotNull String pack
+    )
     {
         if(title == null)
             return;

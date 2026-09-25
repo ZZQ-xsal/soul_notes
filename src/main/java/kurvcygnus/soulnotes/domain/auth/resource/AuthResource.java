@@ -29,6 +29,7 @@ import org.jetbrains.annotations.NotNull;
  *           请求经 {@code Authorization: Bearer} 头鉴权, 未认证时由框架返回 401.
  * @since 1.0
  */
+@SuppressWarnings("JavadocDeclaration")//! [[IBusinessException]]是特殊的接口异常, 仅在类型意义上不属于异常.
 @Path(ApiEndpointConstants.AUTH_BASE)
 public final class AuthResource
 {

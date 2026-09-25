@@ -45,7 +45,8 @@ public final class CrisisResource
     @Produces(MediaType.APPLICATION_JSON)
     public @NotNull Uni<ApiResponse<@NotNull Map<@NotNull String, @NotNull String>>> getHotline()
     {
-        return resolveHotline().map(raw ->
+        return resolveHotline().map(
+            raw ->
             {
                 final var parts = raw.split("\\|");
 

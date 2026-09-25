@@ -50,9 +50,13 @@ public final class PsychologyTipsRetriever
      * @since 1.1.0
      */
     @Inject
-    public PsychologyTipsRetriever(
-        @ConfigProperty(name = "knowledge.pack", defaultValue = DEFAULT_PACK) @NotNull String packName)
-    { this.packName = Objects.requireNonNull(packName, "Param \"packName\" must not be null!"); }
+    public PsychologyTipsRetriever(@ConfigProperty(name = "knowledge.pack", defaultValue = DEFAULT_PACK) @NotNull String packName)
+    {
+        this.packName = Objects.requireNonNull(
+            packName,
+            "Param \"packName\" must not be null!"
+        );
+    }
 
     /**
      * 按关键词检索相关心理小知识.
@@ -129,6 +133,5 @@ public final class PsychologyTipsRetriever
         @NotNull String keywords,
         @NotNull String title,
         @NotNull String content
-    )
-    {}
+    ) {}
 }

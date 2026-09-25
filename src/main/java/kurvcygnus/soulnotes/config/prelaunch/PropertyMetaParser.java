@@ -12,7 +12,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -67,8 +66,7 @@ public final class PropertyMetaParser
         String scheme,
         int minLength,
         boolean required
-    )
-    {}
+    ) {}
 
     private static final @NotNull Pattern VALUE_LINE = Pattern.compile("^([A-Za-z0-9._-]+)\\s*=\\s*(.*)$");
     private static final @NotNull Pattern ENV_DEFAULT = Pattern.compile("^\\$\\{([A-Z0-9_]+):(.*)}\\s*$", Pattern.DOTALL);
@@ -98,7 +96,8 @@ public final class PropertyMetaParser
                 tags.add(line.substring(3));
                 continue;
             }
-            if(line.isEmpty() || line.startsWith("#")) continue;
+            if(line.isEmpty() || line.startsWith("#"))
+                continue;
 
             final var matcher = VALUE_LINE.matcher(line);
             if(!matcher.matches())
@@ -110,7 +109,8 @@ public final class PropertyMetaParser
             {
                 //! buildMeta 对非向导条目 (无 @group 或无 ${ENV:} 展开) 返回 null, 必须跳过而非入列.
                 final var meta = buildMeta(matcher.group(1), matcher.group(2).strip(), List.copyOf(tags));
-                if(meta != null) items.add(meta);
+                if(meta != null)
+                    items.add(meta);
             }
             tags.clear();
         }
@@ -133,7 +133,7 @@ public final class PropertyMetaParser
         var group = "";
         var humanName = key;
         final var explain = new StringBuilder();
-        var inputType = PropertyMetaParser.InputType.TEXT;
+        var inputType = InputType.TEXT;
         var scheme = "";
         var minLength = 0;
         var required = false;
@@ -152,7 +152,7 @@ public final class PropertyMetaParser
                     if(!explain.isEmpty()) explain.append('\n');
                     explain.append(arg);
                 }
-                case "input" -> inputType = PropertyMetaParser.InputType.valueOf(arg.toUpperCase());
+                case "input" -> inputType = InputType.valueOf(arg.toUpperCase());
                 case "scheme" -> scheme = arg;
                 case "min-length" -> minLength = Integer.parseInt(arg);
                 case "required" -> required = true;
@@ -160,10 +160,11 @@ public final class PropertyMetaParser
                 default -> {}
             }
         }
-        final Matcher env = ENV_DEFAULT.matcher(rawValue);
+        final var env = ENV_DEFAULT.matcher(rawValue);
         final var envName = env.matches() ? env.group(1) : null;
         final var defaultValue = env.matches() ? env.group(2) : null;
-        if(group.isEmpty() || envName == null) return null;//? 无 group 或无 env 的项视为非向导条目, 不进入向导.
+        if(group.isEmpty() || envName == null)
+            return null;//? 无 group 或无 env 的项视为非向导条目, 不进入向导.
         return new ConfigItemMeta(key, envName, defaultValue, group, humanName, explain.toString(), inputType, scheme, minLength, required);
     }
 
@@ -188,11 +189,16 @@ public final class PropertyMetaParser
             throw new IllegalStateException("classpath 缺少 application.properties (native 需 resources.includes)");//! 构建配置错误, 快速失败.
 
         final var items = new ArrayList<ConfigItemMeta>();
-        for(final var url : urls)
-        {
-            try(final var reader = new BufferedReader(new InputStreamReader(url.openStream(), StandardCharsets.UTF_8))) { items.addAll(parse(reader.lines().toList())); }
+        for(final var url: urls)
+            try(
+                final var reader = new BufferedReader(
+                    new InputStreamReader(
+                        url.openStream(),
+                        StandardCharsets.UTF_8
+                    )
+                )
+            ) { items.addAll(parse(reader.lines().toList())); }
             catch(IOException e) { throw new IllegalStateException(PrintUtils.quickFormat("读取 application.properties 失败: {}", url), e); }
-        }
         return List.copyOf(items);
     }
 

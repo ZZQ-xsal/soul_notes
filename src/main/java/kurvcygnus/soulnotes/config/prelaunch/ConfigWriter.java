@@ -31,8 +31,7 @@ public final class ConfigWriter
      * @param envFile {@code .env} 的落点
      * @since 1.1.0
      */
-    public record Written(@NotNull Path propertiesFile, @NotNull Path envFile)
-    {}
+    public record Written(@NotNull Path propertiesFile, @NotNull Path envFile) {}
 
     private ConfigWriter() { throw new IllegalAccessError("Class \"ConfigWriter\" is not meant to be instantized!"); }
 

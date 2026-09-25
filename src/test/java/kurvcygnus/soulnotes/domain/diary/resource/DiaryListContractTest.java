@@ -134,6 +134,18 @@ class DiaryListContractTest
             body("code", equalTo(400000));
     }
 
+    //* 回归 (诊断实测 RED): weather 缺参时 RESTEasy Reactive 注入 null, LocalDate.parse(null) 抛 NPE
+    //! 绕过 parseDateRange 的 DateTimeParseException catch 直达 500 (@NotNull 无 Bean Validation 不生效).
+    @Test void weather_MissingParams_ShouldReturnUnifiedError()
+    {
+        final var account = PipelineUsers.register();
+
+        given().header("Authorization", PipelineUsers.bearer(account.token())).
+        when().get(ApiEndpointConstants.DIARY_BASE + "/weather").
+        then().statusCode(400).
+            body("code", equalTo(400000));
+    }
+
     /**
      * 为该用户真库直插一条日记: 不经 {@code POST /diaries} 的创建链路 (其异步 AI 分析与本题无关),
      * 与 {@code ClinicalResourceTest#recordAssessment} 同款只造行不走路由的取舍.

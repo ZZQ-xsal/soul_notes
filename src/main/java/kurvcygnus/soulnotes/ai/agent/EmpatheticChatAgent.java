@@ -63,12 +63,14 @@ public interface EmpatheticChatAgent
      * @return 流式 {@code TokenStream}, 打字机输出由消费方驱动
      */
     @SystemMessage("{{systemPrompt}}")
-    @UserMessage("""
+    @UserMessage(
+        """
         对话历史:
         {{history}}
 
         用户最新消息:
         {{content}}
-        """)
+        """
+    )
     TokenStream chat(@V("systemPrompt") String systemPrompt, @MemoryId String userId, @V("history") String history, @V("content") String content);
 }
