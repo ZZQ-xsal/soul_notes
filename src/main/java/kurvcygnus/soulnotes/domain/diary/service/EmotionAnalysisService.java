@@ -1,6 +1,5 @@
 package kurvcygnus.soulnotes.domain.diary.service;
 
-import io.quarkus.arc.All;
 import io.smallrye.mutiny.Uni;
 import io.vertx.mutiny.core.Vertx;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -12,18 +11,18 @@ import kurvcygnus.soulnotes.config.PromptProvider;
 import kurvcygnus.soulnotes.domain.diary.entity.MoodDiary;
 import kurvcygnus.soulnotes.utils.JsonUtils;
 import kurvcygnus.soulnotes.utils.PrintUtils;
-import kurvcygnus.soulnotes.websocket.IAlertNotifier;
+import kurvcygnus.soulnotes.websocket.AlertDispatchService;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.UUID;
 
 /**
  * 情感分析服务, 编排 AI {@code MoodAnalysisAgent} 与 {@code WarningDetectionAgent} 的调用,
  * 并将合并结果回写 {@link MoodDiary#analysisResult} JSONB 字段.
- * <p>检测到 RED 级预警时, 经通知渠道矩阵 fan-out 推送热线, 与聊天链路共用渠道.</p>
+ * <p>检测到 RED 级预警时, 经 {@code AlertDispatchService} 统一分发 (per-user 冷却闸门 + 渠道 fan-out)
+ * 推送热线, 与聊天链路共用同一收口.</p>
  *
  * @implNote 阻塞 AI 调用统一经 {@code vertx.executeBlocking} 在 worker 线程执行,
  *           结果回事件循环后再操作 Hibernate reactive Session (规避 HR000068/069).
@@ -38,24 +37,23 @@ public final class EmotionAnalysisService
     private final @NotNull MoodAnalysisAgent moodAnalysisAgent;
     private final @NotNull WarningDetectionAgent warningDetectionAgent;
     private final @NotNull PromptProvider promptProvider;
-    //* 预警渠道 fan-out (与 ChatService 同构): 日记来源 RED 与聊天共用通知渠道矩阵 (配置即启用, 互为冗余).
-    //* @All 是 Arc 集合注入的必要限定符: 缺失时注入点退化为对 List 类型 bean 的普通解析, 应用启动即
-    //! UnsatisfiedResolutionException (渠道全部缺席时 @All 语义为注入空集合, 不阻断启动).
-    private final @NotNull List<IAlertNotifier> alertNotifiers;
+    //* RED 预警统一分发收口 (与 ChatService 同构): per-user 冷却闸门 + 渠道 fan-out + "渠道全空"WARN 哨兵
+    //* 均内含于分发器, 本服务只负责触发 — 日记来源 RED 与聊天链路共用同一收口.
+    private final @NotNull AlertDispatchService alertDispatchService;
     private final @NotNull Vertx vertx;
 
     public EmotionAnalysisService(
         @NotNull MoodAnalysisAgent moodAnalysisAgent,
         @NotNull WarningDetectionAgent warningDetectionAgent,
         @NotNull PromptProvider promptProvider,
-        @All @NotNull List<IAlertNotifier> alertNotifiers,
+        @NotNull AlertDispatchService alertDispatchService,
         @NotNull Vertx vertx
     )
     {
         this.moodAnalysisAgent = moodAnalysisAgent;
         this.warningDetectionAgent = warningDetectionAgent;
         this.promptProvider = promptProvider;
-        this.alertNotifiers = alertNotifiers;
+        this.alertDispatchService = alertDispatchService;
         this.vertx = vertx;
     }
 
@@ -96,7 +94,7 @@ public final class EmotionAnalysisService
                     final var warningResult = warningDetectionAgent.detect(promptProvider.warningDetection(), diary.content);
                     diary.analysisResult = mergeResults(moodResult, warningResult);
 
-                    //* 日记场景在线 RED 预警: 逐渠道 fire-and-forget 推送 (通知渠道矩阵互为冗余).
+                    //* 日记场景在线 RED 预警: 经 AlertDispatchService 统一分发 (冷却闸门 + 渠道 fan-out, fire-and-forget).
                     if("RED".equals(warningResult.warningLevel()))
                         pushRedAlert(diary.userId, warningResult.reason());
                     return diary;
@@ -109,22 +107,22 @@ public final class EmotionAnalysisService
     //region 辅助方法
 
     /**
-     * 日记来源 RED 预警的渠道分发: 逐渠道 fire-and-forget 推送热线, 不回落具体渠道.
+     * 日记来源 RED 预警的统一分发: 冷却闸门 + 逐渠道 fire-and-forget 推送热线收口于 AlertDispatchService,
+     * 与聊天链路共用同一收口.
      *
      * @param userId 目标用户 ID
      * @param reason 触发预警的原因描述
      * @since 1.1.0
      */
-    //* Uni 是惰性的, 必须订阅才真正触发推送; 渠道实现保证失败仅日志 (接口契约),
-    //! 订阅级兜底仅防渠道外的意外实现缺陷, 不允许预警分发拖垮分析主流程.
+    //* Uni 是惰性的, 必须订阅才真正触发分发; dispatchRed 契约恒成功完成 (冷却判定/渠道推送失败全部
+    //! 内部收口 WARN), 订阅级兜底仅防意外实现缺陷, 不允许预警分发拖垮分析主流程.
     private void pushRedAlert(@NotNull UUID userId, @NotNull String reason)
     {
-        for(final var notifier : alertNotifiers)
-            notifier.notify(userId, "RED", reason).
-                subscribe().with(
-                    _ -> {},
-                    t -> LOG.warn("日记 RED 预警推送执行失败: channel={}, userId={}, {}", notifier.channel(), userId, t.getMessage())
-                );
+        alertDispatchService.dispatchRed(userId, reason).
+            subscribe().with(
+                v -> {},
+                t -> LOG.warn("日记 RED 预警分发执行失败: userId={}, {}", userId, t.getMessage())
+            );
     }
 
     private static @NotNull String mergeResults(

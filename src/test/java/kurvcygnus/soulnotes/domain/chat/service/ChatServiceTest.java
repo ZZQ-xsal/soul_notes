@@ -14,6 +14,7 @@ import kurvcygnus.soulnotes.domain.chat.entity.AiChatSession;
 import kurvcygnus.soulnotes.utils.JsonUtils;
 import kurvcygnus.soulnotes.utils.PrintUtils;
 import kurvcygnus.soulnotes.utils.constants.AiPromptConstants;
+import kurvcygnus.soulnotes.websocket.AlertDispatchService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -90,14 +91,19 @@ class ChatServiceTest
 
     @SuppressWarnings("ConstantConditions")//! 测试缝: Vertx 为类级共享实例, 其余未用依赖置 null 是纯单测构造服务实例的唯一途径.
     private static ChatService newService(boolean taggingOn, PromptProvider promptProvider, ClinicalSchemaNormalizer normalizer)
-    { return new ChatService(new RecordingChatAgent(""), new StubWarningAgent(), promptProvider, normalizer, null, List.of(), VERTX, 50, taggingOn); }
+    { return new ChatService(new RecordingChatAgent(""), new StubWarningAgent(), promptProvider, normalizer, null, newDispatchStub(), VERTX, 50, taggingOn); }
 
     //* 主链路替身: buildSystemPrompt 在 executeBlocking 内执行, 必须注入可用的 PromptProvider (空配置 = 内置默认).
     @SuppressWarnings("ConstantConditions")//! 测试缝: clinicalAssessmentService 置 null — 本组用例不驱动评估落库挂点.
     private static ChatService newService(boolean taggingOn, EmpatheticChatAgent chatAgent)
     {
-        return new ChatService(chatAgent, new StubWarningAgent(), new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer(), null, List.of(), VERTX, 50, taggingOn);
+        return new ChatService(chatAgent, new StubWarningAgent(), new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer(), null, newDispatchStub(), VERTX, 50, taggingOn);
     }
+
+    //* dispatch 替身: 空渠道 + 冷却逃生门 (minutes<=0 旁路冷却判定, 不触 Redis → redisDS 置 null 安全);
+    //* 本组用例的预警 Agent 恒返回 NONE, 分发器只作为构造占位, 永不被触达.
+    @SuppressWarnings("ConstantConditions")//! 测试缝: 未用依赖置 null 是纯单测构造服务实例的唯一途径.
+    private static AlertDispatchService newDispatchStub() { return new AlertDispatchService(List.of(), null, 0); }
 
     //* 契约侧替身: LLM 替身一旦被调用即测试失败 — 默认旁路与缓存查询 (cachedFor) 都不允许触发归一化.
     private static ClinicalSchemaNormalizer unusedNormalizer()

@@ -36,10 +36,11 @@ public final class CrisisResource
 
     /**
      * 获取心理危机干预热线信息.
-     * <p>返回当前配置的热线信息 (name/primary/backup/message 四键),
+     * <p>返回当前配置的热线信息 (name/primary/backup/message/appointmentUrl 五键),
      * 前端可缓存此结果用于离线展示; 数据段缺失时逐键回退静态默认值, 恒返回 200.</p>
      *
-     * @return 热线信息 {@link ApiResponse} (恒成功, 不抛业务异常)
+     * @return 热线信息 {@link ApiResponse} (恒成功, 不抛业务异常); {@code appointmentUrl} 为空串
+     *         表示机构未配置预约入口 (前端判空隐藏)
      */
     @GET @Path("/hotline")
     @Produces(MediaType.APPLICATION_JSON)
@@ -59,6 +60,7 @@ public final class CrisisResource
                 result.put("primary", parts.length >= 2 ? parts[1] : ConfigDefaults.HOTLINE_PRIMARY);
                 result.put("backup", parts.length >= 3 ? parts[2] : "");
                 result.put("message", "你不需要独自面对一切, 专业的帮助随时可用。");
+                result.put("appointmentUrl", redisConfig.getAppointmentUrl());
 
                 return ApiResponse.success(result);
             }

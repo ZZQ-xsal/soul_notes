@@ -2,7 +2,6 @@ package kurvcygnus.soulnotes.domain.chat.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
-import io.quarkus.arc.All;
 import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.hibernate.reactive.panache.common.WithTransaction;
 import io.smallrye.mutiny.Multi;
@@ -27,7 +26,7 @@ import kurvcygnus.soulnotes.exception.IBusinessException;
 import kurvcygnus.soulnotes.utils.JsonUtils;
 import kurvcygnus.soulnotes.utils.PrintUtils;
 import kurvcygnus.soulnotes.utils.constants.AiPromptConstants;
-import kurvcygnus.soulnotes.websocket.IAlertNotifier;
+import kurvcygnus.soulnotes.websocket.AlertDispatchService;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -46,7 +45,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * AI 对话服务, 承载树洞对话的完整链路: 消息收发 (同步 + SSE 流式)、会话历史管理、
- * 预警检测与 RED 预警多渠道推送, 以及结构化输出管线 ("副医生"预埋: 契约提示词组装 + soulnotes 块拆流
+ * 预警检测与 RED 预警分发 (统一收口至 AlertDispatchService: 冷却闸门 + 多渠道推送),
+ * 以及结构化输出管线 ("副医生"预埋: 契约提示词组装 + soulnotes 块拆流
  * + 评估落库 best-effort 挂点).
  *
  * @implNote LLM 与预警检测均为阻塞调用, 一律经 {@code vertx.executeBlocking} 在 worker 线程池执行,
@@ -70,10 +70,9 @@ public final class ChatService
     private final @NotNull ClinicalSchemaNormalizer schemaNormalizer;
     //* 临床评估落库: 拆流挂点的 best-effort 消费方 — 失败仅 WARN, 对话可用性 > 评估完整性 (Spec §7).
     private final @NotNull ClinicalAssessmentService clinicalAssessmentService;
-    //* 预警渠道 fan-out: CDI 注入全部 IAlertNotifier 实现 (渠道矩阵, 配置即启用), 渠道可插拔.
-    //* @All 是 Arc 集合注入的必要限定符: 缺失时注入点退化为对 List 类型 bean 的普通解析, 应用启动即
-    //! UnsatisfiedResolutionException (渠道全部缺席时 @All 语义为注入空集合, 不阻断启动).
-    private final @NotNull List<IAlertNotifier> alertNotifiers;
+    //* RED 预警统一分发收口: per-user 冷却闸门 + 渠道 fan-out + "渠道全空"WARN 哨兵均内含于分发器,
+    //* 本服务只负责触发 — 冷却只闸门外呼, 落库标记 warningTriggered 仍在本服务.
+    private final @NotNull AlertDispatchService alertDispatchService;
     private final @NotNull Vertx vertx;
     //* 会话历史最多保留的消息条数, 防止 JSONB 无限增长与 Token 超限.
     private final int maxHistoryMessages;
@@ -88,7 +87,7 @@ public final class ChatService
         @NotNull PromptProvider promptProvider,
         @NotNull ClinicalSchemaNormalizer schemaNormalizer,
         @NotNull ClinicalAssessmentService clinicalAssessmentService,
-        @All @NotNull List<IAlertNotifier> alertNotifiers,
+        @NotNull AlertDispatchService alertDispatchService,
         @NotNull Vertx vertx,
         @ConfigProperty(name = "chat.history.max-messages", defaultValue = "50") int maxHistoryMessages,
         @ConfigProperty(name = "clinical.tagging", defaultValue = "false") boolean clinicalTagging
@@ -99,7 +98,7 @@ public final class ChatService
         this.promptProvider = promptProvider;
         this.schemaNormalizer = schemaNormalizer;
         this.clinicalAssessmentService = clinicalAssessmentService;
-        this.alertNotifiers = alertNotifiers;
+        this.alertDispatchService = alertDispatchService;
         this.vertx = vertx;
         this.maxHistoryMessages = maxHistoryMessages;
         this.clinicalTagging = clinicalTagging;
@@ -315,7 +314,7 @@ public final class ChatService
     //* 在独立事务中追加并持久化 AI 回复, 同时执行预警检测与推送.
     //! 预警检测 (外部 AI 调用, 秒级耗时) 在事务外先行完成, 结果传入事务内落库,
     //! 避免长时间占用 Hibernate reactive Session (与 streamMessage 不使用 @WithTransaction 的理由一致).
-    //! 非 static: 内部调用实例方法 applyWarning (依赖 alertNotifiers 注入).
+    //! 非 static: 内部调用实例方法 applyWarning (依赖 alertDispatchService 注入).
     private @NotNull Uni<Void> appendAssistantReply(@NotNull UUID sessionId, @NotNull String userContent, @NotNull String reply)
     {
         return detectWarning(userContent).flatMap(
@@ -554,7 +553,8 @@ public final class ChatService
             onFailure().recoverWithItem(() -> null);
     }
 
-    //* 依据检测结果标记会话预警位, RED 等级立即经通知渠道矩阵逐渠道 fire-and-forget 推送热线 (配置即启用的五渠道).
+    //* 依据检测结果标记会话预警位, RED 等级经 AlertDispatchService 统一分发 (per-user 冷却闸门
+    //* + 逐渠道 fire-and-forget 推送热线) — 冷却只闸门外呼, 落库标记不受影响.
     //! 必须在持久化前调用 (受管 Session), 确保 warningTriggered 随消息一并落库.
     private void applyWarning(@NotNull AiChatSession session, @Nullable WarningDetectionResult detection)
     {
@@ -563,17 +563,13 @@ public final class ChatService
         if("RED".equals(detection.warningLevel()))
         {
             session.warningTriggered = true;
-            //* 渠道全空的 WARN 哨兵: 渠道矩阵配置全丢时 RED 分发退化为纯标记, 必须留痕而非静默.
-            if(alertNotifiers.isEmpty())
-                LOG.warn("RED 预警无任何通知渠道可用 (IAlertNotifier 实现缺失), 仅标记会话: userId={}", session.userId);
-            //* Uni 是惰性的, 必须订阅才真正触发推送; 渠道实现保证失败仅日志 (接口契约),
-            //! 订阅级兜底仅防渠道外的意外实现缺陷, 不允许预警分发拖垮会话主流程.
-            for(final var notifier : alertNotifiers)
-                notifier.notify(session.userId, "RED", detection.reason()).
-                    subscribe().with(
-                        v -> {},
-                        t -> LOG.warn("RED 预警推送执行失败: channel={}, userId={}, {}", notifier.channel(), session.userId, t.getMessage())
-                    );
+            //* Uni 是惰性的, 必须订阅才真正触发分发; dispatchRed 契约恒成功完成 (冷却判定/渠道推送失败
+            //! 全部内部收口 WARN), 订阅级兜底仅防意外实现缺陷, 不允许预警分发拖垮会话主流程.
+            alertDispatchService.dispatchRed(session.userId, detection.reason()).
+                subscribe().with(
+                    v -> {},
+                    t -> LOG.warn("RED 预警分发执行失败: userId={}, {}", session.userId, t.getMessage())
+                );
         }
         else if("YELLOW".equals(detection.warningLevel()))
             session.warningTriggered = true;

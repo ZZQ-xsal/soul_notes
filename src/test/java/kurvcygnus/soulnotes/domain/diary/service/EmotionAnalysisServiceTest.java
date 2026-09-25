@@ -3,11 +3,11 @@ package kurvcygnus.soulnotes.domain.diary.service;
 import io.smallrye.mutiny.Uni;
 import kurvcygnus.soulnotes.ai.dto.MoodAnalysisResult;
 import kurvcygnus.soulnotes.ai.dto.WarningDetectionResult;
+import kurvcygnus.soulnotes.websocket.AlertDispatchService;
 import kurvcygnus.soulnotes.websocket.IAlertNotifier;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -17,8 +17,8 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * <b>{@link EmotionAnalysisService} 单元测试</b>
  * <p>覆盖两块: 反射测试私有静态方法 {@code mergeResults} 的 JSON 合并逻辑;
- * 反射驱动私有 {@code pushRedAlert} (private, 不便 {@code @link} 引用), 以 fake 渠道替身断言
- * 日记来源 RED 预警逐渠道 fan-out (通知渠道矩阵 fire-and-forget, 与 ChatService 同构).</p>
+ * 反射驱动私有 {@code pushRedAlert} (private, 不便 {@code @link} 引用), 断言日记来源 RED 预警经
+ * {@code AlertDispatchService} 统一分发后的逐渠道 fan-out (以 fake 渠道替身为观测点, 与 ChatService 同构).</p>
  *
  * @author Claude Code
  * @since 1.1.0
@@ -96,7 +96,7 @@ class EmotionAnalysisServiceTest
 
     //endregion
 
-    //region pushRedAlert 渠道 fan-out
+    //region pushRedAlert 统一分发
 
     //* 渠道替身: 记录 notify 入参, 供 fan-out 断言; Uni 恒为已解析的 voidItem, subscribe 同步完成.
     private static final class RecordingNotifier implements IAlertNotifier
@@ -119,12 +119,16 @@ class EmotionAnalysisServiceTest
         }
     }
 
-    //! pushRedAlert 仅触碰 alertNotifiers, 其余依赖 (Agent/PromptProvider/Vertx) 在该测试路径
+    //! pushRedAlert 仅触碰 alertDispatchService, 其余依赖 (Agent/PromptProvider/Vertx) 在该测试路径
     //! 不可达, 置 null 安全; RED 载荷断言以 WS 渠道替身为观测点 (载荷新增 webhook 渠道时同构可见).
+    //! dispatch 替身 = 真实 AlertDispatchService + 冷却逃生门 (minutes<=0 旁路冷却判定, 不触 Redis →
+    //! redisDS 置 null 安全), 可观测行为与 "cooldownActive 恒放行" 等价; Task 1 测试的 "子类覆写
+    //! cooldownActive" 形态在本包不可行 — 包级缝隙跨包不可被覆写 (Java 访问规则), 故以文档化的逃生门
+    //! 构造缝达成同等隔离.
     @SuppressWarnings("ConstantConditions")//! 测试缝: 未用依赖置 null 是纯单测构造服务实例的唯一途径.
     private static EmotionAnalysisService newService(List<IAlertNotifier> notifiers)
     {
-        return new EmotionAnalysisService(null, null, null, notifiers, null);
+        return new EmotionAnalysisService(null, null, null, new AlertDispatchService(notifiers, null, 0), null);
     }
 
     private static void invokePushRedAlert(EmotionAnalysisService service, UUID userId, String reason) throws InvocationTargetException, NoSuchMethodException, IllegalAccessException

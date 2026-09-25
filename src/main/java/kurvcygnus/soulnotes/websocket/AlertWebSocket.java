@@ -91,6 +91,8 @@ public class AlertWebSocket
                 payload.put("type", "RED_ALERT");
                 payload.put("message", message);
                 payload.put("hotline", hotline);
+                //* 预约入口随弹窗下发: 空串表示机构未配置, 前端判空隐藏 "预约咨询" 按钮.
+                payload.put("appointmentUrl", redisConfig.getAppointmentUrl());
 
                 try
                 {

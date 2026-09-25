@@ -13,3 +13,9 @@
 
 -- AI 对话会话表
 \i sql_scripts/ai_chat_sessions_init.sql
+
+-- Schema 版本表 (为未来迁移打地基)
+\i sql_scripts/platform_schema_version_init.sql
+
+-- 临床评估表 (咨询员工作台)
+\i sql_scripts/clinical_assessments_init.sql

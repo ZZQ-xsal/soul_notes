@@ -22,7 +22,7 @@
 
 ## 1. 配置总览
 
-全部配置遵循 12-factor: 每个业务键都是 `application.properties` 中的 `${SOULNOTES_*:default}` 占位 — 环境变量优先, 未配置时回落内置默认, 无需触碰任何文件即可完成覆盖. 51 个 `SOULNOTES_*` 键中 49 项可经 `--setup` 向导交互式配置, 其余 2 项 (品牌名 / 语音限流) 属部署微调, 保持内置默认即可.
+全部配置遵循 12-factor: 每个业务键都是 `application.properties` 中的 `${SOULNOTES_*:default}` 占位 — 环境变量优先, 未配置时回落内置默认, 无需触碰任何文件即可完成覆盖. 53 个 `SOULNOTES_*` 键中 51 项可经 `--setup` 向导交互式配置, 其余 2 项 (品牌名 / 语音限流) 属部署微调, 保持内置默认即可.
 
 AI 三项 (`ai.openai.*`) 经 LangChain4j 桥接键 (`quarkus.langchain4j.openai.*`) 引用展开值, 单独配置桥接键不生效. `mp.jwt.verify.issuer` 与 TokenService 签发的 iss claim 共用 `SOULNOTES_JWT_ISSUER` 一个键 (双端天然一致), 中途更换将使全部已发 Token 立即失效.
 
@@ -34,7 +34,7 @@ AI 三项 (`ai.openai.*`) 经 LangChain4j 桥接键 (`quarkus.langchain4j.openai
 java -jar build/quarkus-app/quarkus-run.jar --setup
 ```
 
-- **两种模式**: `1. 简单配置 (仅必填项)` / `2. 全面配置 (全部 49 项)`, 回车默认简单配置
+- **两种模式**: `1. 简单配置 (仅必填项)` / `2. 全面配置 (全部 51 项)`, 回车默认简单配置
 - **键位说明**: 折叠清单按 `序号` 跳转 / `Enter` 顺序遍历 (保存即推进下一项); 展开态输入 `esc` 放弃本次修改; 折叠态输入 `q` 进入配置摘要
 - **就地校验**: 非法输入 (URL scheme / 非数字 / 长度不足) 红字重问; 必填项留空不折叠重问; JWT 密钥留空自动生成 64 字符随机密钥
 - **ASR 运行时交互**: 保存 `SOULNOTES_ASR_ENGINE` / `SOULNOTES_ASR_RUNTIME_DIR` 后自动就绪检查, 未就绪现场询问"是否立即下载", 接受后按 [§7](#7-本地语音识别-asr) 的来源拉取模型 zip 与 libvosk (进度行内回显); 下载失败不中断向导, 可稍后手动放置或重试
@@ -120,6 +120,7 @@ java -jar build/quarkus-app/quarkus-run.jar --setup
 | `SOULNOTES_CRISIS_HOTLINE_NAME`       | 热线名称, 展示于 RED 预警弹窗与离线兜底横幅            | `全国心理援助热线`                        |
 | `SOULNOTES_CRISIS_HOTLINE_PRIMARY`    | RED 预警主热线                                         | `400-161-9995`                            |
 | `SOULNOTES_CRISIS_HOTLINE_BACKUP`     | RED 预警备用热线                                       | `12355`                                   |
+| `SOULNOTES_CRISIS_APPOINTMENT_URL`    | 校内心理咨询预约入口 (随 RED 弹窗与离线兜底端点下发, 空 = 不展示) | 空                                        |
 | `SOULNOTES_CORS_ORIGINS`              | CORS 白名单, 多个来源用逗号分隔                        | `http://localhost:5173`                   |
 | `SOULNOTES_ALERT_WEBHOOK_URL`         | RED 预警机构 Webhook 地址 (空 = 渠道禁用, 见 §8)       | 空                                        |
 | `SOULNOTES_ALERT_WEBHOOK_TOKEN`       | Webhook 鉴权令牌 (非空时携带 `Authorization: Bearer`)  | 空                                        |
@@ -132,6 +133,7 @@ java -jar build/quarkus-app/quarkus-run.jar --setup
 | `SOULNOTES_ALERT_DING_WEBHOOK`        | 钉钉群机器人 webhook 地址 (空 = 禁用)                  | 空                                        |
 | `SOULNOTES_ALERT_DING_SECRET`         | 钉钉加签密钥 (空 = 不加签)                             | 空                                        |
 | `SOULNOTES_ALERT_WECOM_WEBHOOK`       | 企业微信群机器人 webhook 地址 (空 = 禁用)              | 空                                        |
+| `SOULNOTES_ALERT_COOLDOWN_MINUTES`    | RED 预警外呼冷却窗口 (分钟, 0 = 禁用; 见 §8)           | `60`                                      |
 | `SOULNOTES_KNOWLEDGE_PACK`            | 心理知识包名 (对应 classpath `knowledge/{包名}/`, 见 §9) | `default`                              |
 | `SOULNOTES_RATE_LIMIT_CHAT`           | 聊天限流上限 (次/分钟)                                 | `20`                                      |
 | `SOULNOTES_RATE_LIMIT_LOGIN`          | 登录限流上限 (次/分钟)                                 | `10`                                      |
@@ -270,9 +272,9 @@ Webhook 行为契约:
 - RED 预警时 `POST` JSON 负载: `{type: "RED_ALERT", userId, level: "RED", reason, hotline}`
 - `SOULNOTES_ALERT_WEBHOOK_TOKEN` 非空时请求携带 `Authorization: Bearer <token>`, 空 = 不带鉴权头
 
-五渠道共同安全边界 (fire-and-forget): 3s 超时, 网络失败/非 2xx/业务错误码 (钉钉/企微机器人以 HTTP 200 + `errcode` 非 0 表达加签错/密钥失效/限流) 一律仅记 WARN 日志, 绝不阻塞或影响 WS 主预警链路; 预警分发语义: **聊天与日记两条链路**的 RED 均触发五渠道 fan-out (聊天 `ChatService` 检测用户消息, 日记 `EmotionAnalysisService` 检测日记内容), 新增渠道零调用方改动.
+五渠道共同安全边界 (fire-and-forget): 3s 超时, 网络失败/非 2xx/业务错误码 (钉钉/企微机器人以 HTTP 200 + `errcode` 非 0 表达加签错/密钥失效/限流) 一律仅记 WARN 日志, 绝不阻塞或影响 WS 主预警链路; 预警分发语义: **聊天与日记两条链路**的 RED 均经 `AlertDispatchService` 统一收口后逐渠道 fan-out (聊天 `ChatService` 检测用户消息, 日记 `EmotionAnalysisService` 检测日记内容), 新增渠道零调用方改动.
 
-触达频度运维注意: 日记链路创建即分析, 无独立限流, 且全链 (聊天 + 日记) 暂无 RED 冷却 — 渠道触达频度受学生日记创建节奏影响; 机构侧应据此评估值班短信/群的承载预期, RED 冷却策略在 roadmap (见设计文档 §12).
+触达频度运维注意: 全链 (聊天 + 日记) 的 RED 外呼统一过 per-user 冷却窗口 (`SOULNOTES_ALERT_COOLDOWN_MINUTES`, 默认 60 分钟, 0 = 禁用): 同一学生窗口期内重复 RED 预警不再重复触达外呼渠道 — 日记链路创建即分析且无请求级限流, 连发 RED 日记对值班手机/群的轰炸面由此收敛, 机构侧仍应据此评估值班短信/群的承载预期. 冷却只抑制外呼触达, 窗口内重复预警仍落库 (`warningTriggered` + 副医生评估) 并在工作台可见, 不会漏记.
 
 短信渠道前置 (阿里云报审指引):
 

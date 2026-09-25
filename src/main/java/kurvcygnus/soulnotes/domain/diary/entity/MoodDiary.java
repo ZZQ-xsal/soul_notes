@@ -37,7 +37,8 @@ public final class MoodDiary extends PanacheEntityBase
     @Column(columnDefinition = "TEXT")
     public String content;
 
-    @Column(name = "audio_url")
+    //* length 512 对齐权威 DDL (本地落盘路径含用户目录时可能超 255).
+    @Column(name = "audio_url", length = 512)
     public String audioUrl;
 
     //* 显式字符串型 JSONB 映射: 新写入落为真 JSON (jsonb_typeof = object), 而非把 JSON 文本再包一层的字符串标量双重编码形态.

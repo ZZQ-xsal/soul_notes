@@ -147,6 +147,35 @@ class PropertyMetaParserTest
         assertTrue(items.get(schema).explain().contains("soulnotes"), "说明必须写明标识符由系统固定");
     }
 
+    //* 心理咨询预约入口 (1.4.0): 带标签进入危机热线组, url 类型 + 默认空 (空 = 不展示预约入口).
+    @Test void parseResourceCrisisAppointmentTaggedInCrisisGroup()
+    {
+        final var items = PropertyMetaParser.parseResource();
+        final var appointment = indexOfEnv(items, "SOULNOTES_CRISIS_APPOINTMENT_URL");
+        final var backup = indexOfEnv(items, "SOULNOTES_CRISIS_HOTLINE_BACKUP");
+        assertTrue(appointment >= 0, "crisis.appointment.url 必须带标签进入向导");
+        assertEquals("危机热线", items.get(appointment).group(), "预约入口必须与热线键同组 (危机热线)");
+        assertTrue(appointment > backup, "预约入口必须排在热线键之后 (向导展示顺序即文件顺序)");
+        assertEquals("", items.get(appointment).defaultValue(), "默认必须为空 (空 = 不展示预约入口)");
+        assertTrue(items.get(appointment).explain().contains("留空"), "说明必须写明空 = 不展示预约入口");
+    }
+
+    //* RED 预警冷却窗口: 带标签进入预警通知组且位于渠道键之后 (向导展示顺序即文件顺序), int 类型, 默认 60 (0 = 禁用冷却).
+    @Test void parseResourceAlertCooldownTagged()
+    {
+        final var items = PropertyMetaParser.parseResource();
+        final var cooldown = indexOfEnv(items, "SOULNOTES_ALERT_COOLDOWN_MINUTES");
+        final var wecom = indexOfEnv(items, "SOULNOTES_ALERT_WECOM_WEBHOOK");
+        assertTrue(cooldown >= 0, "alert.cooldown.minutes 必须带标签进入向导");
+        assertEquals("预警通知", items.get(cooldown).group(), "冷却窗口必须同属预警通知组");
+        assertEquals(PropertyMetaParser.InputType.INT, items.get(cooldown).inputType(), "@input int 必须解析为 INT 类型 (整型配置键)");
+        assertEquals("60", items.get(cooldown).defaultValue(), "冷却窗口默认 60 分钟");
+        assertTrue(items.get(cooldown).explain().contains("0 = 禁用"), "说明必须写明 0 = 禁用冷却");
+        assertTrue(items.get(cooldown).explain().contains("落库"), "说明必须写明窗口内重复预警仍落库");
+        assertTrue(items.get(cooldown).explain().contains("工作台"), "说明必须写明工作台可见性不受抑制影响");
+        assertTrue(cooldown > wecom, "冷却窗口必须排在预警渠道键之后 (向导展示顺序即文件顺序)");
+    }
+
     private static int indexOfEnv(List<PropertyMetaParser.ConfigItemMeta> items, String env)
     {
         return IntStream.range(0, items.size()).filter(i -> env.equals(items.get(i).envName())).findFirst().orElse(-1);

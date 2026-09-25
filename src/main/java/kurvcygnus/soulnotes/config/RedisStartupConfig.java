@@ -28,6 +28,7 @@ public final class RedisStartupConfig
 
     private final @NotNull ReactiveValueCommands<String, String> redisValues;
     private final @NotNull String defaultHotline;
+    private final @NotNull String appointmentUrl;
 
     //! Redis 不可用时, 使用配置中的默认值, 确保离线兜底.
     //* crisis:hotline 存储格式: "热线名称|电话号码"
@@ -41,17 +42,21 @@ public final class RedisStartupConfig
      * @param primary 主热线号码
      * @param backup 备用热线号码
      * @param name 热线名称
+     * @param appointmentUrl 校内心理咨询预约入口地址 (Optional 接空: properties 空默认展开为空串,
+     *                       plain String 注入遇空值启动即 SRCFG00040 — WebhookAlertNotifier 同坑先例)
      * @since 1.0
      */
     public RedisStartupConfig(
         @NotNull ReactiveRedisDataSource redisDS,
         @ConfigProperty(name = "crisis.hotline.primary", defaultValue = ConfigDefaults.HOTLINE_PRIMARY) @NotNull String primary,
         @ConfigProperty(name = "crisis.hotline.backup", defaultValue = ConfigDefaults.HOTLINE_BACKUP) @NotNull String backup,
-        @ConfigProperty(name = "crisis.hotline.name", defaultValue = ConfigDefaults.HOTLINE_NAME) @NotNull String name
+        @ConfigProperty(name = "crisis.hotline.name", defaultValue = ConfigDefaults.HOTLINE_NAME) @NotNull String name,
+        @ConfigProperty(name = "crisis.appointment.url") @NotNull java.util.Optional<String> appointmentUrl
     )
     {
         this.redisValues = redisDS.value(String.class);
         this.defaultHotline = PrintUtils.quickFormat("{}|{}|{}", name, primary, backup);
+        this.appointmentUrl = appointmentUrl.orElse("");
     }
 
     /**
@@ -103,6 +108,19 @@ public final class RedisStartupConfig
                 }
             );
     }
+
+    //endregion
+
+    //region 预约入口
+
+    /**
+     * 获取校内心理咨询预约入口地址.
+     *
+     * @return 预约入口 URL; 机构未配置时为空串 (前端判空隐藏预约入口, 不抛错)
+     * @implNote 纯配置注入不走 Redis: 预约地址无 "机构运行时更新" 语义 (热线有), 配置即终值.
+     * @since 1.4.0
+     */
+    public @NotNull String getAppointmentUrl() { return appointmentUrl; }
 
     //endregion
 }

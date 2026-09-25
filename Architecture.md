@@ -121,11 +121,12 @@ kurvcygnus.soulnotes/
 │   │   ├── RevealPolicy.java          # 风险分级实名解锁 (未解锁 = UUID 前 8 位稳定短码)
 │   │   └── ClinicalRetentionCleaner.java  # 启动时异步保留期清理 (<=0 禁用)
 │   └── crisis/
-│       └── CrisisResource.java        # GET /crisis/hotline (离线兜底)
+│       └── CrisisResource.java        # GET /crisis/hotline (离线兜底, 含 appointmentUrl 预约入口)
 └── websocket/
     ├── WebSocketAuthUpgradeCheck.java # HttpUpgradeCheck JWT 认证网关 (/ws/clinical 前缀额外 COUNSELOR/ADMIN 断言 403)
     ├── ChatWebSocket.java             # /ws/chat 流式文本推送
     ├── AlertWebSocket.java            # /ws/alert RED 预警推送 (WebSocketAlertNotifier)
+    ├── AlertDispatchService.java      # RED 预警统一分发收口 (per-user Redis 冷却闸门 + 逐渠道 fan-out, 窗口 0 = 禁用)
     ├── ClinicalFeedHub.java           # 工作台推送枢纽 (register/unregister 条件移除防重连竞态, broadcast fire-and-forget)
     ├── ClinicalFeedWebSocket.java     # /ws/clinical/feed 工作台实时推送端点
     ├── IAlertNotifier.java            # 预警通知渠道端口 (Uni<Void> notify)
@@ -189,11 +190,11 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 
 ## 6. AI 链路设计
 
-| 场景             | Agent                                         | 模式                                                  |
-|------------------|-----------------------------------------------|-------------------------------------------------------|
-| 创建日记情感分析 | `MoodAnalysisAgent` + `WarningDetectionAgent` | 后台异步 (AI 失败自动降级)                            |
-| 对话             | `EmpatheticChatAgent`                         | 同步 `chatSync` + SSE `TokenStream`                   |
-| 预警检测         | `WarningDetectionAgent`                       | RED 时推 `AlertWebSocket` + 持久化 `warningTriggered` |
+| 场景             | Agent                                         | 模式                                                                     |
+|------------------|-----------------------------------------------|--------------------------------------------------------------------------|
+| 创建日记情感分析 | `MoodAnalysisAgent` + `WarningDetectionAgent` | 后台异步 (AI 失败自动降级)                                               |
+| 对话             | `EmpatheticChatAgent`                         | 同步 `chatSync` + SSE `TokenStream`                                      |
+| 预警检测         | `WarningDetectionAgent`                       | RED 时经 `AlertDispatchService` 冷却闸门分发 + 持久化 `warningTriggered` |
 
 - 系统提示词集中在 `AiPromptConstants` (情感分析 / 预警检测 / 共情对话), 经 `PromptProvider` 支持 `ai.prompt.*` 机构整体覆盖 (留空回退内置)
 - 结构化输出管线 ("副医生"预埋): `SOULNOTES_CLINICAL_TAGGING=on` 时共情提示词末尾合并功能契约段 (契约段首行声明优先级最高), 回复末尾的 `<!--soulnotes {...}-->` 块由 `ClinicalOutputSplitter` 拆流 — 落库/返回均为剔除后的正文, 前端仅见文本; 解析失败整条透传 (默认关闭, 控每条消息 token 成本)
@@ -219,7 +220,7 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 - `WebSocketAuthUpgradeCheck`: 升级阶段校验 JWT (header 或 `token` 查询参数) + 黑名单, userId 存入 `UserData`; `/ws/clinical` 前缀端点额外断言 COUNSELOR/ADMIN 角色 (403, 以 `request.path()` 判定), 学生端 `/ws/chat` `/ws/alert` 行为不变
 - `ChatWebSocket` (`/ws/chat`): 接收 JSON 消息, 订阅 `ChatService.streamMessage` 逐 token 推送 (逐消息持久化, WS 专用消息上下文)
 - `ClinicalFeedWebSocket` (`/ws/clinical/feed`): 咨询员工作台实时推送 — `ClinicalFeedHub` 维护 counselorId → 连接映射, register/unregister 均携带连接实例, 注销为条件移除 (防旧连接 close 回调晚于重连 register 到达的竞态); `broadcast(String)` fire-and-forget (无在线咨询员静默跳过, 单连接失败仅 WARN), `ClinicalAssessmentService` 落库后广播 `NEW_ASSESSMENT`
-- RED 预警推送渠道接口化为 `IAlertNotifier` (`ChatService` 只依赖接口, RED 触发五渠道 fan-out): `WebSocketAlertNotifier` (在线前端, `/ws/alert`, 总是启用) / `WebhookAlertNotifier` (机构服务端, URL 空 = 禁用) / `SmsAlertNotifier` (阿里云短信, 五键齐备才启用, 逐号群发值班咨询员) / `DingTalkAlertNotifier` (钉钉群机器人, webhook 空 = 禁用, 可选加签) / `WeComAlertNotifier` (企业微信群机器人, webhook 空 = 禁用), 渠道互为冗余、同构可扩展; 短信与 IM 渠道同为 fire-and-forget 3s (失败仅 WARN), IM 报文仅含学生标识 / 热线 / 截断 120 字事由, 不含 summary 全文
+- RED 预警推送渠道接口化为 `IAlertNotifier` (聊天 `ChatService` 与日记 `EmotionAnalysisService` 经 `AlertDispatchService` 统一收口: per-user RED 冷却闸门 (`SOULNOTES_ALERT_COOLDOWN_MINUTES`, 默认 60 分钟, 0 = 禁用) 命中则抑制本次外呼, 放行才逐渠道 fan-out; 冷却只影响外呼触达, 预警落库与工作台可见性不受影响): `WebSocketAlertNotifier` (在线前端, `/ws/alert`, 总是启用) / `WebhookAlertNotifier` (机构服务端, URL 空 = 禁用) / `SmsAlertNotifier` (阿里云短信, 五键齐备才启用, 逐号群发值班咨询员) / `DingTalkAlertNotifier` (钉钉群机器人, webhook 空 = 禁用, 可选加签) / `WeComAlertNotifier` (企业微信群机器人, webhook 空 = 禁用), 渠道互为冗余、同构可扩展; 短信与 IM 渠道同为 fire-and-forget 3s (失败仅 WARN), IM 报文仅含学生标识 / 热线 / 截断 120 字事由, 不含 summary 全文
 
 ---
 
@@ -229,7 +230,7 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 前端 (Vue)
 ├─ 日记 CRUD / 天气  ->  DiaryResource -> DiaryService / EmotionWeatherService -> PostgreSQL (analysis_result JSONB)
 ├─ AI 对话 (SSE/WS)  ->  ChatResource / ChatWebSocket -> ChatService -> EmpatheticChatAgent -> TokenStream (契约开启时经 ClinicalOutputSplitter 拆流)
-├─ 预警              ->  WarningDetectionAgent (RED) -> IAlertNotifier 五渠道 fan-out (弹窗 + Webhook + 短信 + 钉钉 + 企微)
+├─ 预警              ->  WarningDetectionAgent (RED) -> AlertDispatchService 冷却闸门 -> IAlertNotifier 五渠道 fan-out (弹窗 + Webhook + 短信 + 钉钉 + 企微)
 ├─ 离线兜底           ->  CrisisResource (/crisis/hotline) <- Redis crisis:hotline <- 静态默认值
 └─ 语音              ->  VoiceResource -> VoiceStorageService -> IAsrEngine (本地 Vosk 同步转录)
 ```
@@ -266,6 +267,7 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 | `knowledge.pack` / `SOULNOTES_KNOWLEDGE_PACK`                    | 心理知识包名 (缺失回退 `default`)                                                                                                                                                                                                                                                                                                  |
 | `alert.webhook.url` / `SOULNOTES_ALERT_WEBHOOK_URL`              | RED 预警机构 Webhook (空 = 渠道禁用); token 键同构 (`SOULNOTES_ALERT_WEBHOOK_TOKEN`)                                                                                                                                                                                                                                               |
 | `alert.sms.*` / `alert.ding.*` / `alert.wecom.webhook`           | 预警通知短信/IM 九键 (环境变量见 CONFIGURATION.md §5): 短信五键齐备才启用, ding.webhook/ding.secret/wecom.webhook 各自配置即启用                                                                                                                                                                                                   |
+| `alert.cooldown.minutes` / `SOULNOTES_ALERT_COOLDOWN_MINUTES`    | RED 预警外呼冷却窗口 (分钟, 默认 60, 0 = 禁用; 仅抑制外呼触达, 落库与工作台可见性不受影响)                                                                                                                                                                                                                                         |
 | `crisis.hotline.*`                                               | 热线默认值                                                                                                                                                                                                                                                                                                                         |
 | `voice.storage.directory` / `SOULNOTES_VOICE_DIR`                | 语音文件存储目录                                                                                                                                                                                                                                                                                                                   |
 | `weather.threshold.*`                                            | 天气映射阈值                                                                                                                                                                                                                                                                                                                       |
@@ -281,7 +283,7 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 
 ## 12. 测试覆盖
 
-- 单元/集成测试 531 个 (`./gradlew :test`), 覆盖: 异常体系 / 工具类 / DTO 边界 / Service 反射逻辑 / Resource 结构 / Agent 签名 / 知识包加载与回退 / 五预警渠道行为 (Webhook 负载与禁用态 / 短信逐号群发与回环验真 / 钉钉企微 markdown 报文与加签 / 阿里云签名纯函数 / 五渠道装配证明) / issuer 一致性 / ASR 运行时下载与引擎 (无动态库真机用例 assumeTrue 跳过) / FFM 接口层 / URL 解析 / DB 五态映射 (fake gateway) / 模型列表解析 / zip 下载解压 (本地 fixture) / 配置管线 (Pre-Launch 校验与向导)
+- 单元/集成测试 550 个 (`./gradlew :test`), 覆盖: 异常体系 / 工具类 / DTO 边界 / Service 反射逻辑 / Resource 结构 / Agent 签名 / 知识包加载与回退 / 五预警渠道行为 (Webhook 负载与禁用态 / 短信逐号群发与回环验真 / 钉钉企微 markdown 报文与加签 / 阿里云签名纯函数 / 五渠道装配证明) / RED 冷却闸门 (命中抑制全渠道 / 放行 fan-out / 判定失败 fail-open / 0 禁用短路 / per-user 冷却键) / issuer 一致性 / ASR 运行时下载与引擎 (无动态库真机用例 assumeTrue 跳过) / FFM 接口层 / URL 解析 / DB 五态映射 (fake gateway) / 模型列表解析 / zip 下载解压 (本地 fixture) / 配置管线 (Pre-Launch 校验与向导)
 - Mock-LLM 全链路 (OpenAI 兼容零依赖 mock, `src/test/.../support/`): `/chat/send` 与 `/chat/stream` (SSE 分块) / 预警链路 (mock 判 RED → `warning_triggered` 落库) / 工具调用 (`@MemoryId` UUID 透传与工具结果回流) / `/ws/chat` WebSocket 流式 / JSONB 原生查询断言 (`jsonb_typeof`) / 结构化输出契约拆流 (on/off/坏格式三态) / 副医生评估落库全链路 (RED 实名解锁 / YELLOW 掩码脱敏 / NONE 不落库)
 - 咨询员工作台单元层: `RevealPolicy` 解锁矩阵 (RED/YELLOW/NEVER, 非法值回落 RED, 短码跨调用稳定) / `ClinicalAssessmentService` 落库与脱敏视图 / `ClinicalResource` 角色与参数校验 (`@BeanParam` 缺席分页收敛默认 第1页/每页20) / `ClinicalFeedWebSocket` 生命周期与网关角色断言 / `ClinicalRetentionCleaner` (<=0 禁用短路, 正数清理)
 - 语音链路以 `FixedAsrEngine` 固定转录文本注入, 不依赖真实模型与动态库
@@ -302,4 +304,4 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 
 ## 14. 部署与配置
 
-部署形态 (打包运行 / JVM 镜像 / docker-compose / Kubernetes / Native 镜像), 环境变量总表 (51 项 `SOULNOTES_*`), 配置向导与启动前校验, 以及机构集成 (本地 ASR / 预警渠道矩阵 / 知识包 / 结构化输出) 的**单一权威参考是 [CONFIGURATION.md](./CONFIGURATION.md)** — 本文档不再重复维护, 防双源漂移.
+部署形态 (打包运行 / JVM 镜像 / docker-compose / Kubernetes / Native 镜像), 环境变量总表 (53 项 `SOULNOTES_*`), 配置向导与启动前校验, 以及机构集成 (本地 ASR / 预警渠道矩阵 / 知识包 / 结构化输出) 的**单一权威参考是 [CONFIGURATION.md](./CONFIGURATION.md)** — 本文档不再重复维护, 防双源漂移.

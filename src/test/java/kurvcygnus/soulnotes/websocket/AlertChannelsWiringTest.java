@@ -32,8 +32,8 @@ class AlertChannelsWiringTest
     //* @EnabledIf 的引用方法必须落在被注解类内: QuarkusTest 类加载器下跨类全限定字符串解析失败 (ClinicalResourceTest 实测先例).
     static boolean pipelineInfraReachable() { return InfraProbes.pipelineInfraReachable(); }
 
-    //* CDI 收集全部 IAlertNotifier 实现: 与 ChatService 的 fan-out 注入同构 — 装配缺员即预警分发静默缺员.
-    //* @All 是 Arc 集合注入的必要限定符: 缺失时注入点退化为对 List 类型 bean 的普通解析 (ChatService 同款注释).
+    //* CDI 收集全部 IAlertNotifier 实现: 与 AlertDispatchService 的 fan-out 注入同构 — 装配缺员即预警分发静默缺员.
+    //* @All 是 Arc 集合注入的必要限定符: 缺失时注入点退化为对 List 类型 bean 的普通解析 (AlertDispatchService 同款注释).
     @Inject @All List<IAlertNotifier> notifiers;
 
     @Test void fiveChannelsAreWired()
