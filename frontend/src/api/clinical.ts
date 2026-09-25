@@ -3,7 +3,6 @@
 import { api } from './http'
 import type { AssessmentVo, RiskLevel, StatsSummary } from '../types'
 
-//! 用 type 而非 interface: 对象字面量类型别名可赋给 http 层的 Record 索引签名参数.
 export type AssessmentListParams = {
   /** 留空 = 不限等级; 只接受 YELLOW / RED (其它值后端 400) */
   level?: RiskLevel | ''

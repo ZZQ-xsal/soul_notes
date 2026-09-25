@@ -7,6 +7,8 @@ export interface AlertPayload {
   type: string
   message: string
   hotline: string
+  /** 预约入口随弹窗一并下发; 机构未配置时为空串, 更早的后端可能整个字段缺席 (均判空隐藏) */
+  appointmentUrl?: string
 }
 
 export interface AlertSocketOptions {

@@ -9,6 +9,9 @@ export default function RedAlertModal() {
 
   if (!alert.visible) return null
 
+  //* 预约入口: 推送里带了就用推送的, 否则回落全局热线配置 (crisis.appointment.url), 均为空则整块隐藏.
+  const appointmentUrl = alert.appointmentUrl || hotline.appointmentUrl
+
   const goCrisis = (): void => {
     dismiss()
     navigate('/crisis')
@@ -37,6 +40,12 @@ export default function RedAlertModal() {
           <a className="btn danger" href={`tel:${alert.hotline}`}>
             立即拨打
           </a>
+          {appointmentUrl && (
+            //* 新窗口打开: 危机弹窗不应被预约页替换掉 (热线与求助入口要继续留在屏幕上).
+            <a className="btn secondary" href={appointmentUrl} target="_blank" rel="noreferrer">
+              预约咨询
+            </a>
+          )}
           <button type="button" className="btn secondary" onClick={goCrisis}>
             查看全部求助资源
           </button>

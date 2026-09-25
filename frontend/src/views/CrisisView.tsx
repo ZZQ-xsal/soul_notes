@@ -26,6 +26,19 @@ export default function CrisisView() {
               <span className="hotline-tip">点击拨打</span>
             </a>
           )}
+          {/* 预约入口由机构配置 (crisis.appointment.url) 下发, 未配置时为空串 -> 整卡不渲染 */}
+          {hotline.appointmentUrl && (
+            <a
+              className="hotline-card hotline-appointment"
+              href={hotline.appointmentUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className="hotline-label">心理咨询预约</span>
+              <span className="hotline-action">前往预约入口</span>
+              <span className="hotline-tip">校内心理中心 · 新窗口打开</span>
+            </a>
+          )}
         </div>
         <p className="crisis-message">{hotline.message}</p>
         <div className="emergency-note">

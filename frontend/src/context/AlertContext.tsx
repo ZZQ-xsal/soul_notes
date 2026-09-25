@@ -17,12 +17,15 @@ const DEFAULT_HOTLINE: HotlineInfo = {
   primary: '400-161-9995',
   backup: '12355',
   message: '你不需要独自面对一切, 专业的帮助随时可用。',
+  //* 预约入口无静态默认值: 机构未配置即不展示.
+  appointmentUrl: '',
 }
 
 function loadCachedHotline(): HotlineInfo {
   try {
     const raw = localStorage.getItem(HOTLINE_CACHE_KEY)
-    return raw ? (JSON.parse(raw) as HotlineInfo) : DEFAULT_HOTLINE
+    //! 展开默认值兜底: 旧版本缓存没有 appointmentUrl 键 (后端 1.4.0 才下发).
+    return raw ? { ...DEFAULT_HOTLINE, ...(JSON.parse(raw) as Partial<HotlineInfo>) } : DEFAULT_HOTLINE
   } catch {
     return DEFAULT_HOTLINE
   }
@@ -32,12 +35,14 @@ export interface AlertState {
   visible: boolean
   message: string
   hotline: string
+  /** 弹窗自带的预约入口 (随 RED 推送下发); 空串 = 回落全局 hotline 的配置值 */
+  appointmentUrl: string
 }
 
 interface AlertContextValue {
   hotline: HotlineInfo
   alert: AlertState
-  showAlert: (message: string, hotline?: string | null) => void
+  showAlert: (message: string, hotline?: string | null, appointmentUrl?: string | null) => void
   dismiss: () => void
 }
 
@@ -46,7 +51,7 @@ const AlertContext = createContext<AlertContextValue | null>(null)
 export function AlertProvider({ children }: { children: ReactNode }) {
   const { token } = useAuth()
   const [hotline, setHotline] = useState<HotlineInfo>(loadCachedHotline)
-  const [alert, setAlert] = useState<AlertState>({ visible: false, message: '', hotline: '' })
+  const [alert, setAlert] = useState<AlertState>({ visible: false, message: '', hotline: '', appointmentUrl: '' })
 
   //* 供 WS 回调读取最新热线 (避免闭包过期).
   const hotlineRef = useRef(hotline)
@@ -64,8 +69,8 @@ export function AlertProvider({ children }: { children: ReactNode }) {
       })
   }, [])
 
-  const showAlert = useCallback((message: string, hotlineNum?: string | null) => {
-    setAlert({ visible: true, message, hotline: hotlineNum || hotlineRef.current.primary })
+  const showAlert = useCallback((message: string, hotlineNum?: string | null, appointmentUrl?: string | null) => {
+    setAlert({ visible: true, message, hotline: hotlineNum || hotlineRef.current.primary, appointmentUrl: appointmentUrl || '' })
   }, [])
 
   const dismiss = useCallback(() => {
@@ -77,7 +82,7 @@ export function AlertProvider({ children }: { children: ReactNode }) {
     if (!token) return
     const stop = connectAlertSocket({
       token,
-      onAlert: (payload) => showAlert(payload.message, payload.hotline),
+      onAlert: (payload) => showAlert(payload.message, payload.hotline, payload.appointmentUrl),
     })
     return stop
   }, [token, showAlert])

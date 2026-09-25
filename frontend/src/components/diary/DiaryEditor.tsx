@@ -7,13 +7,49 @@ import type { ChangeEvent } from 'react'
 import { createDiary } from '../../api/diary'
 import { ApiError } from '../../api/http'
 import { uploadVoice } from '../../api/voice'
+import { useAuth } from '../../context/AuthContext'
 import { blobToWav16kMono } from '../../utils/audio'
+import { formatDateTime } from '../../utils/format'
 import type { DiaryItem } from '../../types'
 
 interface Props {
   onClose: () => void
   onCreated: (diary: DiaryItem) => void
 }
+
+//* 未提交草稿: 关弹窗/刷新/切页都不丢, 下次打开编辑器自动回填.
+//* 只存文字正文 — 录音原始体积远超 localStorage 配额 (5MB 级), 不存.
+const DRAFT_KEY_PREFIX = 'soul.diary-draft.v1'
+
+interface DiaryDraft {
+  content: string
+  savedAt: string
+}
+
+function readDraft(key: string): DiaryDraft | null {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<DiaryDraft>
+    //! 缺正文或时间戳的残留值一律当无草稿 (旧格式 / 手改过 localStorage).
+    if (!parsed.content?.trim() || !parsed.savedAt) return null
+    return { content: parsed.content, savedAt: parsed.savedAt }
+  } catch {
+    return null
+  }
+}
+
+function writeDraft(key: string, content: string): void {
+  //* 正文清空 = 丢弃草稿 (用户把文本删干净了, 就是不要了).
+  if (!content.trim()) {
+    localStorage.removeItem(key)
+    return
+  }
+  localStorage.setItem(key, JSON.stringify({ content, savedAt: new Date().toISOString() }))
+}
+
+//* 输入停顿多久落盘: 每次按键都写会拖慢输入, 停顿写入 + 卸载兜底 (见下) 已覆盖丢字场景.
+const DRAFT_DEBOUNCE_MS = 800
 
 //* 与后端 voice.storage.max-size 默认值 (10MB) 对齐.
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024
@@ -39,8 +75,13 @@ function formatSeconds(total: number): string {
 }
 
 export default function DiaryEditor({ onClose, onCreated }: Props) {
+  const { user } = useAuth()
   const [mode, setMode] = useState<'TEXT' | 'VOICE'>('TEXT')
-  const [content, setContent] = useState('')
+  //* 草稿键按用户分: 同一浏览器换账号登录时, 不会读到上一个人留下的草稿.
+  const draftKey = `${DRAFT_KEY_PREFIX}.${user?.userId ?? 'anonymous'}`
+  const [initialDraft] = useState(() => readDraft(draftKey))
+  const [content, setContent] = useState(initialDraft?.content ?? '')
+  const [draftRestored, setDraftRestored] = useState(initialDraft !== null)
   const [recording, setRecording] = useState(false)
   const [recordSeconds, setRecordSeconds] = useState(0)
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
@@ -60,6 +101,9 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
   const previewUrlRef = useRef<string | null>(null)
   //* 转写请求序号: 重录/丢弃后, 在途旧请求的回包不再写状态 (竞态防护).
   const transcribeSeqRef = useRef(0)
+  //* 最新正文: 供卸载时的兜底落盘读取 (定时器已被 cleanup 取消, 拿不到 state 的最新值).
+  const contentRef = useRef(content)
+  contentRef.current = content
 
   //* 卸载清理: 停计时器、释放麦克风轨道与预览 URL.
   useEffect(
@@ -70,6 +114,16 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
     },
     [],
   )
+
+  //* 草稿落盘: 输入停顿后写入 (打字过程中不写).
+  useEffect(() => {
+    const timer = window.setTimeout(() => writeDraft(draftKey, content), DRAFT_DEBOUNCE_MS)
+    return () => window.clearTimeout(timer)
+  }, [draftKey, content])
+
+  //* 卸载兜底: 关弹窗/切页时, 最后不到一个防抖周期的输入也要落盘.
+  //* 提交成功时 contentRef 已被清空, 这里顺手把草稿删掉, 不会复活已提交的正文.
+  useEffect(() => () => writeDraft(draftKey, contentRef.current), [draftKey])
 
   //* 录音到时自动停止 (副作用放在渲染后, 不在 setState 更新器内执行).
   useEffect(() => {
@@ -215,6 +269,8 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
               audioData: wavBase64 ?? audioBase64,
               sourceType: 'VOICE',
             })
+      //* 提交成功: 清空正文引用 (弹窗随后卸载, 卸载兜底据此删除草稿), 避免已提交内容复活成草稿.
+      contentRef.current = ''
       onCreated(diary)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '提交失败, 请稍后再试')
@@ -256,11 +312,19 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
               className="textarea"
               placeholder="今天发生了什么? 你的感受如何? 这里是一个安全的树洞…"
               value={content}
-              onChange={(e) => setContent(e.target.value)}
+              onChange={(e) => {
+                setContent(e.target.value)
+                setDraftRestored(false)
+              }}
               maxLength={2000}
               rows={7}
             />
             <div className="editor-hint">{content.length} / 2000</div>
+            {draftRestored && initialDraft && (
+              <p className="editor-hint" role="status">
+                已恢复上次未提交的草稿 ({formatDateTime(initialDraft.savedAt)}) · 清空文本即丢弃
+              </p>
+            )}
           </div>
         ) : (
           <div className="editor-pane">

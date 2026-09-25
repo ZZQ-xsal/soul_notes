@@ -1850,6 +1850,17 @@ button {
   color: var(--text-muted);
 }
 
+/* 预约入口卡 (机构配置 crisis.appointment.url 时才渲染): 用品牌色区分于"拨打电话"的热线卡 */
+.hotline-appointment {
+  border-color: color-mix(in srgb, var(--brand) 35%, transparent);
+}
+
+.hotline-action {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--brand);
+}
+
 .crisis-message {
   margin: 22px 0;
   font-size: 15px;

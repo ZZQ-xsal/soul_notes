@@ -99,6 +99,8 @@ export interface HotlineInfo {
   primary: string
   backup: string
   message: string
+  /** 校内心理咨询预约入口 (crisis.appointment.url); 机构未配置时为空串, 前端判空隐藏入口 */
+  appointmentUrl: string
 }
 
 //! 后端 VoiceStatus 枚举序列化为名称字符串; 转录失败不回 5xx,

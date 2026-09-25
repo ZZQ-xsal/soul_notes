@@ -7,7 +7,6 @@ export function listSessions(): Promise<ChatSessionVo[]> {
   return api<ChatSessionVo[]>('/chat/sessions')
 }
 
-//! 历史消息 DTO 仅含 role/content, 不含 timestamp (ChatMessage.timestamp 在此路径恒为 undefined).
 export function listMessages(sessionId: string): Promise<ChatMessage[]> {
   return api<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`)
 }
@@ -67,8 +66,7 @@ export async function streamMessage(options: StreamOptions): Promise<void> {
     while ((idx = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, idx).replace(/\r$/, '')
       buffer = buffer.slice(idx + 1)
-      //! SSE 规范行: "data: <内容>"; 后端只发 data 行, 其余行 (event/id) 忽略.
-      //! 只剥 "data:" 后的一个规范空格与行尾 \r, 不能 trim: 分块边界处的空格是正文的一部分 (否则英文粘词).
+      
       if (line.startsWith('data:')) onChunk(line.slice(5).replace(/^ /, ''))
     }
   }
