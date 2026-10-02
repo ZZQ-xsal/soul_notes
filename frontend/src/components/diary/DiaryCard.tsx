@@ -1,9 +1,9 @@
-//* 日记卡片: 内容预览 + 天气/预警徽章 + 情绪分值 + 语音播放.
+//* 日记卡片: 内容预览 + 天气/预警徽章 + AI 反馈 + 语音播放.
 
 import { useMemo, useState } from 'react'
 import type { MouseEvent } from 'react'
 import type { DiaryItem } from '../../types'
-import { formatDateTime, formatScore } from '../../utils/format'
+import { formatDateTime } from '../../utils/format'
 import { resolveWarning, resolveWeather } from '../../utils/weather'
 import WeatherIcon from '../weather/WeatherIcon'
 import { playAudioUrl } from '../../api/voice'
@@ -14,13 +14,6 @@ interface Props {
   onOpen: (diary: DiaryItem) => void
   onDelete: (diary: DiaryItem) => void
 }
-
-//* 分值行与图表系列色保持同一身份映射: 积极=槽位1, 消极=槽位2, 焦虑=槽位3.
-const SCORE_ROWS = [
-  { key: 'positive', label: '积极', cls: 'series-fill-1' },
-  { key: 'negative', label: '消极', cls: 'series-fill-2' },
-  { key: 'anxiety', label: '焦虑', cls: 'series-fill-3' },
-] as const
 
 export default function DiaryCard({ diary, onOpen, onDelete }: Props) {
   const weather = useMemo(() => resolveWeather(diary.analysisResult?.weather), [diary.analysisResult])
@@ -57,9 +50,10 @@ export default function DiaryCard({ diary, onOpen, onDelete }: Props) {
               {weather.label}
             </span>
           )}
-          {analysis && warning.tone !== 'none' && (
-            <span className={`badge ${warning.tone}`} role="status">
-              <span aria-hidden="true">{warning.tone === 'critical' ? '⚠' : '◐'}</span>
+          {/* 学生端不展示 "需关注" 徽章, 只保留高危预警 */}
+          {analysis && warning.tone === 'critical' && (
+            <span className="badge critical" role="status">
+              <span aria-hidden="true">⚠</span>
               {warning.label}
             </span>
           )}
@@ -72,14 +66,17 @@ export default function DiaryCard({ diary, onOpen, onDelete }: Props) {
       )}
       <div className="diary-card-foot">
         <div className="diary-scores">
-          {analysis &&
-            SCORE_ROWS.map((row) => (
-              <span key={row.key} className="score-chip">
-                <span className={`score-dot ${row.cls}`} aria-hidden="true" />
-                {row.label} <span className="tabular">{formatScore(analysis[row.key])}</span>
-              </span>
-            ))}
-          {!analysis && <span className="score-chip score-chip-muted">AI 分析暂不可用</span>}
+          {/* AI 对这篇日记的反馈 (后端 summary: 鼓励/建议/喝彩, 非医学化); 加"心灵札记："前缀提示出自 AI; 不展示情绪分值 */}
+          {analysis?.summary ? (
+            <p className="diary-ai-feedback">
+              <span className="ai-feedback-tag">心灵札记：</span>
+              {analysis.summary}
+            </p>
+          ) : (
+            <span className="score-chip score-chip-muted">
+              {analysis ? '本篇暂无 AI 反馈' : 'AI 分析暂不可用'}
+            </span>
+          )}
         </div>
         <div className="diary-actions">
           {diary.audioUrl && (

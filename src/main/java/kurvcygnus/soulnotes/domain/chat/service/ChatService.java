@@ -11,6 +11,7 @@ import io.vertx.mutiny.core.Vertx;
 import jakarta.enterprise.context.ApplicationScoped;
 import kurvcygnus.soulnotes.ai.ClinicalOutputSplitter;
 import kurvcygnus.soulnotes.ai.agent.EmpatheticChatAgent;
+import kurvcygnus.soulnotes.ai.agent.SessionTitleAgent;
 import kurvcygnus.soulnotes.ai.agent.WarningDetectionAgent;
 import kurvcygnus.soulnotes.ai.dto.WarningDetectionResult;
 import kurvcygnus.soulnotes.config.ClinicalSchemaNormalizer;
@@ -35,6 +36,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -45,9 +47,9 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * AI 对话服务, 承载树洞对话的完整链路: 消息收发 (同步 + SSE 流式)、会话历史管理、
- * 预警检测与 RED 预警分发 (统一收口至 AlertDispatchService: 冷却闸门 + 多渠道推送),
- * 以及结构化输出管线 ("副医生"预埋: 契约提示词组装 + soulnotes 块拆流
- * + 评估落库 best-effort 挂点).
+ * 预警检测与 RED 预警分发 (统一收口至 AlertDispatchService: 冷却闸门 + 多渠道推送)、
+ * 会话标题生成 (首条用户消息并发触发 + 列表页为存量会话补全), 以及结构化输出管线
+ * ("副医生"预埋: 契约提示词组装 + soulnotes 块拆流 + 评估落库 best-effort 挂点).
  *
  * @implNote LLM 与预警检测均为阻塞调用, 一律经 {@code vertx.executeBlocking} 在 worker 线程池执行,
  *           结果回到事件循环后再操作 Hibernate reactive Session (规避 HR000068/069).
@@ -62,9 +64,21 @@ public final class ChatService
     //* LLM 失败时的兜底文案: send 与 stream 两条路径必须使用同一份, 保证降级语义对称.
     private static final @NotNull String FALLBACK_REPLY = "我似乎有些走神了，你能再说一遍吗？";
 
+    //* 会话标题长度上限 (字符): 提示词已约束 4~12 字, 此处为模型不听话时的硬截断.
+    private static final int TITLE_MAX_CHARS = 16;
+
+    //* 标题种子 (首条用户消息) 送入模型的长度上限: 首条消息可能是一整篇长文, 标题不需要全文, 避免无谓 token 开销.
+    private static final int TITLE_SEED_MAX_CHARS = 200;
+
+    //* 存量会话补标题的静默期: 新会话的标题与首轮回复并行生成, updatedAt 尚新时先不补,
+    //! 否则每次拉列表都会与该任务重复外呼 (标题写库不改 updatedAt, 静默期内以会话活跃时间判定).
+    private static final @NotNull Duration TITLE_BACKFILL_QUIET = Duration.ofSeconds(60);
+
     //region 注入
     private final @NotNull EmpatheticChatAgent empatheticChatAgent;
     private final @NotNull WarningDetectionAgent warningDetectionAgent;
+    //* 会话标题 Agent: 仅用于历史会话列表的标题生成, 与对话主链路无耦合 (失败只丢标题, 不影响回复).
+    private final @NotNull SessionTitleAgent sessionTitleAgent;
     private final @NotNull PromptProvider promptProvider;
     //* 临床结构归一化缓存: 自定义结构只有归一化产物才允许进入对话契约.
     private final @NotNull ClinicalSchemaNormalizer schemaNormalizer;
@@ -84,6 +98,7 @@ public final class ChatService
     public ChatService(
         @NotNull EmpatheticChatAgent empatheticChatAgent,
         @NotNull WarningDetectionAgent warningDetectionAgent,
+        @NotNull SessionTitleAgent sessionTitleAgent,
         @NotNull PromptProvider promptProvider,
         @NotNull ClinicalSchemaNormalizer schemaNormalizer,
         @NotNull ClinicalAssessmentService clinicalAssessmentService,
@@ -95,6 +110,7 @@ public final class ChatService
     {
         this.empatheticChatAgent = empatheticChatAgent;
         this.warningDetectionAgent = warningDetectionAgent;
+        this.sessionTitleAgent = sessionTitleAgent;
         this.promptProvider = promptProvider;
         this.schemaNormalizer = schemaNormalizer;
         this.clinicalAssessmentService = clinicalAssessmentService;
@@ -141,14 +157,16 @@ public final class ChatService
                 )
             ).
             invoke(outcome ->
-                fireClinicalRecord(
-                    Objects.requireNonNull(
-                        sessionRef.get(),
-                        "Param \"session\" must not be null!"
-                    ),
-                    outcome.clinicalPayload()
-                )
-            ).
+            {
+                final var session = Objects.requireNonNull(
+                    sessionRef.get(),
+                    "Param \"session\" must not be null!"
+                );
+                fireClinicalRecord(session, outcome.clinicalPayload());
+                //* 本路径的用户消息与 AI 回复同处一个事务, 标题只能等事务提交后再 fire — 事务内再开事务
+                //! 会抢占同一 Hibernate reactive session; 代价是标题晚于回复落库, 由列表页的补标题任务兜底.
+                fireTitleIfFirstUserMessage(session, req.content());
+            }).
             map(outcome -> new ChatMessageVo("assistant", outcome.visible(), Instant.now())
         );
     }
@@ -178,29 +196,32 @@ public final class ChatService
         final var sid = parseSessionId(sessionId);
         return getOrCreateSession(sid, userId).
             chain(session -> appendUserMessage(session.id, content)).
+            //* 用户消息事务已提交, 此刻 fire 标题生成可与随后的流式回复并行 — 回复结束前标题通常已落库,
+            //* 前端首轮回查会话列表时即可拿到标题.
+            onItem().invoke(session -> fireTitleIfFirstUserMessage(session, content)).
             onItem().transformToMulti(session -> streamAiReply(session, content));
     }
 
     /**
      * 查询当前用户的会话概览列表 (按最近活跃排序).
+     * <p>列表事务提交后, 为缺标题的存量会话 fire 标题补全任务 (best-effort, 失败仅 WARN);
+     * 本次响应仍以末条消息预览兜底, 标题在下一次拉取时呈现.</p>
      *
      * @param userId 当前认证用户 ID
-     * @return 会话概览列表 (可能为空, 恒非 null); 预览超 50 字截断, 消息 JSON 损坏时该条计为 0 条/空预览
+     * @return 会话概览列表 (可能为空, 恒非 null); 预览超 50 字截断, 消息 JSON 损坏时该条计为 0 条/空预览,
+     *         标题未生成时为空串 (展示方以预览兜底)
+     * @implNote 事务由 {@code Panache.withTransaction} 显式绑定而非 {@code @WithTransaction}:
+     *           补标题挂点必须落在事务提交之后, 注解式事务会把挂点一并圈进事务内.
      */
-    @WithTransaction
     public @NotNull Uni<List<ChatSessionVo>> listSessions(@NotNull UUID userId)
     {
-        return AiChatSession.findByUserId(userId).
-            map(sessions -> sessions.stream().
-                map(
-                    s -> new ChatSessionVo(
-                        s.id,
-                        countMessages(s.messages),
-                        s.updatedAt,
-                        getPreview(s.messages)
-                    )
-                ).toList()
-            );
+        return Panache.withTransaction(
+            () ->
+            AiChatSession.findByUserId(userId).
+                map(ChatService::toListView)
+        ).
+        invoke(view -> view.titleJobs().forEach(this::fireTitleGeneration)).
+        map(SessionListView::items);
     }
 
     /**
@@ -665,5 +686,145 @@ public final class ChatService
         catch(Exception e) { LOG.warn("解析 messages JSON 获取预览失败: {}", e.getMessage()); return ""; }
     }
 
+    //endregion
+
+    //region 会话标题
+    //* 会话列表连同待补标题任务一并带出事务: 补标题要另开事务, 必须在列表事务提交后 fire.
+    private record SessionListView(@NotNull List<ChatSessionVo> items, @NotNull List<TitleJob> titleJobs) {}
+
+    //* 待补标题任务: 会话 ID + 生成用的种子文本 (该会话的首条用户消息).
+    private record TitleJob(@NotNull UUID sessionId, @NotNull String seed) {}
+
+    //* 实体列表 -> 概览视图 (含待补标题任务); 纯内存映射, 不含任何外呼.
+    private static @NotNull SessionListView toListView(@NotNull List<AiChatSession> sessions)
+    {
+        final var cutoff = Instant.now().minus(TITLE_BACKFILL_QUIET);
+        final var items  = new ArrayList<ChatSessionVo>(sessions.size());
+        final var jobs   = new ArrayList<TitleJob>();
+        for(final var session: sessions)
+        {
+            items.add(
+                new ChatSessionVo(
+                    session.id,
+                    countMessages(session.messages),
+                    session.updatedAt,
+                    getPreview(session.messages),
+                    titleOf(session)
+                )
+            );
+            final var seed = pendingTitleSeed(session, cutoff);
+            if(seed != null)
+                jobs.add(new TitleJob(session.id, seed));
+        }
+        return new SessionListView(List.copyOf(items), List.copyOf(jobs));
+    }
+
+    //* 待补标题的种子文本: 已有标题 / 无用户消息 / 仍在静默期内一律返回 null (该会话本轮不补).
+    private static @Nullable String pendingTitleSeed(@NotNull AiChatSession session, @NotNull Instant cutoff)
+    {
+        if(!isUntitled(session) || session.updatedAt == null || session.updatedAt.isAfter(cutoff))
+            return null;
+        return firstUserMessage(session.messages);
+    }
+
+    //* 首条用户消息: 标题生成的种子; 无用户消息或 JSON 损坏时返回 null.
+    //! 截断到 TITLE_SEED_MAX_CHARS: 种子只用于概括主题, 首条消息过长时无谓消耗 token.
+    private static @Nullable String firstUserMessage(@Nullable String messagesJson)
+    {
+        if(messagesJson == null || messagesJson.isBlank())
+            return null;
+        try
+        {
+            final var messages = JsonUtils.parseJson(messagesJson, new TypeReference<List<Map<String, String>>>() { });
+            for(final var message: messages)
+            {
+                if(!"user".equals(message.get("role")))
+                    continue;
+                final var content = message.get("content");
+                if(content == null || content.isBlank())
+                    continue;
+                return content.length() > TITLE_SEED_MAX_CHARS ? content.substring(0, TITLE_SEED_MAX_CHARS) : content;
+            }
+            return null;
+        }
+        catch(Exception e) { LOG.warn("解析 messages JSON 提取首条用户消息失败: {}", e.getMessage()); return null; }
+    }
+
+    //* 统计指定 role 的消息条数 (JSON 损坏时按 0 降级, 与 countMessages/getPreview 同款容错).
+    private static int countRole(@Nullable String messagesJson, @NotNull String role)
+    {
+        if(messagesJson == null || messagesJson.isBlank())
+            return 0;
+        try
+        {
+            return (int) JsonUtils.parseJson(messagesJson, new TypeReference<List<Map<String, String>>>() { }).
+                stream().
+                filter(message -> role.equals(message.get("role"))).
+                count();
+        }
+        catch(Exception e) { LOG.warn("解析 messages JSON 统计角色消息数失败: {}", e.getMessage()); return 0; }
+    }
+
+    private static boolean isUntitled(@NotNull AiChatSession session) { return session.title == null || session.title.isBlank(); }
+
+    private static @NotNull String titleOf(@NotNull AiChatSession session) { return session.title == null ? "" : session.title; }
+
+    //* 首条用户消息触发生成会话标题: 与 AI 回复并行外呼, 不占用对话主链路的延迟预算.
+    //! 判定用"用户消息恰有一条"而非"本次是首轮": send 与 stream 的落库时机不同, 以消息构成判定对两条链路都成立,
+    //! 且天然幂等 — 已生成标题或会话已有后续消息时直接跳过.
+    private void fireTitleIfFirstUserMessage(@NotNull AiChatSession session, @NotNull String content)
+    {
+        if(!isUntitled(session) || countRole(session.messages, "user") != 1)
+            return;
+        fireTitleGeneration(new TitleJob(session.id, content));
+    }
+
+    //* 标题生成 fire-and-forget: worker 线程执行阻塞 AI 调用, 结果回到调用方上下文落库.
+    //* 失败仅 WARN 后吞掉 — 标题是展示增强, 不允许影响对话可用性 (与预警/评估同款 best-effort 边界).
+    private void fireTitleGeneration(@NotNull TitleJob job)
+    {
+        vertx.executeBlocking(() -> sessionTitleAgent.generate(promptProvider.sessionTitle(), job.seed()), false).
+            onItem().transformToUni(title -> storeTitle(job.sessionId(), title)).
+            onFailure().invoke(f -> LOG.warn("会话标题生成失败: session={}, {}", job.sessionId(), f.getMessage())).
+            //* 订阅级兜底: 失败在此归一为正常完成, 不需要调用方处理.
+            onFailure().recoverWithItem(() -> null).
+            subscribe().with(v -> {});
+    }
+
+    //* 标题落库 (独立事务): 会话已被删除时静默跳过 — 删除与生成并发属正常竞态, 不是错误.
+    private static @NotNull Uni<Void> storeTitle(@NotNull UUID sessionId, @NotNull String rawTitle)
+    {
+        final var title = normalizeTitle(rawTitle);
+        //* 归一化后为空 (模型只回了标点或空串): 不落库, 保留"未生成"语义供下次补全.
+        if(title.isEmpty())
+            return Uni.createFrom().voidItem();
+        return Panache.withTransaction(
+            () ->
+            AiChatSession.
+                <AiChatSession>findById(sessionId).
+                onItem().
+                ifNull().
+                continueWith(() -> null).
+                flatMap(
+                    session ->
+                    {
+                        if(session == null)
+                            return Uni.createFrom().voidItem();
+                        session.title = title;
+                        return session.persistAndFlush().replaceWithVoid();
+                    }
+                )
+        );
+    }
+
+    //* 标题归一化: 模型输出不可全信 — 去首尾空白与换行, 剥掉引号与「标题:」类前缀, 压成单行, 超长硬截断.
+    //! 不要为空的判空加在这里: 空串是"本次没拿到可用标题"的合法信号, 由调用方决定是否落库.
+    private static @NotNull String normalizeTitle(@NotNull String raw)
+    {
+        var title = raw.strip().replaceAll("\\s+", " ");
+        title = title.replaceFirst("^(标题|题目|主题)\\s*[:：]\\s*", "");
+        title = title.replaceAll("^[\"'“”『「【]+", "").replaceAll("[\"'“”』」】。，.,]+$", "").strip();
+        return title.length() > TITLE_MAX_CHARS ? title.substring(0, TITLE_MAX_CHARS) : title;
+    }
     //endregion
 }

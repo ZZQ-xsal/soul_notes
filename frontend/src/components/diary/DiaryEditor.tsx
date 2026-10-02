@@ -334,6 +334,12 @@ export default function DiaryEditor({ onClose, onCreated }: Props) {
             {recording ? (
               <div className="recorder-box is-recording" role="status" aria-live="polite">
                 <span className="rec-dot" aria-hidden="true" />
+                {/* 音波条: 纯装饰动效, 让"正在录音"一眼可见 (aria-hidden 不参与读屏播报) */}
+                <span className="rec-wave" aria-hidden="true">
+                  {Array.from({ length: 7 }, (_, i) => (
+                    <i key={i} />
+                  ))}
+                </span>
                 <span className="rec-time tabular">{formatSeconds(recordSeconds)}</span>
                 <button type="button" className="btn danger sm" onClick={stopRecording}>
                   停止录音

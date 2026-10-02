@@ -42,6 +42,11 @@ public final class AiChatSession extends PanacheEntityBase
     @Column(columnDefinition = "JSONB")
     public String messages;
 
+    //* 会话标题: 由首条用户消息经 AI 概括生成, 供历史会话列表展示; 未生成 (存量会话/生成失败) 时为 null,
+    //! 由 ChatService 以末条消息预览兜底展示 — 绝不在实体层写空串, 空串与"没生成过"必须可区分.
+    @Column(name = "title")
+    public String title;
+
     @Column(name = "warning_triggered", nullable = false)
     public boolean warningTriggered;
 

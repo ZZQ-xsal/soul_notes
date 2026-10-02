@@ -36,8 +36,9 @@ import java.util.concurrent.Executors;
  *     (真实客户端工具轮恒非流式, 组合不构成合法契约)</li>
  *     <li>④ 预警 JSON — 请求体携带 {@link #RED_KEYWORD} 且不携带工具时, 返回 {@code warningLevel=RED} 的检测结果 JSON</li>
  * </ul>
- * <p>请求区分契约: 请求体含 {@code tools} 数组视为共情对话 Agent, 否则视为结构化输出 Agent (预警检测).
- * 每个请求体全文按序录制, 供用例断言 systemPrompt 组装与工具轮次.</p>
+ * <p>请求区分契约: 请求体含 {@code tools} 数组视为共情对话 Agent; 无工具请求中命中
+ * {@link #TITLE_PROMPT_KEYWORD} 的视为会话标题 Agent (返回固定标题), 其余无工具请求视为结构化输出
+ * Agent (预警检测). 每个请求体全文按序录制, 供用例断言 systemPrompt 组装与工具轮次.</p>
  *
  * <p>双 realm 共享契约: QuarkusTest 的 FacadeClassLoader 会在测试域与运行域各加载一次本类
  * (static 字段随类加载复制, 单例字段不可跨域共享). 因此 {@link #shared()} 以 JVM 全局 System property
@@ -49,6 +50,13 @@ public final class MockLlmServer
 {
     //* 预警链路探测关键词: 无工具请求命中即返回 RED JSON, 集成测试以消息内容触发预警分支.
     public static final String RED_KEYWORD = "SOULNOTES-RED-PROBE";
+
+    //* 会话标题链路探测关键词: 内置标题提示词的首句, 无工具请求命中即返回固定标题.
+    //! 该词必须与 [[AiPromptConstants#SESSION_TITLE_SYSTEM_PROMPT]] 保持一致, 提示词改写时同步维护.
+    public static final String TITLE_PROMPT_KEYWORD = "对话标题生成器";
+
+    //* 标题 Agent 的固定应答: 生产侧会原样落库为会话标题, 用例据此断言标题生成链路已跑通.
+    public static final String TITLE_SAMPLE = "学业压力";
 
     //* JVM 全局端口仲裁键: System property 跨类加载器域共享, 是本类唯一的跨域同步点.
     private static final String PORT_PROPERTY = "soulnotes.mock-llm.port";
@@ -327,8 +335,14 @@ public final class MockLlmServer
                 writeJson(exchange, completionPayload(replyText));
             return;
         }
-        //* 无工具请求 = 结构化输出 Agent (预警检测): 关键词命中返回 RED, 其余返回可解析的 NONE,
+        //* 无工具请求分两类: 标题 Agent 返回固定标题 (否则会拿到预警 JSON 并被落库成标题);
+        //* 结构化输出 Agent (预警检测) 关键词命中返回 RED, 其余返回可解析的 NONE,
         //* 保证生产侧检测结果反序列化始终成功, 降级链路零告警噪音.
+        if(body.contains(TITLE_PROMPT_KEYWORD))
+        {
+            writeJson(exchange, completionPayload(TITLE_SAMPLE));
+            return;
+        }
         writeJson(exchange, completionPayload(body.contains(RED_KEYWORD) ? RED_DETECTION_JSON : NONE_DETECTION_JSON));
     }
 

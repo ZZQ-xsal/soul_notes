@@ -14,6 +14,10 @@ const GREETING: ChatMessage = {
   content: '你好, 我是心灵札记。这里很安全, 你的每一句话都会被认真倾听。今天想聊点什么?',
 }
 
+//* 首轮回复后回查标题的延迟: 标题由后端与回复并行生成, 回复结束时外呼通常已返回,
+//! 给一点落库余量; 仍查不到也无所谓 (下一次拉取自然会带上), 故不重试.
+const TITLE_REFRESH_DELAY_MS = 4000
+
 export default function ChatView() {
   const [sessions, setSessions] = useState<ChatSessionVo[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -23,6 +27,8 @@ export default function ChatView() {
   const [streaming, setStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
+  //* 标题回查定时器: 新会话首轮回复后延迟拉一次列表, 让异步生成的标题尽快出现在侧栏.
+  const titleTimerRef = useRef<number | null>(null)
 
   const sortedSessions = useMemo(
     () => [...sessions].sort((a, b) => b.lastUpdateTime.localeCompare(a.lastUpdateTime)),
@@ -41,13 +47,23 @@ export default function ChatView() {
     void loadSessions()
   }, [loadSessions])
 
-  //* 卸载时中止进行中的流式请求.
+  //* 卸载时中止进行中的流式请求与待触发的标题回查.
   useEffect(
     () => () => {
       abortRef.current?.abort()
+      if (titleTimerRef.current !== null) window.clearTimeout(titleTimerRef.current)
     },
     [],
   )
+
+  //* 安排一次标题回查 (重复调用只保留最后一次, 避免连发多条消息时堆叠定时器).
+  const scheduleTitleRefresh = useCallback((): void => {
+    if (titleTimerRef.current !== null) window.clearTimeout(titleTimerRef.current)
+    titleTimerRef.current = window.setTimeout(() => {
+      titleTimerRef.current = null
+      void loadSessions()
+    }, TITLE_REFRESH_DELAY_MS)
+  }, [loadSessions])
 
   //* 新消息/流式增量时自动滚动到底部.
   useEffect(() => {
@@ -104,6 +120,8 @@ export default function ChatView() {
       if (newest) {
         setActiveId(newest.sessionId)
         setSessionNote(`已自动续接会话 (${newest.messageCount} 条消息)`)
+        //* 本次列表里标题多半还没生成 (后端与回复并行外呼), 延迟回查一次补上.
+        if (!newest.title) scheduleTitleRefresh()
       }
     } catch {
       //* 回查失败不阻塞对话, 下一条消息将另起新会话.
@@ -184,7 +202,8 @@ export default function ChatView() {
           {sortedSessions.map((s) => (
             <div key={s.sessionId} className={`session-item${s.sessionId === activeId ? ' active' : ''}`}>
               <button type="button" className="session-open" onClick={() => void openSession(s)}>
-                <span className="session-preview line-clamp-2">{s.preview}</span>
+                {/* 标题由后端异步生成: 尚未生成时退回末条消息预览, 侧栏不留空白行 */}
+                <span className="session-preview line-clamp-2">{s.title || s.preview}</span>
                 <span className="session-meta tabular">
                   {s.messageCount} 条 · {formatDateTime(s.lastUpdateTime)}
                 </span>
@@ -193,7 +212,7 @@ export default function ChatView() {
                 type="button"
                 className="session-del"
                 title="删除会话"
-                aria-label={`删除会话: ${s.preview || '无预览'}`}
+                aria-label={`删除会话: ${s.title || s.preview || '无内容'}`}
                 onClick={() => void handleDeleteSession(s)}
               >
                 ×

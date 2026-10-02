@@ -24,6 +24,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.WebSocket;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Objects;
 import java.util.UUID;
@@ -419,15 +420,51 @@ class ChatPipelineTest
             statusCode(404);
     }
 
+    //region ⑧ 会话标题
+    //* 存量会话 (早于标题特性建出的会话) 没有标题: 拉列表时由后端 best-effort 补生成,
+    //* 本次响应以末条消息预览兜底, 标题在下一次拉取呈现 — 本用例钉死这条"兜底 + 补全"闭环.
+    @Test
+    void listSessions_UntitledExistingSession_ShouldFallbackToPreviewAndBackfillTitle() throws InterruptedException
+    {
+        final var account = PipelineUsers.register();
+        //* 直插一条"早已活跃"的会话: 静默期内的新会话由首轮消息触发标题生成, 不属于补全范围.
+        seedSession(
+            account.userId(),
+            "[{\"role\":\"user\",\"content\":\"最近作业太多, 有点喘不过气\"},{\"role\":\"assistant\",\"content\":\"愿意说说吗\"}]",
+            Instant.now().minus(Duration.ofMinutes(5))
+        );
+
+        //* 首次拉取: 补标题是 fire-and-forget, 本次响应必须已带上预览兜底 (侧栏不允许出现空标题行).
+        final var first = listSessions(account.token());
+        assertEquals("愿意说说吗", first.path("data").path(0).path("preview").asText(), "标题缺位时必须能拿到预览兜底");
+        assertEquals("", first.path("data").path(0).path("title").asText(), "补标题不阻塞列表响应: 首次拉取时标题尚未生成");
+
+        //* 补全任务在 worker 线程外呼 AI 后异步落库: 轮询到标题出现为止.
+        final var deadline = System.currentTimeMillis() + DB_POLL_DEADLINE_MS;
+        var title = "";
+        while(System.currentTimeMillis() < deadline)
+        {
+            title = listSessions(account.token()).path("data").path(0).path("title").asText();
+            if(!title.isEmpty())
+                break;
+            Thread.sleep(200);
+        }
+        assertEquals(MockLlmServer.TITLE_SAMPLE, title, "存量会话的标题必须被异步补全");
+    }
+    //endregion
+
     //* 真库直插会话 (指定 messages JSONB): 不经对话链路 (AI 依赖与本题无关), 与 DiaryListContractTest 造数同款取舍.
-    private UUID seedSession(String userId, String messagesJson)
+    private UUID seedSession(String userId, String messagesJson) { return seedSession(userId, messagesJson, Instant.now()); }
+
+    //* 重载: 指定 updated_at, 供"存量会话"场景绕开标题补全的静默期.
+    private UUID seedSession(String userId, String messagesJson, Instant updatedAt)
     {
         final var session = new AiChatSession();
         session.id               = UUID.randomUUID();
         session.userId           = UUID.fromString(userId);
         session.messages         = messagesJson;
         session.warningTriggered = false;
-        session.updatedAt        = java.time.Instant.now();
+        session.updatedAt        = updatedAt;
         sessionFactory.withTransaction((s, tx) -> session.persist()).await().atMost(AWAIT);
         return session.id;
     }
@@ -456,6 +493,23 @@ class ChatPipelineTest
                 extract().asString(),
             "chat/send 响应不得为 null"
         );
+    }
+
+    //* 拉取会话概览列表 (GET /chat/sessions): 会话标题与预览兜底的读取入口.
+    private static JsonNode listSessions(String token)
+    {
+        final var body = Objects.requireNonNull(
+            RestAssured.
+                given().
+                header("Authorization", PipelineUsers.bearer(token)).
+                when().
+                get(ApiEndpointConstants.CHAT_BASE + "/sessions").
+                then().
+                statusCode(200).
+                extract().asString(),
+            "chat/sessions 响应不得为 null"
+        );
+        return readTree(body, "chat/sessions 响应");
     }
 
     //* 独立事务新开 session 查询该用户最新会话: 读已提交数据, 不受任何一级缓存干扰.

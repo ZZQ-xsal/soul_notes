@@ -6,6 +6,7 @@ import dev.langchain4j.service.TokenStream;
 import io.smallrye.mutiny.Uni;
 import io.vertx.mutiny.core.Vertx;
 import kurvcygnus.soulnotes.ai.agent.EmpatheticChatAgent;
+import kurvcygnus.soulnotes.ai.agent.SessionTitleAgent;
 import kurvcygnus.soulnotes.ai.agent.WarningDetectionAgent;
 import kurvcygnus.soulnotes.ai.dto.WarningDetectionResult;
 import kurvcygnus.soulnotes.config.ClinicalSchemaNormalizer;
@@ -89,15 +90,21 @@ class ChatServiceTest
         { return new WarningDetectionResult("NONE", "", ""); }
     }
 
+    //* 标题 Agent 替身: 返回固定标题, 让首条消息触发的标题生成链路在纯单测下可跑通 (落库失败由服务内部吞掉).
+    private static final class StubTitleAgent implements SessionTitleAgent
+    {
+        @Override public String generate(String systemPrompt, String content) { return "学业压力"; }
+    }
+
     @SuppressWarnings("ConstantConditions")//! 测试缝: Vertx 为类级共享实例, 其余未用依赖置 null 是纯单测构造服务实例的唯一途径.
     private static ChatService newService(boolean taggingOn, PromptProvider promptProvider, ClinicalSchemaNormalizer normalizer)
-    { return new ChatService(new RecordingChatAgent(""), new StubWarningAgent(), promptProvider, normalizer, null, newDispatchStub(), VERTX, 50, taggingOn); }
+    { return new ChatService(new RecordingChatAgent(""), new StubWarningAgent(), new StubTitleAgent(), promptProvider, normalizer, null, newDispatchStub(), VERTX, 50, taggingOn); }
 
     //* 主链路替身: buildSystemPrompt 在 executeBlocking 内执行, 必须注入可用的 PromptProvider (空配置 = 内置默认).
     @SuppressWarnings("ConstantConditions")//! 测试缝: clinicalAssessmentService 置 null — 本组用例不驱动评估落库挂点.
     private static ChatService newService(boolean taggingOn, EmpatheticChatAgent chatAgent)
     {
-        return new ChatService(chatAgent, new StubWarningAgent(), new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer(), null, newDispatchStub(), VERTX, 50, taggingOn);
+        return new ChatService(chatAgent, new StubWarningAgent(), new StubTitleAgent(), new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer(), null, newDispatchStub(), VERTX, 50, taggingOn);
     }
 
     //* dispatch 替身: 空渠道 + 冷却逃生门 (minutes<=0 旁路冷却判定, 不触 Redis → redisDS 置 null 安全);
@@ -109,7 +116,7 @@ class ChatServiceTest
     private static ClinicalSchemaNormalizer unusedNormalizer()
     {
         return new ClinicalSchemaNormalizer(
-            new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
+            new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
             "", "", "test-model", newCacheFile(),
             prompt ->
             {
@@ -161,12 +168,12 @@ class ChatServiceTest
     //region 结构化输出管线: 契约组装 (三态: 默认 / 自定义已归一 / 自定义未归一)
     @Test void buildSystemPrompt_Off_ReturnsBasePromptOnly() throws Exception
     {
-        assertEquals(AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT, invokeBuildSystemPrompt(newService(false, new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer())));
+        assertEquals(AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT, invokeBuildSystemPrompt(newService(false, new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer())));
     }
 
     @Test void buildSystemPrompt_On_DefaultSchema_AppendsShellWithDefaultFields() throws Exception
     {
-        final var prompt = invokeBuildSystemPrompt(newService(true, new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer()));
+        final var prompt = invokeBuildSystemPrompt(newService(true, new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer()));
         assertTrue(prompt.startsWith(AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT), "机构/内置提示词必须在前");
         assertTrue(prompt.contains("[输出契约]"), "契约壳必须随 clinical.tagging 注入");
         assertTrue(prompt.contains(AiPromptConstants.CLINICAL_OUTPUT_SCHEMA_DEFAULT), "默认结构定义字段说明必须随契约下发");
@@ -179,13 +186,13 @@ class ChatServiceTest
             AiPromptConstants.EMPATHETIC_CHAT_SYSTEM_PROMPT,
             PrintUtils.quickFormat(AiPromptConstants.CLINICAL_OUTPUT_CONTRACT, AiPromptConstants.CLINICAL_OUTPUT_SCHEMA_DEFAULT)
         );
-        assertEquals(expected, invokeBuildSystemPrompt(newService(true, new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer())));
+        assertEquals(expected, invokeBuildSystemPrompt(newService(true, new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), unusedNormalizer())));
     }
 
     @Test void buildSystemPrompt_On_InstitutionalPromptStaysFirst() throws Exception
     {
         //* 合并规则: 机构提示词在前, 功能契约段在后 — 契约首行的最高优先级声明兜底机构指令冲突.
-        final var provider = new PromptProvider(Optional.of("机构自定义人设"), Optional.empty(), Optional.empty(), Optional.empty());
+        final var provider = new PromptProvider(Optional.of("机构自定义人设"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
         final var expected = PrintUtils.quickFormat(
             "{}\n\n{}",
             "机构自定义人设",
@@ -196,7 +203,7 @@ class ChatServiceTest
 
     @Test void buildSystemPrompt_On_CustomNormalizedSchema_AppendsNormalizedSchema() throws Exception
     {
-        final var provider = new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("输出 gad7 分数与风险"));
+        final var provider = new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("输出 gad7 分数与风险"), Optional.empty());
         //* 预热缓存: 模拟启动期归一化已成功.
         final var normalizer = new ClinicalSchemaNormalizer(provider, "", "", "test-model", newCacheFile(), prompt ->
         {
@@ -214,7 +221,7 @@ class ChatServiceTest
 
     @Test void buildSystemPrompt_On_CustomUnNormalizedSchema_FallsBackToBaseOnly() throws Exception
     {
-        final var provider = new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("输出 gad7 分数与风险"));
+        final var provider = new PromptProvider(Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("输出 gad7 分数与风险"), Optional.empty());
         //* 空缓存替身: cachedFor 必须只查缓存不触发 LLM, 未命中 = 增强暂禁.
         final var normalizer = new ClinicalSchemaNormalizer(provider, "", "", "test-model", newCacheFile(),
             prompt ->
@@ -340,6 +347,54 @@ class ChatServiceTest
     {
         final var method = getStaticMethod("getPreview");
         assertEquals("", method.invoke(null, "{broken"));
+    }
+    //endregion
+
+    //region 会话标题
+    @Test void firstUserMessage_SkipsAssistantTurnsAndReturnsUserContent() throws Exception
+    {
+        final var method = getStaticMethod("firstUserMessage");
+        //* 罕见但合法: 会话以 AI 消息开头 (新建会话的欢迎语被落库), 种子必须取首条 user 而非首条消息.
+        final var json = "[{\"role\":\"assistant\",\"content\":\"愿意说说吗\"},{\"role\":\"user\",\"content\":\"最近有点累\"}]";
+        assertEquals("最近有点累", method.invoke(null, json));
+    }
+
+    @Test void firstUserMessage_NoUserMessageOrBrokenJson_ShouldReturnNull() throws Exception
+    {
+        final var method = getStaticMethod("firstUserMessage");
+        assertNull(method.invoke(null, (String) null));
+        assertNull(method.invoke(null, "[]"));
+        assertNull(method.invoke(null, "[{\"role\":\"assistant\",\"content\":\"在的\"}]"));
+        assertNull(method.invoke(null, "{broken"));
+    }
+
+    @Test void firstUserMessage_LongContent_ShouldTruncateToSeedLimit() throws Exception
+    {
+        final var method = getStaticMethod("firstUserMessage");
+        final var json   = "[{\"role\":\"user\",\"content\":\"" + "字".repeat(500) + "\"}]";
+        assertEquals(200, ((String) method.invoke(null, json)).length());
+    }
+
+    //* 模型输出不可全信: 前缀/引号/换行/超长都是真实会遇到的不听话形态, 归一化必须逐项兜住.
+    @Test void normalizeTitle_StripsPrefixQuotesAndLineBreaks() throws Exception
+    {
+        final var method = getStaticMethod("normalizeTitle");
+        assertEquals("学业压力", method.invoke(null, "标题: “学业压力”"));
+        assertEquals("和室友的矛盾", method.invoke(null, "  和室友的矛盾\n"));
+        assertEquals("深夜睡不着", method.invoke(null, "\"深夜睡不着。\""));
+    }
+
+    @Test void normalizeTitle_OverLong_ShouldTruncateToMaxChars() throws Exception
+    {
+        final var method = getStaticMethod("normalizeTitle");
+        assertEquals(16, ((String) method.invoke(null, "字".repeat(40))).length());
+    }
+
+    @Test void normalizeTitle_PunctuationOnly_ShouldReturnEmptyForCallerToSkip() throws Exception
+    {
+        final var method = getStaticMethod("normalizeTitle");
+        //* 空串是"本次没拿到可用标题"的合法信号: 落库侧据此跳过, 保留未生成语义供下次补全.
+        assertEquals("", method.invoke(null, "。"));
     }
     //endregion
 

@@ -57,7 +57,8 @@ class ClinicalSchemaNormalizerTest
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            Optional.ofNullable(schemaOverride)
+            Optional.ofNullable(schemaOverride),
+            Optional.empty()
         );
     }
 

@@ -2,7 +2,8 @@
 <!--
   登录页背景图 · 云朵星空四角点缀
   画布 1920×1080, 透明底 (网页用 CSS 渐变换底色, 深浅色模式都适用)
-  构图: 云朵/月牙/星点/小心形分布在四角, 中央 x560-1360 / y200-880 留白给登录卡片
+  构图: 月牙/星点/小心形点缀四角, 中央 x560-1360 / y200-880 留白给登录卡片
+  注: 左侧与右下角的静态云朵已移除 (云朵装饰改由 CSS 的 .cloud-c1/c2/c3 动态云承担)
   在 Inkscape 中可直接打开编辑: 每个元素都是独立群组, 用 F1 选中即可移动/改色
 -->
 
@@ -491,34 +492,6 @@
      x="2.8402367"
      y="3.7869823" />
   <g
-     transform="translate(1620 890) scale(0.9)"
-     opacity="0.5"
-     fill="#ffffff"
-     id="g50">
-    <circle
-       cx="80"
-       cy="120"
-       r="44"
-       id="circle48" />
-    <circle
-       cx="128"
-       cy="96"
-       r="56"
-       id="circle49" />
-    <circle
-       cx="176"
-       cy="120"
-       r="40"
-       id="circle50" />
-    <rect
-       x="40"
-       y="120"
-       width="176"
-       height="32"
-       rx="16"
-       id="rect50" />
-  </g>
-  <g
      transform="rotate(-20 1500 300)"
      opacity="0.85"
      fill="#eda100"
@@ -590,62 +563,6 @@
        opacity="0.3"
        d="M32 46C20 38 12 30 12 22a10 10 0 0 1 20-4 10 10 0 0 1 20 4c0 8-8 16-20 24z"
        id="path61" />
-  </g>
-  <g
-     transform="matrix(0.9,0,0,0.9,47.455621,31.301775)"
-     opacity="0.5"
-     fill="#ffffff"
-     id="g18">
-    <circle
-       cx="80"
-       cy="120"
-       r="44"
-       id="circle16" />
-    <circle
-       cx="128"
-       cy="96"
-       r="56"
-       id="circle17" />
-    <circle
-       cx="176"
-       cy="120"
-       r="40"
-       id="circle18" />
-    <rect
-       x="40"
-       y="120"
-       width="176"
-       height="32"
-       rx="16"
-       id="rect18" />
-  </g>
-  <g
-     transform="matrix(0.9,0,0,0.9,65.443787,470.59172)"
-     opacity="0.5"
-     fill="#ffffff"
-     id="g21">
-    <circle
-       cx="80"
-       cy="120"
-       r="44"
-       id="circle19" />
-    <circle
-       cx="128"
-       cy="96"
-       r="56"
-       id="circle20" />
-    <circle
-       cx="176"
-       cy="120"
-       r="40"
-       id="circle21" />
-    <rect
-       x="40"
-       y="120"
-       width="176"
-       height="32"
-       rx="16"
-       id="rect21" />
   </g>
   <g
      transform="matrix(0.9,0,0,0.9,756.56805,66.331365)"

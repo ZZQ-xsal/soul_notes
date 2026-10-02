@@ -12,11 +12,14 @@ import java.util.UUID;
  * @param messageCount   消息总数
  * @param lastUpdateTime 最后更新时间
  * @param preview        最近一条消息的预览 (超 50 字截断, 无内容时为空串, 恒非 null)
+ * @param title          AI 依据首条用户消息生成的会话标题; 尚未生成时为空串 (恒非 null),
+ *                       展示方以 {@code preview} 兜底 — 字段保留空串语义与 preview 一致
  * @since 1.0
  */
 public record ChatSessionVo(
     @NotNull UUID    sessionId,
     int              messageCount,
     @NotNull Instant lastUpdateTime,
-    @NotNull String  preview
+    @NotNull String  preview,
+    @NotNull String  title
 ) {}

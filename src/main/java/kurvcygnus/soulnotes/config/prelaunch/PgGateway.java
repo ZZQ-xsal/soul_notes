@@ -52,7 +52,7 @@ public final class PgGateway implements IDatabaseGateway
     //* 新增脚本 = 追加清单项 + 资源文件, 漏配在 readScript 处快速失败.
     private static final @NotNull String SCHEMA_DIR = "db/schema/";
     private static final @NotNull List<String> SCHEMA_SCRIPTS =
-        List.of("01_users.sql", "02_mood_diaries.sql", "03_ai_chat_sessions.sql", "04_platform_schema_version.sql");
+        List.of("01_users.sql", "02_mood_diaries.sql", "03_ai_chat_sessions.sql", "04_platform_schema_version.sql", "06_ai_chat_sessions_title.sql");
 
     //region IDatabaseGateway
 

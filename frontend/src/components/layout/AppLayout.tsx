@@ -1,9 +1,11 @@
 //* 应用外壳: 侧边品牌 + 导航 + 用户区; 窄屏收缩为顶部导航条.
 
+import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { toast } from '../../utils/toast'
+import CrisisModal from '../crisis/CrisisModal'
 import type { UserRole } from '../../types'
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -63,12 +65,12 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/weather', label: '情绪天气', icon: ICON_WEATHER, roles: ['STUDENT'] },
   { to: '/chat', label: '树洞对话', icon: ICON_CHAT, roles: ['STUDENT'] },
   { to: '/clinical', label: '咨询员工作台', icon: ICON_CLINICAL, roles: ['COUNSELOR', 'ADMIN'] },
-  { to: '/crisis', label: '求助资源', icon: ICON_CRISIS, roles: ['STUDENT', 'COUNSELOR', 'ADMIN'] },
 ]
 
 export default function AppLayout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const [crisisOpen, setCrisisOpen] = useState(false)
   //* 导航按角色过滤: 学生看不到工作台, 咨询师看不到学生业务页 (后端同样按角色拒绝).
   const navItems = NAV_ITEMS.filter((item) => item.roles.includes(user?.role ?? 'STUDENT'))
 
@@ -88,7 +90,7 @@ export default function AppLayout() {
           </svg>
           <div className="brand-text">
             <span className="brand-title">心灵札记</span>
-            <span className="brand-sub">Xinling Zhaji</span>
+            <span className="brand-sub">Soul Notes</span>
           </div>
         </div>
         <nav className="app-nav" aria-label="主导航">
@@ -98,6 +100,11 @@ export default function AppLayout() {
               <span>{item.label}</span>
             </NavLink>
           ))}
+          {/* 求助资源不是页面而是弹窗: 与导航同款外观的按钮, 三种角色都常驻可见 */}
+          <button type="button" className="nav-item" onClick={() => setCrisisOpen(true)}>
+            <span className="nav-icon">{ICON_CRISIS}</span>
+            <span>求助资源</span>
+          </button>
         </nav>
         <div className="sidebar-footer">
           <div className="user-chip">
@@ -117,6 +124,7 @@ export default function AppLayout() {
       <main className="app-main">
         <Outlet />
       </main>
+      {crisisOpen && <CrisisModal onClose={() => setCrisisOpen(false)} />}
     </div>
   )
 }

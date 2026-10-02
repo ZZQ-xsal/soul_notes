@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS ai_chat_sessions
     id                UUID      PRIMARY KEY,
     user_id           UUID      NOT NULL REFERENCES users(id),
     messages          JSONB,
+    title             VARCHAR(64) NULL,
     warning_triggered BOOLEAN   NOT NULL DEFAULT FALSE,
     updated_at        TIMESTAMP NOT NULL
 );

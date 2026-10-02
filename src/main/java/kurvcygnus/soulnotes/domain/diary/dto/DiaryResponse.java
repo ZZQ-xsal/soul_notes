@@ -70,7 +70,7 @@ public record DiaryResponse(
      * @param anxiety      焦虑程度评分 (0.0 ~ 1.0)
      * @param weather      情绪天气类型 (SUNNY / CLOUDY / OVERCAST / RAINY / THUNDERSTORM)
      * @param warningLevel 预警等级 (GREEN / YELLOW / RED)
-     * @param summary      分析摘要 (可能为 {@code null})
+     * @param summary      AI 写给用户的一句反馈 (鼓励/建议/喝彩, 非医学化; 可能为 {@code null})
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     @RegisterForReflection//! native 下 Jackson 反序列化该 record 需要反射注册 (JsonUtils 手动 mapper 路径).

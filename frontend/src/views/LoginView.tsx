@@ -8,6 +8,7 @@ import { ApiError } from "../api/http";
 import AgreementModal, {
   AGREEMENT_STORAGE_KEY,
 } from "../components/auth/AgreementModal";
+import CrisisModal from "../components/crisis/CrisisModal";
 
 const DEMO_ACCOUNTS = [
   { username: "alice", role: "学生" },
@@ -32,6 +33,7 @@ export default function LoginView() {
   );
   const [showAgreement, setShowAgreement] = useState(false);
   const [agreeHint, setAgreeHint] = useState(false);
+  const [crisisOpen, setCrisisOpen] = useState(false);
 
   //* 登录成功后回跳来源页, 默认进日记页.
   const from = (location.state as { from?: string } | null)?.from ?? "/diaries";
@@ -161,7 +163,10 @@ export default function LoginView() {
         </form>
         <p className="auth-switch">
           还没有账号? <Link to="/register">注册一个</Link> ·{" "}
-          <Link to="/crisis">需要帮助?</Link>
+          {/* 未登录也能看求助资源 (弹窗内容只用本地缓存/默认热线, 不依赖登录态) */}
+          <button type="button" className="auth-help-link" onClick={() => setCrisisOpen(true)}>
+            需要帮助?
+          </button>
         </p>
         <details className="demo-box">
           <summary>演示账号 (点击填充)</summary>
@@ -180,6 +185,7 @@ export default function LoginView() {
           </div>
         </details>
       </div>
+      {crisisOpen && <CrisisModal onClose={() => setCrisisOpen(false)} />}
       {showAgreement && (
         <AgreementModal
           onAgree={() => {

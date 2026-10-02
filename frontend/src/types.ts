@@ -24,6 +24,7 @@ export interface AnalysisResult {
   anxiety: number
   weather: string
   warningLevel: string
+  /** AI 写给用户的一句反馈 (鼓励/建议/喝彩, 非医学化); 旧数据/生成失败时为 null */
   summary?: string | null
 }
 
@@ -57,6 +58,8 @@ export interface ChatSessionVo {
   messageCount: number
   lastUpdateTime: string
   preview: string
+  /** AI 依据首条用户消息生成的会话标题; 后端异步生成, 未生成时为空串 (用 preview 兜底展示) */
+  title: string
 }
 
 /** ChatMessageVo */

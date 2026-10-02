@@ -195,8 +195,9 @@ Quarkus + Hibernate Reactive 要求所有 DB 操作在**打开 Session 的 Vert.
 | 创建日记情感分析 | `MoodAnalysisAgent` + `WarningDetectionAgent` | 后台异步 (AI 失败自动降级)                                               |
 | 对话             | `EmpatheticChatAgent`                         | 同步 `chatSync` + SSE `TokenStream`                                      |
 | 预警检测         | `WarningDetectionAgent`                       | RED 时经 `AlertDispatchService` 冷却闸门分发 + 持久化 `warningTriggered` |
+| 会话标题生成     | `SessionTitleAgent`                           | 后台异步 (首条用户消息与回复并发触发 + 列表页为存量会话补全, 失败仅丢标题) |
 
-- 系统提示词集中在 `AiPromptConstants` (情感分析 / 预警检测 / 共情对话), 经 `PromptProvider` 支持 `ai.prompt.*` 机构整体覆盖 (留空回退内置)
+- 系统提示词集中在 `AiPromptConstants` (情感分析 / 预警检测 / 共情对话 / 会话标题), 经 `PromptProvider` 支持 `ai.prompt.*` 机构整体覆盖 (留空回退内置)
 - 结构化输出管线 ("副医生"预埋): `SOULNOTES_CLINICAL_TAGGING=on` 时共情提示词末尾合并功能契约段 (契约段首行声明优先级最高), 回复末尾的 `<!--soulnotes {...}-->` 块由 `ClinicalOutputSplitter` 拆流 — 落库/返回均为剔除后的正文, 前端仅见文本; 解析失败整条透传 (默认关闭, 控每条消息 token 成本)
 - 工具: `CrisisInterventionTool` (RED 热线), `UserContextTool` (近期情绪摘要)
 - 心理小知识: `PsychologyTipsRetriever` 消费 `KnowledgePackLoader` 加载的知识包 (`knowledge/{pack}/tips.md`, 缺失回退 `default`, 内置 13 条)

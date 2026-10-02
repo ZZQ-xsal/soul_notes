@@ -12,7 +12,7 @@ import java.util.Optional;
  * 提示词提供者.
  * <p>读 ai.prompt.* 配置覆盖, 空白回退 {@link AiPromptConstants} 内置默认 (机构自定义 AI 人设钩子).</p>
  *
- * @implNote 构造期一次性注入四个 Optional 覆盖值, 生效值在调用期惰性求值 — 同一进程内配置不变, 无需重复读配置.
+ * @implNote 构造期一次性注入五个 Optional 覆盖值, 生效值在调用期惰性求值 — 同一进程内配置不变, 无需重复读配置.
  * @since 1.1.0
  */
 @ApplicationScoped
@@ -23,27 +23,32 @@ public final class PromptProvider
     private final @NotNull Optional<String> mood;
     //* 副医生结构定义 (自然语言): 空白回退 canonical 默认, 非空经 ClinicalSchemaNormalizer 归一化后上线.
     private final @NotNull Optional<String> clinicalSchema;
+    //* 会话标题生成 (历史会话侧栏展示面): 与其余提示词同款接线, 机构可按本校口径改写标题风格.
+    private final @NotNull Optional<String> sessionTitle;
 
     /**
-     * CDI 构造入口, 四个覆盖值均经 {@code @ConfigProperty} 注入.
+     * CDI 构造入口, 五个覆盖值均经 {@code @ConfigProperty} 注入.
      *
      * @param empathetic {@code ai.prompt.empathetic-chat} 覆盖; 缺失时为 empty, 由对应 getter 回退默认
      * @param warning {@code ai.prompt.warning-detection} 覆盖; 缺失时为 empty
      * @param mood {@code ai.prompt.mood-analysis} 覆盖; 缺失时为 empty
      * @param clinicalSchema {@code ai.prompt.clinical-schema} 覆盖 (副医生结构定义, 自然语言); 缺失时为 empty
+     * @param sessionTitle {@code ai.prompt.session-title} 覆盖 (会话标题生成); 缺失时为 empty
      * @since 1.1.0
      */
     public PromptProvider(
         @ConfigProperty(name = "ai.prompt.empathetic-chat") @NotNull Optional<String> empathetic,
         @ConfigProperty(name = "ai.prompt.warning-detection") @NotNull Optional<String> warning,
         @ConfigProperty(name = "ai.prompt.mood-analysis") @NotNull Optional<String> mood,
-        @ConfigProperty(name = "ai.prompt.clinical-schema") @NotNull Optional<String> clinicalSchema
+        @ConfigProperty(name = "ai.prompt.clinical-schema") @NotNull Optional<String> clinicalSchema,
+        @ConfigProperty(name = "ai.prompt.session-title") @NotNull Optional<String> sessionTitle
     )
     {
         this.empathetic = empathetic;
         this.warning = warning;
         this.mood = mood;
         this.clinicalSchema = clinicalSchema;
+        this.sessionTitle = sessionTitle;
     }
 
     /**
@@ -77,6 +82,14 @@ public final class PromptProvider
      * @since 1.1.0
      */
     public @NotNull String clinicalSchema() { return effective(clinicalSchema, AiPromptConstants.CLINICAL_OUTPUT_SCHEMA_DEFAULT); }
+
+    /**
+     * 会话标题生成系统提示词.
+     *
+     * @return 配置覆盖优先, 空白/缺失回退内置默认; 永不为 null/空白
+     * @since 1.4.0
+     */
+    public @NotNull String sessionTitle() { return effective(sessionTitle, AiPromptConstants.SESSION_TITLE_SYSTEM_PROMPT); }
 
     /**
      * 求生效值: 归一化 (字面 \n 还原) + 去首尾空白后仍非空则采用, 否则回退默认.
