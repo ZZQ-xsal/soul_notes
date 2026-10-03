@@ -1,8 +1,8 @@
 //* 统一 HTTP 封装: 注入 JWT, 解析 {code, message, data} 响应壳, 401 时广播未授权事件.
 
 import type { ApiResponse } from '../types'
+import { API_BASE, RAW_BASE } from './base'
 
-const BASE = '/api/v1'
 const TOKEN_KEY = 'soul.auth'
 
 export class ApiError extends Error {
@@ -80,13 +80,20 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
 
   let res: Response
   try {
-    res = await fetch(BASE + path + query, {
+    res = await fetch(API_BASE + path + query, {
       method,
       headers,
       body: formData ?? (body !== undefined ? JSON.stringify(body) : undefined),
     })
   } catch {
-    throw new ApiError('无法连接服务器, 请确认后端已启动 (http://localhost:8080)', null, 0)
+    //* 相对路径模式提示本地后端; 配置了远端地址时提示网络与地址, 附上实际请求的根地址便于排查.
+    throw new ApiError(
+      RAW_BASE
+        ? `无法连接后端服务, 请检查网络与服务器地址 (${RAW_BASE})`
+        : '无法连接服务器, 请确认后端已启动 (http://localhost:8080)',
+      null,
+      0,
+    )
   }
 
   //! 仅当请求本身携带了 token 时 401 才代表会话失效; 登录失败等匿名 401 交由调用方展示.

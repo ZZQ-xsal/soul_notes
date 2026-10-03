@@ -24,6 +24,19 @@ npm run dev      # http://localhost:5173
 
 开发期 `/api` 与 `/ws` 由 Vite 代理到 `http://localhost:8080`, 无需改后端 CORS。
 
+### 后端地址可配置 (套壳 APP / 独立部署)
+
+默认不配置: 全部请求走相对路径, 由 Vite 开发代理转发, Web 开发零改动。
+打包进安卓套壳或独立部署时, 构建期经 `VITE_API_BASE` 注入后端服务根地址 (不含 `/api/v1` 后缀):
+
+```bash
+# 方式一: 复制 .env.example 为 .env 并填写
+# 方式二: 命令行直接注入 (手机与电脑同一 WiFi 的局域网调试, IP 换成电脑实际地址)
+VITE_API_BASE=http://192.168.1.5:8080 npm run build
+```
+
+地址解析集中在 `src/api/base.ts`, REST 封装 / SSE 流式 / 语音文件 / WebSocket 四条链路共用: 相对路径地址自动补全, 已绝对地址原样保留; 非法地址在控制台报错并回退相对路径。注入远端地址后, 后端 `quarkus.http.cors.origins` 需放行套壳 APP 的请求来源。
+
 其他脚本:
 
 ```bash

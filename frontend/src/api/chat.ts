@@ -1,6 +1,7 @@
 //* 树洞对话接口: /api/v1/chat/* (非流式 / SSE 流式 / 会话列表 / 历史消息 / 删除会话)
 
 import { api, ApiError, getToken } from './http'
+import { API_BASE } from './base'
 import type { ApiResponse, ChatMessage, ChatSessionVo } from '../types'
 
 export function listSessions(): Promise<ChatSessionVo[]> {
@@ -35,7 +36,7 @@ export async function streamMessage(options: StreamOptions): Promise<void> {
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
 
-  const res = await fetch('/api/v1/chat/stream', {
+  const res = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ sessionId, content }),

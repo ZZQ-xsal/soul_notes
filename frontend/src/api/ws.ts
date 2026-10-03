@@ -2,6 +2,7 @@
 //* 后端 WebSocketAuthUpgradeCheck 支持 Authorization 头与 token 查询参数两种提取方式.
 
 import type { AssessmentVo } from '../types'
+import { wsUrl } from './base'
 
 export interface AlertPayload {
   type: string
@@ -30,8 +31,7 @@ function connectSocket(
   onMessage: (payload: unknown) => void,
   onStatus?: (connected: boolean) => void,
 ): () => void {
-  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const url = `${proto}://${window.location.host}${path}?token=${encodeURIComponent(token)}`
+  const url = `${wsUrl(path)}?token=${encodeURIComponent(token)}`
 
   let ws: WebSocket | null = null
   let closed = false

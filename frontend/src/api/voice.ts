@@ -1,6 +1,7 @@
 //* 语音辅助: <audio> 标签无法携带 Authorization 头, 需先 fetch 为 Blob 再播放.
 
 import { api, ApiError, getToken } from './http'
+import { resolveUrl } from './base'
 import type { VoiceUploadResponse } from '../types'
 
 /** 上传语音文件并同步转录 (multipart, field 名与后端 @RestForm("file") 一致).
@@ -17,7 +18,7 @@ export async function playAudioUrl(audioUrl: string, onEnded?: () => void): Prom
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
 
-  const res = await fetch(audioUrl, { headers })
+  const res = await fetch(resolveUrl(audioUrl), { headers })
   if (!res.ok) throw new ApiError(`语音加载失败 (HTTP ${res.status})`, null, res.status)
 
   const blob = await res.blob()
